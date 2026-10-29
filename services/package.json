@@ -1,0 +1,44 @@
+{
+  "name": "@cofer/services",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "ROLE=all bun --watch src/index.ts",
+    "start": "bun src/index.ts",
+    "api": "ROLE=api bun src/index.ts",
+    "bot": "ROLE=bot bun src/index.ts",
+    "indexer": "ROLE=indexer bun src/index.ts",
+    "keeper": "ROLE=keeper bun src/index.ts",
+    "notifier": "ROLE=notifier bun src/index.ts",
+    "test": "bun test",
+    "typecheck": "tsc --noEmit",
+    "banned-words": "bun ../tools/banned-words.ts",
+    "db:generate": "drizzle-kit generate",
+    "db:migrate": "drizzle-kit migrate",
+    "assets": "bun scripts/build-asset-list.ts"
+  },
+  "dependencies": {
+    "@hono/trpc-server": "^0.4.0",
+    "@trpc/server": "^11.0.0",
+    "@zerodev/passkey-validator": "^5.6.0",
+    "@zerodev/sdk": "^5.5.11",
+    "@zerodev/webauthn-key": "^5.5.0",
+    "bullmq": "^5.0.0",
+    "drizzle-orm": "^0.45.0",
+    "grammy": "^1.38.0",
+    "hono": "^4.10.0",
+    "ioredis": "^5.4.0",
+    "postgres": "^3.4.0",
+    "viem": "2.57.11",
+    "zod": "^3.25.0"
+  },
+  "devDependencies": {
+    "@ethereumjs/common": "^10.1.3",
+    "@ethereumjs/evm": "^10.1.3",
+    "@ethereumjs/util": "^10.1.3",
+    "@types/bun": "latest",
+    "drizzle-kit": "^0.31.0",
+    "typescript": "^5.9.0"
+  }
+}

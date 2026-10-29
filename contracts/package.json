@@ -1,0 +1,13 @@
+{
+  "name": "@cofer/contracts",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "compile:solcjs": "SOLC_PATH=$(node -p \"require.resolve('solc')\") node tools/compile.mjs",
+    "test:hardhat": "SOLC_JS=$(node -p \"require.resolve('solc/soljson.js')\") hardhat test solidity"
+  },
+  "devDependencies": {
+    "hardhat": "3.21.0",
+    "solc": "0.8.28"
+  }
+}

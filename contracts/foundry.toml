@@ -1,0 +1,19 @@
+[profile.default]
+src = "src"
+test = "test"
+script = "script"
+out = "out"
+libs = []
+solc_version = "0.8.28"
+evm_version = "cancun"
+optimizer = true
+optimizer_runs = 200
+via_ir = false
+fuzz = { runs = 512 }
+
+[rpc_endpoints]
+robinhood = "${RHC_RPC}"
+robinhood_testnet = "https://rpc.testnet.chain.robinhood.com"
+
+# No forge-std / OpenZeppelin installs needed: minimal libs are vendored in src/lib and test/utils.
+# Without Foundry: `SOLC_PATH=<node_modules/solc> node tools/compile.mjs` compiles everything with solc-js.
