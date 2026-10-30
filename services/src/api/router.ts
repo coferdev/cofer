@@ -5,7 +5,7 @@
  */
 import { initTRPC, TRPCError } from "@trpc/server";
 import { z } from "zod";
-import { eq, isNull } from "drizzle-orm";
+import { eq, isNull, or } from "drizzle-orm";
 import { getAddress, type Address, type Hex, type PublicClient } from "viem";
 import { schema, type DB } from "../db/client";
 import { potAbi } from "../chain/clients";
@@ -82,7 +82,13 @@ export const appRouter = t.router({
         const p = await wrap(() => getSignable(ctx.deps, claims.ref as Hex));
         proposal = { summary: p.summary, approvals: p.tally.approvals, required: p.tally.required, stale: p.stale };
       }
-      return { used, purpose: claims.p, ref: claims.ref, proposal };
+      // the sign-up page needs this before any passkey is created, so a second sign-up never makes a new one
+      let linked: string | null = null;
+      if (claims.p === "onboard") {
+        const user = await ctx.deps.db.query.users.findFirst({ where: eq(schema.users.tgId, claims.tg) });
+        linked = user?.address ?? null;
+      }
+      return { used, purpose: claims.p, ref: claims.ref, proposal, linked };
     }),
     /** Exchange a one-time bot link for a 1h session (link is single-use via jti). */
     exchange: t.procedure.input(z.object({ token: z.string() })).mutation(async ({ ctx, input }) => {
@@ -109,10 +115,25 @@ export const appRouter = t.router({
         const message = linkMessage(ctx.session.tg, ctx.session.jti);
         const ok = await (ctx.deps.client as PublicClient).verifyMessage({ address: input.address, message, signature: input.signature });
         if (!ok) throw new TRPCError({ code: "BAD_REQUEST", message: "signature does not match" });
-        await ctx.deps.db
+        // one key per Telegram account: linking the same address again is fine (a retry), a different one is refused
+        const keyTaken = (linked: string) =>
+          new TRPCError({ code: "CONFLICT", message: `this Telegram account already has a Cofer key (${linked}); replacing a key is not supported yet` });
+        const existing = await ctx.deps.db.query.users.findFirst({ where: eq(schema.users.tgId, ctx.session.tg) });
+        if (existing?.address && getAddress(existing.address) !== input.address) throw keyTaken(existing.address);
+        // the setWhere repeats the check inside the write, so two sign-ups at the same moment cannot both win
+        const saved = await ctx.deps.db
           .insert(schema.users)
           .values({ tgId: ctx.session.tg, address: input.address, accountKind: input.kind, linkedAt: new Date() })
-          .onConflictDoUpdate({ target: schema.users.tgId, set: { address: input.address, accountKind: input.kind, linkedAt: new Date() } });
+          .onConflictDoUpdate({
+            target: schema.users.tgId,
+            set: { address: input.address, accountKind: input.kind, linkedAt: new Date() },
+            setWhere: or(isNull(schema.users.address), eq(schema.users.address, input.address)),
+          })
+          .returning({ address: schema.users.address });
+        if (saved.length === 0) {
+          const now = await ctx.deps.db.query.users.findFirst({ where: eq(schema.users.tgId, ctx.session.tg) });
+          throw keyTaken(now?.address ?? "another address");
+        }
         return { ok: true };
       }),
     linkMessage: authed.query(({ ctx }) => ({ message: linkMessage(ctx.session.tg, ctx.session.jti) })),

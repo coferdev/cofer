@@ -118,6 +118,7 @@ type Preview = {
   purpose: string;
   ref: string;
   proposal: { summary: string; approvals: number; required: number; stale: boolean } | null;
+  linked: string | null;
 };
 
 async function main() {
@@ -136,6 +137,14 @@ async function main() {
       act.disabled = false;
     }
   };
+
+  if (ex.purpose === "onboard" && ex.linked) {
+    // never create a second passkey: each one is a different account
+    $("title").textContent = "Set up your key";
+    $("body").textContent = `You already have a Cofer key (${ex.linked}). Nothing to do here.`;
+    act.hidden = true;
+    return;
+  }
 
   if (ex.purpose === "onboard") {
     $("title").textContent = "Set up your key";

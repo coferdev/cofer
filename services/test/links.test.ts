@@ -1,4 +1,5 @@
 import { describe, expect, test } from "bun:test";
+import { getAddress } from "viem";
 import { appRouter, type ApiCtx } from "../src/api/router";
 import { signLink, verifyLink, type LinkClaims } from "../src/core/linkToken";
 import { signerPage } from "../src/web/page";
@@ -43,7 +44,7 @@ describe("one-time signer links", () => {
     const api = caller(f.db);
     const a = await api.session.preview({ token: link() });
     const b = await api.session.preview({ token: link() });
-    expect(a).toEqual({ used: false, purpose: "deposit", ref: "0x0000000000000000000000000000000000000001", proposal: null });
+    expect(a).toEqual({ used: false, purpose: "deposit", ref: "0x0000000000000000000000000000000000000001", proposal: null, linked: null });
     expect(b.used).toBe(false);
     expect(Object.keys(a)).not.toContain("session");
     expect(f.writes()).toBe(0);
@@ -71,6 +72,65 @@ describe("one-time signer links", () => {
   test("exchange rejects an expired link", async () => {
     const api = caller(fakeDb().db);
     await expect(api.session.exchange({ token: link({ exp: now() - 1 }) })).rejects.toThrow("link expired or invalid");
+  });
+});
+
+const A = getAddress("0x00000000000000000000000000000000000000aa");
+const B = getAddress("0x00000000000000000000000000000000000000bb");
+
+/** In-memory stand-in for the users table (one Telegram user); the upsert keeps an existing different address. */
+function fakeUsers(address: string | null) {
+  let row: { tgId: number; address: string | null } | undefined = address === null ? undefined : { tgId: 7, address };
+  const db = {
+    query: { users: { findFirst: async () => row }, linkTokens: { findFirst: async () => undefined } },
+    insert: () => ({
+      values: (v: { tgId: number; address: string }) => ({
+        onConflictDoUpdate: () => ({
+          returning: async () => {
+            if (row?.address && row.address !== v.address) return [];
+            row = { tgId: v.tgId, address: v.address };
+            return [{ address: v.address }];
+          },
+        }),
+      }),
+    }),
+  };
+  return { db, row: () => row };
+}
+
+function signedIn(db: unknown) {
+  const session: LinkClaims = { tg: 7, chat: -100, p: "session", ref: "", exp: now() + 3600, jti: "s1" };
+  const deps = { db, client: { verifyMessage: async () => true } } as unknown as ApiCtx["deps"];
+  return appRouter.createCaller({ deps, cards: {} as ApiCtx["cards"], secret, session });
+}
+
+describe("one key per Telegram account", () => {
+  test("sign-up preview shows the key this Telegram user already has", async () => {
+    const api = caller(fakeUsers(A).db);
+    const p = await api.session.preview({ token: link({ p: "onboard", ref: "" }) });
+    expect(p.linked).toBe(A);
+  });
+
+  test("sign-up preview has no key for a new user", async () => {
+    const api = caller(fakeUsers(null).db);
+    expect((await api.session.preview({ token: link({ p: "onboard", ref: "" }) })).linked).toBeNull();
+  });
+
+  test("linking works for a new user and again for the same address (a retry)", async () => {
+    const f = fakeUsers(null);
+    const api = signedIn(f.db);
+    expect(await api.me.link({ address: A, signature: "0x01", kind: "kernel-passkey" })).toEqual({ ok: true });
+    expect(await api.me.link({ address: A.toLowerCase(), signature: "0x01", kind: "kernel-passkey" })).toEqual({ ok: true });
+    expect(f.row()?.address).toBe(A);
+  });
+
+  test("linking a different address is refused and the first one stays", async () => {
+    const f = fakeUsers(A);
+    const api = signedIn(f.db);
+    await expect(api.me.link({ address: B, signature: "0x01", kind: "kernel-passkey" })).rejects.toThrow(
+      `this Telegram account already has a Cofer key (${A}); replacing a key is not supported yet`,
+    );
+    expect(f.row()?.address).toBe(A);
   });
 });
 
