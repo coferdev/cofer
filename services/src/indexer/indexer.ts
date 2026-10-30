@@ -9,6 +9,7 @@ import { db, schema } from "../db/client";
 import { factoryAbi, factoryAddress, potAbi, publicClient } from "../chain/clients";
 import { env } from "../env";
 import { enqueueNotify, enqueueChatMessage } from "../queues";
+import { logError } from "../core/errors";
 
 const CHUNK = 2_000n;
 const CURSOR = "main";
@@ -160,7 +161,7 @@ export async function startIndexer(signal?: AbortSignal) {
       const spent = Date.now() - before;
       await Bun.sleep(Math.max(250, 1000 - spent));
     } catch (e) {
-      console.error("[indexer]", e);
+      logError("indexer", e);
       await Bun.sleep(3000);
     }
   }

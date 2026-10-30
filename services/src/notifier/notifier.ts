@@ -2,13 +2,12 @@
  * Posts and edits proposal cards. Telegram limits groups to ~20 messages/minute, so each proposal
  * has ONE message that is edited in place; bursts are coalesced by the queue (see enqueueNotify).
  */
-import { Worker } from "bullmq";
 import { eq } from "drizzle-orm";
 import type { Api } from "grammy";
 import { db, schema } from "../db/client";
 import { getSignable } from "../services/proposals";
 import { publicClient } from "../chain/clients";
-import { Q, redis } from "../queues";
+import { Q, startWorker } from "../queues";
 import { proposalCard, assertNoMiniApp } from "../bot/keyboards";
 import { humanPeriod } from "../core/proposal";
 
@@ -42,7 +41,7 @@ export function renderCard(p: {
 }
 
 export function startNotifier(api: Api) {
-  return new Worker(
+  return startWorker(
     Q.notify,
     async (job) => {
       if (job.name === "text") {
@@ -76,6 +75,6 @@ export function startNotifier(api: Api) {
         await db().update(schema.proposals).set({ chatMessageId: msg.message_id }).where(eq(schema.proposals.id, id));
       }
     },
-    { connection: redis(), concurrency: 2, limiter: { max: 25, duration: 1000 } },
+    { concurrency: 2, limiter: { max: 25, duration: 1000 } },
   );
 }

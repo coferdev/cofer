@@ -6,13 +6,12 @@
  * Member-initiated actions (deposit, spend, exit, leave, revokeVote) are userOps from each
  * member's own smart account on the signer site, gas-sponsored by the ZeroDev/Alchemy paymaster.
  */
-import { Worker } from "bullmq";
 import { eq } from "drizzle-orm";
 import { BaseError, ContractFunctionRevertedError, decodeEventLog, type Hex } from "viem";
 import { db, schema } from "../db/client";
 import { potAbi, publicClient, relayerClient } from "../chain/clients";
 import { buildExecuteArgs } from "../services/proposals";
-import { Q, redis, enqueueRelay, enqueueNotify } from "../queues";
+import { Q, enqueueRelay, enqueueNotify, startWorker } from "../queues";
 import { env } from "../env";
 
 const PERMANENT = new Set(["NonceUsed", "StaleEpoch", "Expired", "UnknownKind", "AssetNotBuyable", "AdapterNotAllowed", "SlippageTooLoose"]);
@@ -75,5 +74,5 @@ export function revertName(e: unknown): string | undefined {
 }
 
 export function startRelayer() {
-  return new Worker(Q.relay, async (job) => relayOnce(job.data.proposalId as Hex), { connection: redis(), concurrency: 4 });
+  return startWorker(Q.relay, async (job) => relayOnce(job.data.proposalId as Hex), { concurrency: 4 });
 }

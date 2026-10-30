@@ -3,12 +3,11 @@
  * permissionless, so liveness never depends on this process: members can always exit, and anyone
  * can execute a passed proposal.
  */
-import { Worker } from "bullmq";
 import { and, inArray, lt, lte, eq, sql } from "drizzle-orm";
 import { getAddress, type Address } from "viem";
 import { db, schema } from "../db/client";
 import { aggregatorAbi, erc20Abi, factoryAbi, factoryAddress, potAbi, publicClient } from "../chain/clients";
-import { Q, queues, redis, enqueueRelay, enqueueNotify } from "../queues";
+import { Q, queues, enqueueRelay, enqueueNotify, startWorker } from "../queues";
 import { fetchCanonicalStocks } from "../stocks/canonical";
 import { env } from "../env";
 
@@ -128,7 +127,7 @@ export async function scheduleKeeper() {
 }
 
 export function startKeeper() {
-  return new Worker(
+  return startWorker(
     Q.keeper,
     async (job) => {
       switch (job.name) {
@@ -144,6 +143,6 @@ export function startKeeper() {
           return feedHealth();
       }
     },
-    { connection: redis(), concurrency: 1 },
+    { concurrency: 1 },
   );
 }

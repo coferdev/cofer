@@ -45,6 +45,29 @@ export function redact(text: string): string {
   return text.replace(/\b[a-z][a-z0-9+.-]*:\/\/[^\s"'<>]+/gi, "<url>");
 }
 
+/** A copy of `e` that is safe to store or log: same name, URLs removed from message and stack, no cause. */
+export function safeError(e: unknown): Error {
+  const name = e instanceof Error ? e.name : "Error";
+  const out = new Error(redact(e instanceof Error ? e.message : String(e)));
+  out.name = name;
+  out.stack = redact(e instanceof Error && e.stack ? e.stack : `${name}: ${out.message}`);
+  return out;
+}
+
+/**
+ * Wraps a background job so a failure leaves the job as safeError(e). BullMQ stores a failed job's
+ * message and stack in Redis, so they must not hold URLs. It still throws, so retries are unchanged.
+ */
+export function safeJob<A extends unknown[], R>(fn: (...args: A) => Promise<R>): (...args: A) => Promise<R> {
+  return async (...args) => {
+    try {
+      return await fn(...args);
+    } catch (e) {
+      throw safeError(e);
+    }
+  };
+}
+
 export function logError(scope: string, e: unknown): void {
   const text = e instanceof Error ? (e.stack ?? `${e.name}: ${e.message}`) : String(e);
   console.error(`[${scope}]`, redact(text));

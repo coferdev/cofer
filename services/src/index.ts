@@ -16,6 +16,7 @@ import { startKeeper, scheduleKeeper } from "./keeper/keeper";
 import { startRelayer } from "./relayer/relayer";
 import { startNotifier } from "./notifier/notifier";
 import { StubCardAdapter } from "./cards/StubCardAdapter";
+import { logError } from "./core/errors";
 import type { CardAdapter } from "./cards/CardAdapter";
 
 function cards(): CardAdapter {
@@ -60,7 +61,14 @@ async function main() {
   }
 }
 
+// Anything not caught elsewhere is logged without URLs (RPC addresses, the bot token in Telegram API URLs).
+process.on("unhandledRejection", (e) => logError("unhandled", e));
+process.on("uncaughtException", (e) => {
+  logError("uncaught", e);
+  process.exit(1);
+});
+
 main().catch((err) => {
-  console.error(err);
+  logError("startup", err);
   process.exit(1);
 });

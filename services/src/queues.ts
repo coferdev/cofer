@@ -1,6 +1,7 @@
-import { Queue, type ConnectionOptions } from "bullmq";
+import { Queue, Worker, type ConnectionOptions, type Job, type WorkerOptions } from "bullmq";
 import IORedis from "ioredis";
 import { env } from "./env";
+import { logError, safeJob } from "./core/errors";
 
 let _conn: IORedis | undefined;
 export function redis(): ConnectionOptions {
@@ -9,6 +10,17 @@ export function redis(): ConnectionOptions {
 }
 
 export const Q = { relay: "cofer-relay", notify: "cofer-notify", keeper: "cofer-keeper" } as const;
+
+/**
+ * Every background worker starts here. A failed job is stored in Redis (failedReason, stacktrace)
+ * with URLs removed, and failures and worker errors are logged the same way. Retries are unchanged.
+ */
+export function startWorker(name: string, fn: (job: Job) => Promise<unknown>, opts: Omit<WorkerOptions, "connection"> = {}): Worker {
+  const w = new Worker(name, safeJob(fn), { connection: redis(), ...opts });
+  w.on("failed", (job, err) => logError(`${name} ${job?.name ?? "?"}`, err));
+  w.on("error", (err) => logError(name, err));
+  return w;
+}
 
 let _queues: { relay: Queue; notify: Queue; keeper: Queue } | undefined;
 export function queues() {
