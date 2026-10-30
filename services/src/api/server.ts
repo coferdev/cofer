@@ -57,6 +57,7 @@ export function createServer(opts: { deps: ProposalDeps; cards: CardAdapter; bot
         bundlerUrl: e.BUNDLER_URL ?? "",
         paymasterUrl: e.PAYMASTER_URL ?? "",
         passkeyServerUrl: e.PASSKEY_SERVER_URL ?? "",
+        usdg: e.USDG_ADDRESS,
       }),
     );
   });

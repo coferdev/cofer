@@ -1,5 +1,4 @@
 /** Minimal server-rendered shell for the signer site. All logic lives in client.ts. */
-import { RHC } from "../chain/addresses";
 
 export interface PageCfg {
   chainId: number;
@@ -7,12 +6,13 @@ export interface PageCfg {
   bundlerUrl: string;
   paymasterUrl: string;
   passkeyServerUrl: string;
+  usdg: string;
 }
 
 const esc = (s: string) => s.replace(/[<>&"']/g, (c) => `&#${c.charCodeAt(0)};`);
 
 export function signerPage(token: string, cfg: PageCfg): string {
-  const boot = JSON.stringify({ ...cfg, usdg: RHC.USDG, token }).replace(/</g, "\\u003c");
+  const boot = JSON.stringify({ ...cfg, token }).replace(/</g, "\\u003c");
   return `<!doctype html>
 <html lang="en"><head>
 <meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">

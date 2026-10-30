@@ -1,4 +1,6 @@
 import { z } from "zod";
+import { getAddress } from "viem";
+import { RHC } from "./chain/addresses";
 
 const hex = z.string().regex(/^0x[0-9a-fA-F]+$/);
 const addr = z.string().regex(/^0x[0-9a-fA-F]{40}$/);
@@ -14,6 +16,7 @@ const schema = z.object({
   RHC_RPC_URL: z.string().url(), // Dwellir/Alchemy archive RPC (not the public RPC in prod)
   FACTORY_ADDRESS: addr,
   ADAPTER_ADDRESS: addr,
+  USDG_ADDRESS: addr.default(RHC.USDG).transform((a) => getAddress(a)), // testnet pots use a mock USDG; must match factory.usdg()
   START_BLOCK: z.coerce.bigint().default(0n),
   CONFIRMATIONS: z.coerce.number().default(20), // ~2 s at 0.1 s blocks
 
@@ -36,8 +39,12 @@ const schema = z.object({
 
 export type Env = z.infer<typeof schema>;
 
+export function parseEnv(src: Record<string, string | undefined>): Env {
+  return schema.parse(src);
+}
+
 let cached: Env | undefined;
 export function env(): Env {
-  cached ??= schema.parse(process.env);
+  cached ??= parseEnv(process.env);
   return cached;
 }

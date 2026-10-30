@@ -49,3 +49,11 @@ export function relayerClient() {
 }
 
 export const factoryAddress = () => env().FACTORY_ADDRESS as Address;
+
+/** Refuses to start when USDG_ADDRESS is not the USDG the factory's pots actually hold. */
+export async function assertFactoryUsdg(client: Pick<PublicClient, "readContract">, factory: Address, expected: Address) {
+  const onChain = await client.readContract({ address: factory, abi: factoryAbi, functionName: "usdg" });
+  if (onChain.toLowerCase() !== expected.toLowerCase()) {
+    throw new Error(`USDG mismatch: factory ${factory} uses ${onChain} but USDG_ADDRESS is ${expected}. Set USDG_ADDRESS to the factory's USDG.`);
+  }
+}

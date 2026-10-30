@@ -8,6 +8,7 @@
  *   all      everything in one process (small deployments)
  */
 import { env } from "./env";
+import { assertFactoryUsdg, factoryAddress, publicClient } from "./chain/clients";
 import { createBot, proposalDeps } from "./bot/bot";
 import { createServer, buildSignerBundle } from "./api/server";
 import { startIndexer } from "./indexer/indexer";
@@ -27,6 +28,7 @@ function cards(): CardAdapter {
 async function main() {
   const e = env();
   const role = e.ROLE;
+  await assertFactoryUsdg(publicClient(), factoryAddress(), e.USDG_ADDRESS);
   const bot = createBot();
   const run = (r: string) => role === "all" || role === r;
 

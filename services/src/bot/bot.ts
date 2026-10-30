@@ -49,13 +49,16 @@ export function proposalDeps(): ProposalDeps {
   };
 }
 
-const tokenCache = new Map<string, TokenMeta>([[RHC.USDG.toLowerCase(), { symbol: "USDG", decimals: 6 }]]);
+const usdg = () => env().USDG_ADDRESS;
+const USDG_META: TokenMeta = { symbol: "USDG", decimals: 6 };
+const tokenCache = new Map<string, TokenMeta>();
 const nameCache = new Map<string, string>();
 function tokenMetaSync(a: Address): TokenMeta {
+  if (a.toLowerCase() === usdg().toLowerCase()) return USDG_META;
   return tokenCache.get(a.toLowerCase()) ?? { symbol: "?", decimals: 18 };
 }
 async function warmToken(a: Address) {
-  if (tokenCache.has(a.toLowerCase())) return;
+  if (a.toLowerCase() === usdg().toLowerCase() || tokenCache.has(a.toLowerCase())) return;
   const [symbol, decimals] = await Promise.all([
     publicClient().readContract({ address: a, abi: erc20Abi, functionName: "symbol" }),
     publicClient().readContract({ address: a, abi: erc20Abi, functionName: "decimals" }),
@@ -276,7 +279,7 @@ export function createBot() {
       if (!asset) return ctx.reply(`${cmd.symbol} isn't on the list.`);
       const out = getAddress(asset.address);
       tokenCache.set(out.toLowerCase(), { symbol: asset.symbol, decimals: asset.decimals });
-      await propose(ctx, await buildSwap(getAddress(pot.address), RHC.USDG, out, cmd.usdg, cmd.slipBps));
+      await propose(ctx, await buildSwap(getAddress(pot.address), usdg(), out, cmd.usdg, cmd.slipBps));
     } catch (e) {
       await ctx.reply((e as Error).message);
     }
@@ -295,7 +298,7 @@ export function createBot() {
       const avail = await publicClient().readContract({ address: getAddress(pot.address), abi: potAbi, functionName: "distributable", args: [tokenIn] });
       const amountIn = (avail * BigInt(cmd.pctBps)) / 10_000n;
       if (amountIn === 0n) return ctx.reply(`The group holds no ${asset.symbol}.`);
-      await propose(ctx, await buildSwap(getAddress(pot.address), tokenIn, RHC.USDG, amountIn, 100));
+      await propose(ctx, await buildSwap(getAddress(pot.address), tokenIn, usdg(), amountIn, 100));
     } catch (e) {
       await ctx.reply((e as Error).message);
     }
@@ -306,7 +309,7 @@ export function createBot() {
     try {
       const cmd = parseSend(ctx.message!.text);
       const to = await resolveMember(ctx, cmd.to);
-      if (to) await propose(ctx, { kind: Kind.TRANSFER, asset: RHC.USDG, to, amount: cmd.usdg });
+      if (to) await propose(ctx, { kind: Kind.TRANSFER, asset: usdg(), to, amount: cmd.usdg });
     } catch (e) {
       await ctx.reply((e as Error).message);
     }
