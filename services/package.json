@@ -24,6 +24,7 @@
     "@zerodev/passkey-validator": "^5.6.0",
     "@zerodev/sdk": "^5.5.11",
     "@zerodev/webauthn-key": "^5.5.0",
+    "buffer": "6.0.3",
     "bullmq": "^5.0.0",
     "drizzle-orm": "^0.45.0",
     "grammy": "^1.38.0",

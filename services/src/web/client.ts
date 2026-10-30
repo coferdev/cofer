@@ -9,6 +9,7 @@
  * (U) Verify toWebAuthnKey's passkey-server flow and the validator address resolution against the
  *     pinned @zerodev versions during milestone M5 on RHC testnet 46630.
  */
+import "./buffer-polyfill";
 import { createPublicClient, createWalletClient, custom, encodeFunctionData, http, type Address, type Hex } from "viem";
 import { createKernelAccount, createKernelAccountClient, createZeroDevPaymasterClient } from "@zerodev/sdk";
 import { getEntryPoint, KERNEL_V3_1 } from "@zerodev/sdk/constants";
