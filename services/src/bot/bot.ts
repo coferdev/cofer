@@ -12,7 +12,8 @@ import { factoryAbi, factoryAddress, potAbi, publicClient, relayerClient, erc20A
 import { Kind, type Action, type TokenMeta } from "../core/proposal";
 import { createProposal, ProposalError, getSignable, type ProposalDeps } from "../services/proposals";
 import { computeMinOut, swapInAfterFee } from "../core/swap";
-import { anyRpcError, bestTier, quoteAllTiers } from "../chain/quotes";
+import { chooseTier, quoteAllTiers } from "../chain/quotes";
+import { depthRefusal, depthTestSize, type Side } from "../core/depth";
 import { errorKind, logError, revertName, RPC_ERROR_TEXT, UserError, userMessage } from "../core/errors";
 import { enqueueNotify, enqueueRelay } from "../queues";
 import { assertNoMiniApp, linkButton, signerUrl } from "./keyboards";
@@ -113,20 +114,10 @@ async function findAsset(symbol: string) {
   return db().query.assets.findFirst({ where: and(ilike(schema.assets.symbol, symbol), eq(schema.assets.listedOnChain, true)) });
 }
 
-async function buildSwap(pot: Address, tokenIn: Address, tokenOut: Address, amountIn: bigint, slipBps: number): Promise<Action> {
-  const c = publicClient();
-  const [feeBps, cfg] = await Promise.all([
-    c.readContract({ address: factoryAddress(), abi: factoryAbi, functionName: "swapFeeBps" }),
-    c.readContract({ address: pot, abi: potAbi, functionName: "config" }),
-  ]);
-  const { swapIn } = swapInAfterFee(amountIn, Number(feeBps));
-  const quotes = await quoteAllTiers(c, tokenIn, tokenOut, swapIn);
-  if (anyRpcError(quotes)) throw new ProposalError(RPC_ERROR_TEXT); // never propose from partial results
-  const q = bestTier(quotes);
-  if (!q) throw new ProposalError("no Uniswap pool can quote that pair right now");
-  let oracleOut: bigint;
+/** CoferFactory.quote (Chainlink), with stale feeds and RPC failures reported as such. */
+async function oracleQuote(tokenIn: Address, tokenOut: Address, amountIn: bigint): Promise<bigint> {
   try {
-    oracleOut = await c.readContract({ address: factoryAddress(), abi: factoryAbi, functionName: "quote", args: [tokenIn, tokenOut, swapIn] });
+    return await publicClient().readContract({ address: factoryAddress(), abi: factoryAbi, functionName: "quote", args: [tokenIn, tokenOut, amountIn] });
   } catch (e) {
     if (errorKind(e) === "rpc") throw new ProposalError(RPC_ERROR_TEXT);
     const name = revertName(e);
@@ -136,6 +127,29 @@ async function buildSwap(pot: Address, tokenIn: Address, tokenOut: Address, amou
     logError("bot", e);
     throw new ProposalError("could not read the price for that pair");
   }
+}
+
+async function buildSwap(pot: Address, side: Side, tokenIn: Address, tokenOut: Address, amountIn: bigint, slipBps: number): Promise<Action> {
+  const c = publicClient();
+  const [feeBps, cfg] = await Promise.all([
+    c.readContract({ address: factoryAddress(), abi: factoryAbi, functionName: "swapFeeBps" }),
+    c.readContract({ address: pot, abi: potAbi, functionName: "config" }),
+  ]);
+  const { swapIn } = swapInAfterFee(amountIn, Number(feeBps));
+  // Depth is tested at max(trade, DEPTH_TEST_USDG) for buys and at the sale size for sells.
+  const depthIn = depthTestSize(side, swapIn);
+  const same = depthIn === swapIn;
+  const [oracleOut, oracleDepthOut, tradeQuotes, depthQuotes] = await Promise.all([
+    oracleQuote(tokenIn, tokenOut, swapIn),
+    same ? undefined : oracleQuote(tokenIn, tokenOut, depthIn),
+    quoteAllTiers(c, tokenIn, tokenOut, swapIn),
+    same ? undefined : quoteAllTiers(c, tokenIn, tokenOut, depthIn),
+  ]);
+  const choice = chooseTier(tradeQuotes, depthQuotes ?? tradeQuotes, oracleDepthOut ?? oracleOut);
+  if (choice.kind === "rpc-error") throw new ProposalError(RPC_ERROR_TEXT); // never propose from partial results
+  if (choice.kind === "too-thin") throw new ProposalError(depthRefusal(side));
+  if (choice.kind === "no-pool") throw new ProposalError("no Uniswap pool can quote that pair right now");
+  const q = choice.quote;
   const r = computeMinOut({ poolOut: q.out, oracleOut, userSlipBps: slipBps, potMaxSlipBps: Number(cfg[1]) });
   if (!r.ok) throw new ProposalError(r.reason);
   return { kind: Kind.SWAP, adapter: getAddress(env().ADAPTER_ADDRESS), tokenIn, tokenOut, amountIn, minOut: r.minOut, route: q.path };
@@ -274,7 +288,7 @@ export function createBot() {
       if (!asset) return ctx.reply(`${cmd.symbol} isn't on the list.`);
       const out = getAddress(asset.address);
       tokenCache.set(out.toLowerCase(), { symbol: asset.symbol, decimals: asset.decimals });
-      await propose(ctx, await buildSwap(getAddress(pot.address), usdg(), out, cmd.usdg, cmd.slipBps));
+      await propose(ctx, await buildSwap(getAddress(pot.address), "buy", usdg(), out, cmd.usdg, cmd.slipBps));
     } catch (e) {
       await replyError(ctx, e);
     }
@@ -293,7 +307,7 @@ export function createBot() {
       const avail = await publicClient().readContract({ address: getAddress(pot.address), abi: potAbi, functionName: "distributable", args: [tokenIn] });
       const amountIn = (avail * BigInt(cmd.pctBps)) / 10_000n;
       if (amountIn === 0n) return ctx.reply(`The group holds no ${asset.symbol}.`);
-      await propose(ctx, await buildSwap(getAddress(pot.address), tokenIn, usdg(), amountIn, 100));
+      await propose(ctx, await buildSwap(getAddress(pot.address), "sell", tokenIn, usdg(), amountIn, 100));
     } catch (e) {
       await replyError(ctx, e);
     }

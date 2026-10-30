@@ -9,6 +9,7 @@ import { zeroAddress, type Address, type Hex, type PublicClient } from "viem";
 import { RHC } from "./addresses";
 import { encodeV3Path } from "../core/swap";
 import { errorKind } from "../core/errors";
+import { passesDepth } from "../core/depth";
 
 /** 0.01%, 0.05%, 0.3%, 1%. */
 export const FEE_TIERS = [100, 500, 3000, 10_000] as const;
@@ -90,4 +91,38 @@ export function bestTier(quotes: TierQuote[]): OkQuote | null {
   let best: OkQuote | null = null;
   for (const q of quotes) if (q.status === "ok" && (!best || q.out > best.out)) best = q;
   return best;
+}
+
+/** Fee tiers whose quote passes the depth rule against `oracleOut` (same size as the quotes). */
+export function deepTiers(quotes: TierQuote[], oracleOut: bigint): number[] {
+  return quotes.filter((q): q is OkQuote => q.status === "ok" && passesDepth(q.out, oracleOut)).map((q) => q.fee);
+}
+
+export type TierChoice =
+  | { kind: "ok"; quote: OkQuote }
+  | { kind: "rpc-error" } // some tier could not be asked: never decide from partial results
+  | { kind: "too-thin" } // pools quote, but none passes the depth rule
+  | { kind: "no-pool" }; // nothing quotes at all
+
+/**
+ * For a vote: the best tier at the trade size, among tiers that pass the depth rule at the test
+ * size. `depthQuotes`/`oracleDepthOut` are at the test size (the same values when sizes match).
+ */
+export function chooseTier(tradeQuotes: TierQuote[], depthQuotes: TierQuote[], oracleDepthOut: bigint): TierChoice {
+  if (anyRpcError(tradeQuotes) || anyRpcError(depthQuotes)) return { kind: "rpc-error" };
+  const deep = new Set(deepTiers(depthQuotes, oracleDepthOut));
+  const best = bestTier(tradeQuotes.filter((q) => deep.has(q.fee)));
+  if (best) return { kind: "ok", quote: best };
+  return bestTier(tradeQuotes) ? { kind: "too-thin" } : { kind: "no-pool" };
+}
+
+/**
+ * For listing: the stock needs a deep pool to buy from AND a deep pool to sell into, each at
+ * DEPTH_TEST_USDG (they may be different tiers, as each vote picks its own tier).
+ */
+export function listingDepth(buyQuotes: TierQuote[], sellQuotes: TierQuote[], oracleBuyOut: bigint, oracleSellOut: bigint) {
+  const rpcError = anyRpcError(buyQuotes) || anyRpcError(sellQuotes);
+  const buyTiers = deepTiers(buyQuotes, oracleBuyOut);
+  const sellTiers = deepTiers(sellQuotes, oracleSellOut);
+  return { rpcError, buyTiers, sellTiers, ok: !rpcError && buyTiers.length > 0 && sellTiers.length > 0 };
 }
