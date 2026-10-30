@@ -307,7 +307,7 @@ export function createBot() {
       const avail = await publicClient().readContract({ address: getAddress(pot.address), abi: potAbi, functionName: "distributable", args: [tokenIn] });
       const amountIn = (avail * BigInt(cmd.pctBps)) / 10_000n;
       if (amountIn === 0n) return ctx.reply(`The group holds no ${asset.symbol}.`);
-      await propose(ctx, await buildSwap(getAddress(pot.address), "sell", tokenIn, usdg(), amountIn, 100));
+      await propose(ctx, await buildSwap(getAddress(pot.address), "sell", tokenIn, usdg(), amountIn, cmd.slipBps));
     } catch (e) {
       await replyError(ctx, e);
     }
@@ -378,8 +378,8 @@ export function createBot() {
         "/newpot open the group account",
         "/join ask to join (members vote)",
         "/deposit add USDG",
-        "/buy TSLA 100 vote to buy with 100 USDG",
-        "/sell TSLA 50% vote to sell",
+        "/buy TSLA 100 vote to buy with 100 USDG (add slip=0.5 for 0.5% slippage; default 1%)",
+        "/sell TSLA 50% vote to sell (slip=0.5 works here too)",
         "/send 50 @bob vote to send",
         "/allowance @amy 50 week set a no-vote allowance",
         "/spend spend your allowance",

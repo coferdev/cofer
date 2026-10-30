@@ -8,6 +8,7 @@ import { loginHash, verifyTelegramLogin } from "../src/core/telegramLogin";
 import { assertNoMiniApp, linkButton, proposalCard, signerUrl } from "../src/bot/keyboards";
 import { parseAllowance, parseBuy, parsePeriod, parseSell, parseSend, parseUsdg } from "../src/bot/parse";
 import { isCanonical, multiplierToWad, parseAssets } from "../src/stocks/canonical";
+import { UserError } from "../src/core/errors";
 import { renderCard } from "../src/notifier/notifier";
 import { StubCardAdapter } from "../src/cards/StubCardAdapter";
 
@@ -87,11 +88,27 @@ describe("command parsing", () => {
 
   test("buy / sell / allowance / send", () => {
     expect(parseBuy("/buy tsla 100 slip=0.5%")).toEqual({ symbol: "TSLA", usdg: 100_000_000n, slipBps: 50 });
-    expect(parseSell("/sell NVDA 25%")).toEqual({ symbol: "NVDA", pctBps: 2500 });
+    expect(parseSell("/sell NVDA 25%")).toEqual({ symbol: "NVDA", pctBps: 2500, slipBps: 100 });
     expect(parseSell("/sell NVDA all").pctBps).toBe(10_000);
     expect(parseAllowance("/allowance @amy 50 week")).toEqual({ who: "@amy", usdg: 50_000_000n, period: 604800 });
     expect(parseAllowance("/allowance @amy off")).toEqual({ who: "@amy", usdg: 0n, period: 0 });
     expect(parseSend("/send 12 @bob")).toEqual({ usdg: 12_000_000n, to: "@bob" });
+  });
+
+  test("slip= works on /sell exactly like /buy", () => {
+    expect(parseSell("/sell TSLA 50% slip=0.5")).toEqual({ symbol: "TSLA", pctBps: 5000, slipBps: 50 });
+    expect(parseSell("/sell TSLA 50% slip=0.5%").slipBps).toBe(50);
+    expect(parseSell("/sell tsla slip=2 50%")).toEqual({ symbol: "TSLA", pctBps: 5000, slipBps: 200 }); // any order
+    expect(parseSell("/sell TSLA slip=0.5")).toEqual({ symbol: "TSLA", pctBps: 10_000, slipBps: 50 }); // no amount = all
+    expect(parseSell("/sell TSLA all").slipBps).toBe(100); // default 1%, same as /buy
+    expect(parseBuy("/buy TSLA 100").slipBps).toBe(100);
+    for (const bad of ["slip=0", "slip=10.01", "slip=abc"]) {
+      expect(() => parseSell(`/sell TSLA 50% ${bad}`)).toThrow(UserError);
+      expect(() => parseBuy(`/buy TSLA 100 ${bad}`)).toThrow(UserError);
+    }
+    expect(parseSell("/sell TSLA 50% slip=10").slipBps).toBe(1000);
+    expect(parseSell("/sell TSLA 50% slip=0.01").slipBps).toBe(1);
+    expect(() => parseSell("/sell slip=1")).toThrow(UserError);
   });
 });
 
