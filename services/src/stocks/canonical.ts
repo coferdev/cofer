@@ -17,6 +17,7 @@ export interface CanonicalStock {
 }
 
 type RawAsset = {
+  tokenSymbol?: string; // current field name (seen 2026-10-30)
   symbol?: string;
   ticker?: string;
   status?: string;
@@ -38,7 +39,7 @@ export function parseAssets(json: unknown, chainId = 4663): CanonicalStock[] {
         []) as RawAsset[]);
   const out: CanonicalStock[] = [];
   for (const a of list) {
-    const symbol = a.symbol ?? a.ticker;
+    const symbol = a.tokenSymbol ?? a.symbol ?? a.ticker;
     const dep = a.deployments?.find((d) => Number(d.chainId) === chainId && d.contractAddress);
     if (!symbol || !dep?.contractAddress) continue;
     let address: Address;
@@ -53,10 +54,11 @@ export function parseAssets(json: unknown, chainId = 4663): CanonicalStock[] {
       address,
       decimals: a.tokenDecimals ?? 18,
       currentMultiplier: a.currentMultiplier ?? "1",
-      pendingMultiplier: a.pendingMultiplier ?? null,
-      pendingEffectiveAt: a.pendingMultiplierEffectiveTime ?? null,
+      pendingMultiplier: a.pendingMultiplier || null, // the API sends "" when nothing is pending
+      pendingEffectiveAt: a.pendingMultiplierEffectiveTime || null,
       status,
-      tradable: !status || /active|tradable|enabled/i.test(status),
+      // whole-word match, so INACTIVE / UNTRADABLE / DISABLED never count; no status => not tradable
+      tradable: !!status && /^(ASSET_STATUS_)?(ACTIVE|TRADABLE|ENABLED)$/i.test(status),
     });
   }
   return out;

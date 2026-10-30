@@ -110,6 +110,48 @@ describe("canonical Stock Token list", () => {
     expect(isCanonical(list, "0x0000000000000000000000000000000000000001")).toBe(false);
     expect(multiplierToWad("1.5")).toBe(1_500_000_000_000_000_000n);
   });
+
+  // Unmodified response from GET https://api.robinhood.com/rhj/assets, saved 2026-10-30.
+  const saved = JSON.parse(readFileSync(join(import.meta.dir, "fixtures", "stock-assets-4663.json"), "utf8"));
+
+  test("saved issuer response: every asset parses, with its chain 4663 address", () => {
+    const list = parseAssets(saved);
+    expect(list.length).toBe(203);
+    expect(new Set(list.map((s) => s.symbol)).size).toBe(203);
+    const bySymbol = new Map(list.map((s) => [s.symbol, s]));
+    expect(bySymbol.get("TSLA")?.address).toBe("0x322F0929c4625eD5bAd873c95208D54E1c003b2d");
+    expect(bySymbol.get("AAPL")?.address).toBe("0xaF3D76f1834A1d425780943C99Ea8A608f8a93f9");
+    expect(bySymbol.get("NVDA")?.address).toBe("0xd0601CE157Db5bdC3162BbaC2a2C8aF5320D9EEC");
+    expect(bySymbol.get("SPY")?.address).toBe("0x117cc2133c37B721F49dE2A7a74833232B3B4C0C");
+    const tsla = bySymbol.get("TSLA")!;
+    expect(tsla.decimals).toBe(18);
+    expect(tsla.currentMultiplier).toBe("1.000000000000000000");
+    expect(tsla.pendingMultiplier).toBeNull(); // "" in the response means nothing pending
+    expect(tsla.tradable).toBe(true);
+    expect(parseAssets(saved, 1)).toEqual([]); // no other chain leaks in
+  });
+
+  test("older field names still parse", () => {
+    const dep = [{ chainId: "4663", contractAddress: "0x117cc2133c37B721F49dE2A7a74833232B3B4C0C" }];
+    expect(parseAssets([{ ticker: "SPY", status: "active", deployments: dep }]).map((s) => s.symbol)).toEqual(["SPY"]);
+    expect(parseAssets({ data: [{ symbol: "SPY", status: "active", deployments: dep }] }).map((s) => s.symbol)).toEqual(["SPY"]);
+  });
+
+  test("fails closed on anything unexpected", () => {
+    const addr = "0x117cc2133c37B721F49dE2A7a74833232B3B4C0C";
+    for (const json of [null, undefined, {}, "x", { assets: "x" }, { assets: [{}] }]) expect(parseAssets(json)).toEqual([]);
+    expect(parseAssets({ assets: [{ deployments: [{ chainId: 4663, contractAddress: addr }] }] })).toEqual([]); // no symbol
+    expect(parseAssets({ assets: [{ tokenSymbol: "SPY" }] })).toEqual([]); // no deployment
+    expect(parseAssets({ assets: [{ tokenSymbol: "SPY", deployments: [{ chainId: 4663, contractAddress: "0x123" }] }] })).toEqual([]);
+    const withStatus = (status?: string) =>
+      parseAssets({ assets: [{ tokenSymbol: "SPY", status, deployments: [{ chainId: 4663, contractAddress: addr }] }] })[0]!.tradable;
+    expect(withStatus("ASSET_STATUS_ACTIVE")).toBe(true);
+    expect(withStatus("ASSET_STATUS_INACTIVE")).toBe(false);
+    expect(withStatus("UNTRADABLE")).toBe(false);
+    expect(withStatus("DISABLED")).toBe(false);
+    expect(withStatus(undefined)).toBe(false);
+    expect(isCanonical(parseAssets(saved), "0x0000000000000000000000000000000000000001")).toBe(false);
+  });
 });
 
 describe("chat card + card adapter", () => {
