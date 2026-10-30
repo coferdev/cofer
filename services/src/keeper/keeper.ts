@@ -4,12 +4,13 @@
  * can execute a passed proposal.
  */
 import { and, inArray, lt, lte, eq, notInArray } from "drizzle-orm";
-import { getAddress, type Address } from "viem";
+import { getAddress, zeroAddress, type Address } from "viem";
 import { db, schema } from "../db/client";
 import { aggregatorAbi, erc20Abi, factoryAbi, factoryAddress, potAbi, publicClient } from "../chain/clients";
 import { Q, queues, enqueueRelay, enqueueNotify, startWorker } from "../queues";
-import { fetchCanonicalStocks } from "../stocks/canonical";
+import { fetchCanonicalStocks, type CanonicalStock } from "../stocks/canonical";
 import { env } from "../env";
+import { logError } from "../core/errors";
 
 export async function expireProposals(now = Math.floor(Date.now() / 1000)) {
   const rows = await db()
@@ -33,42 +34,39 @@ export async function sweepQueued(now = Math.floor(Date.now() / 1000)) {
   return rows.length + ready.length;
 }
 
+/**
+ * The assets row for one canonical stock. `info` is the factory's assetInfo, or undefined when the
+ * chain could not be read: then a new row starts as not listed, and an existing row keeps its
+ * listed flag and feed (a hiccup never hides a listed stock from /buy).
+ */
+export function stockRow(s: CanonicalStock, info: { listed: boolean; feed: Address } | undefined) {
+  const fromApi = {
+    symbol: s.symbol,
+    currentMultiplier: s.currentMultiplier,
+    pendingMultiplier: s.pendingMultiplier ?? null,
+    pendingEffectiveAt: s.pendingEffectiveAt ? new Date(s.pendingEffectiveAt) : null,
+    status: s.status ?? null,
+  };
+  const fromChain = info ? { listedOnChain: info.listed, feed: info.listed && info.feed !== zeroAddress ? getAddress(info.feed) : null } : {};
+  return {
+    insert: { address: s.address, decimals: s.decimals, isStock: true, listedOnChain: false, feed: null, ...fromApi, ...fromChain },
+    update: { ...fromApi, ...fromChain, refreshedAt: new Date() },
+  };
+}
+
 /** Refresh canonical Stock Tokens + pending multipliers (corporate actions) from the issuer API. */
 export async function refreshStocks() {
   const list = await fetchCanonicalStocks(env().STOCK_API_BASE, env().CHAIN_ID);
   for (const s of list) {
-    let listed = false;
+    let info: { listed: boolean; feed: Address } | undefined;
     try {
-      const info = await publicClient().readContract({ address: factoryAddress(), abi: factoryAbi, functionName: "assetInfo", args: [s.address] });
-      listed = info.listed;
-    } catch {
-      /* not listed */
+      // a mapping read: an unlisted asset returns listed = false, so any error here is the chain, not "not listed"
+      info = await publicClient().readContract({ address: factoryAddress(), abi: factoryAbi, functionName: "assetInfo", args: [s.address] });
+    } catch (e) {
+      logError("cofer-keeper stocks", e);
     }
-    await db()
-      .insert(schema.assets)
-      .values({
-        address: s.address,
-        symbol: s.symbol,
-        decimals: s.decimals,
-        isStock: true,
-        currentMultiplier: s.currentMultiplier,
-        pendingMultiplier: s.pendingMultiplier ?? null,
-        pendingEffectiveAt: s.pendingEffectiveAt ? new Date(s.pendingEffectiveAt) : null,
-        listedOnChain: listed,
-        status: s.status ?? null,
-      })
-      .onConflictDoUpdate({
-        target: schema.assets.address,
-        set: {
-          symbol: s.symbol,
-          currentMultiplier: s.currentMultiplier,
-          pendingMultiplier: s.pendingMultiplier ?? null,
-          pendingEffectiveAt: s.pendingEffectiveAt ? new Date(s.pendingEffectiveAt) : null,
-          listedOnChain: listed,
-          status: s.status ?? null,
-          refreshedAt: new Date(),
-        },
-      });
+    const row = stockRow(s, info);
+    await db().insert(schema.assets).values(row.insert).onConflictDoUpdate({ target: schema.assets.address, set: row.update });
   }
   return list.length;
 }
