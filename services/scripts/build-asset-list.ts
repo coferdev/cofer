@@ -2,6 +2,7 @@
 /**
  * Builds the multisig batch that lists Stock Tokens on CoferFactory.
  *  - addresses come ONLY from the issuer's public API (chainId 4663) -> no look-alike tokens
+ *  - a stock the issuer marks as not tradable is skipped
  *  - each must have a Chainlink feed on RHC (8 dp, already includes the multiplier)
  *  - prints calldata for CoferFactory.listAsset(asset, feed, maxStaleness, isStock=true)
  *
@@ -22,6 +23,10 @@ for (const sym of wanted) {
   const feed = FEEDS[sym];
   if (!s) {
     console.error(`skip ${sym}: not in the issuer's canonical list for chain 4663`);
+    continue;
+  }
+  if (!s.tradable) {
+    console.error(`skip ${sym}: the issuer lists it as not tradable (status ${s.status ?? "missing"})`);
     continue;
   }
   if (!feed) {
