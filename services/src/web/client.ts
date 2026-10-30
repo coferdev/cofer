@@ -16,6 +16,7 @@ import { getEntryPoint, KERNEL_V3_1 } from "@zerodev/sdk/constants";
 import { toPasskeyValidator, PasskeyValidatorContractVersion } from "@zerodev/passkey-validator";
 import { toWebAuthnKey, WebAuthnMode } from "@zerodev/webauthn-key";
 import { coferPotAbi } from "../chain/abi";
+import { signerProblem } from "../core/signerCheck";
 
 declare global {
   interface Window {
@@ -102,6 +103,18 @@ async function getSigner(register = false): Promise<Signer> {
   };
 }
 
+/** A stop the member should read as is (not wrapped in "Something went wrong"). */
+class Stop extends Error {}
+
+/** Signer for a member action: the picked key must be the one linked to this Telegram user. Nothing is signed or sent before this check. */
+async function memberSigner(): Promise<Signer> {
+  const s = await getSigner();
+  const me = await trpc<{ address: string | null } | undefined>("me.get", {});
+  const problem = signerProblem(me?.address, s.address);
+  if (problem) throw new Stop(problem);
+  return s;
+}
+
 function reviveTypedData(td: any) {
   return { ...td, message: { ...td.message, nonce: BigInt(td.message.nonce), epoch: BigInt(td.message.epoch), deadline: BigInt(td.message.deadline) } };
 }
@@ -133,7 +146,7 @@ async function main() {
       await ensureSession();
       await fn();
     } catch (e: any) {
-      say(`Something went wrong: ${String(e?.message ?? e)}. You can try again.`);
+      say(e instanceof Stop ? e.message : `Something went wrong: ${String(e?.message ?? e)}. You can try again.`);
       act.disabled = false;
     }
   };
@@ -171,7 +184,7 @@ async function main() {
     act.onclick = guard(async () => {
       const p = await trpc<any>("proposal.get", { id: ex.ref });
       say("Waiting for your passkey...");
-      const s = await getSigner();
+      const s = await memberSigner();
       const signature = await s.signTypedData(reviveTypedData(p.typedData));
       const r = await trpc<any>("proposal.sign", { id: ex.ref, signer: s.address, signature }, true);
       say(r.ready ? (r.delaySeconds > 0 ? "Passed. It executes after the exit window." : "Passed. Executing now.") : `Signed. ${r.approvals}/${r.required}.`);
@@ -185,7 +198,7 @@ async function main() {
     act.textContent = "Deposit";
     act.onclick = guard(async () => {
       const amount = BigInt(Math.round(Number(($("amount") as HTMLInputElement).value) * 1e6));
-      const s = await getSigner();
+      const s = await memberSigner();
       const approve = encodeFunctionData({ abi: [{ type: "function", name: "approve", stateMutability: "nonpayable", inputs: [{ type: "address" }, { type: "uint256" }], outputs: [{ type: "bool" }] }], args: [pot, amount] });
       const deposit = encodeFunctionData({ abi: coferPotAbi, functionName: "deposit", args: [amount] });
       say("Confirm with your passkey...");
@@ -197,7 +210,7 @@ async function main() {
     $("body").textContent = "You receive your share of every asset the group holds, as it is (USDG and stocks). No vote. Never paused.";
     act.textContent = "Exit everything";
     act.onclick = guard(async () => {
-      const s = await getSigner();
+      const s = await memberSigner();
       const info = (await publicClient.readContract({ address: pot, abi: coferPotAbi, functionName: "memberInfo", args: [s.address] })) as { shares: bigint };
       const data = encodeFunctionData({ abi: coferPotAbi, functionName: "exit", args: [info.shares, s.address] });
       const tx = await s.send!([{ to: pot, data }]);
@@ -209,7 +222,7 @@ async function main() {
     act.onclick = guard(async () => {
       const amount = BigInt(Math.round(Number(($("amount") as HTMLInputElement).value) * 1e6));
       const to = ($("to") as HTMLInputElement).value as Address;
-      const s = await getSigner();
+      const s = await memberSigner();
       const data = encodeFunctionData({ abi: coferPotAbi, functionName: "spend", args: [to, amount, "0x0000000000000000000000000000000000000000000000000000000000000000"] });
       const tx = await s.send!([{ to: pot, data }]);
       say(`Sent. tx ${tx}`);
@@ -219,8 +232,8 @@ async function main() {
     act.textContent = "Get quote";
     act.onclick = guard(async () => {
       const amount = BigInt(Math.round(Number(($("amount") as HTMLInputElement).value) * 1e6));
+      const s = await memberSigner();
       const q = await trpc<any>("card.quote", { pot, amountUsdg: amount.toString() }, true);
-      const s = await getSigner();
       const data = encodeFunctionData({ abi: coferPotAbi, functionName: "spend", args: [q.fundingAddress, BigInt(q.amountUsdg), q.memo] });
       const tx = await s.send!([{ to: pot, data }]);
       const st = await trpc<any>("card.confirm", { orderId: q.orderId, spendTx: tx }, true);
