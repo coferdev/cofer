@@ -17,6 +17,7 @@ import { toPasskeyValidator, PasskeyValidatorContractVersion } from "@zerodev/pa
 import { toWebAuthnKey, WebAuthnMode } from "@zerodev/webauthn-key";
 import { coferPotAbi } from "../chain/abi";
 import { signerProblem } from "../core/signerCheck";
+import { failureText, isHandOff } from "../core/retryText";
 
 declare global {
   interface Window {
@@ -36,6 +37,9 @@ const publicClient = createPublicClient({ chain, transport: http(cfg.rpcUrl) });
 const entryPoint = getEntryPoint("0.7");
 const $ = (id: string) => document.getElementById(id)!;
 const say = (t: string) => ($("status").textContent = t);
+
+// Set once the current attempt has handed something to the bundler or the wallet. From then on it may land on-chain.
+let handedOff = false;
 
 let session = "";
 async function trpc<T>(path: string, input: unknown, mutation = false): Promise<T> {
@@ -61,7 +65,12 @@ async function passkeyAccount(mode: WebAuthnMode) {
   const client = createKernelAccountClient({
     account,
     chain,
-    bundlerTransport: http(cfg.bundlerUrl),
+    // marks the hand-off as the user operation leaves for the bundler (after the passkey has signed it)
+    bundlerTransport: http(cfg.bundlerUrl, {
+      onFetchRequest: (_req, init) => {
+        if (isHandOff(init.body)) handedOff = true;
+      },
+    }),
     paymaster: createZeroDevPaymasterClient({ chain, transport: http(cfg.paymasterUrl) }),
     client: publicClient,
   });
@@ -85,7 +94,10 @@ async function getSigner(register = false): Promise<Signer> {
       signMessage: (m) => wallet.signMessage({ account: address!, message: m }),
       send: async (calls) => {
         let last: Hex = "0x";
-        for (const c of calls) last = await wallet.sendTransaction({ account: address!, to: c.to, data: c.data, chain });
+        for (const c of calls) {
+          handedOff = true;
+          last = await wallet.sendTransaction({ account: address!, to: c.to, data: c.data, chain });
+        }
         return last;
       },
     };
@@ -139,14 +151,16 @@ async function main() {
   const ex = await trpc<Preview>("session.preview", { token: cfg.token });
   if (ex.used) throw new Error("link already used; tap the button in Telegram again");
   const act = $("action") as HTMLButtonElement;
-  // the button stays off while working and after success; an error is shown and the button comes back for a retry
-  const guard = (fn: () => Promise<void>) => async () => {
+  // the button stays off while working and after success; an error is shown and the button comes back for a retry.
+  // For a money action, an error after the hand-off asks the member to check before trying again.
+  const guard = (fn: () => Promise<void>, money = false) => async () => {
     act.disabled = true;
+    handedOff = false;
     try {
       await ensureSession();
       await fn();
     } catch (e: any) {
-      say(e instanceof Stop ? e.message : `Something went wrong: ${String(e?.message ?? e)}. You can try again.`);
+      say(e instanceof Stop ? e.message : failureText(String(e?.message ?? e), money && handedOff));
       act.disabled = false;
     }
   };
@@ -205,7 +219,7 @@ async function main() {
       say("Confirm with your passkey...");
       const tx = await s.send!([{ to: cfg.usdg, data: approve }, { to: pot, data: deposit }]);
       say(`Deposited. tx ${tx}`);
-    });
+    }, true);
   } else if (ex.purpose === "exit") {
     $("title").textContent = "Exit with your exact share";
     $("body").textContent = "You receive your share of every asset the group holds, as it is (USDG and stocks). No vote. Never paused.";
@@ -216,7 +230,7 @@ async function main() {
       const data = encodeFunctionData({ abi: coferPotAbi, functionName: "exit", args: [info.shares, s.address] });
       const tx = await s.send!([{ to: pot, data }]);
       say(`Exited. tx ${tx}`);
-    });
+    }, true);
   } else if (ex.purpose === "sign" && ex.ref.startsWith("spend:")) {
     $("title").textContent = "Spend from your allowance";
     $("amount").hidden = false;
@@ -229,7 +243,7 @@ async function main() {
       const data = encodeFunctionData({ abi: coferPotAbi, functionName: "spend", args: [to, amount, "0x0000000000000000000000000000000000000000000000000000000000000000"] });
       const tx = await s.send!([{ to: pot, data }]);
       say(`Sent. tx ${tx}`);
-    });
+    }, true);
   } else if (ex.purpose === "card") {
     $("title").textContent = "Load a card (optional)";
     $("amount").hidden = false;
@@ -242,7 +256,7 @@ async function main() {
       const tx = await s.send!([{ to: pot, data }]);
       const st = await trpc<any>("card.confirm", { orderId: q.orderId, spendTx: tx }, true);
       say(`Card order ${st.status}. Load fee ${Number(q.loadFeeUsdg) / 1e6} USDG.`);
-    });
+    }, true);
   }
 }
 
