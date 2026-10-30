@@ -3,7 +3,7 @@
  * permissionless, so liveness never depends on this process: members can always exit, and anyone
  * can execute a passed proposal.
  */
-import { and, inArray, lt, lte, eq, sql } from "drizzle-orm";
+import { and, inArray, lt, lte, eq, notInArray } from "drizzle-orm";
 import { getAddress, type Address } from "viem";
 import { db, schema } from "../db/client";
 import { aggregatorAbi, erc20Abi, factoryAbi, factoryAddress, potAbi, publicClient } from "../chain/clients";
@@ -74,6 +74,14 @@ export async function refreshStocks() {
 }
 
 /** Holdings snapshot per pot (display only; valuation = raw x feed, multiplier never re-applied). */
+/**
+ * This pot's holdings rows for assets it no longer holds. notInArray sends one value per asset
+ * (`asset not in ($2, $3)`); a JS array inside a sql`` template is not a Postgres array.
+ */
+export function staleHoldings(pot: Address, held: readonly Address[]) {
+  return and(eq(schema.holdings.pot, pot), notInArray(schema.holdings.asset, [...held]));
+}
+
 export async function refreshHoldings() {
   const client = publicClient();
   const pots = await db().select().from(schema.pots);
@@ -100,7 +108,7 @@ export async function refreshHoldings() {
           set: { rawBalance: bal.toString(), reserved: reserved.toString(), valueUsdg: value, updatedAt: new Date() },
         });
     }
-    await db().execute(sql`delete from holdings where pot = ${pot} and not (asset = any(${held.map((a) => a as string)}))`);
+    await db().delete(schema.holdings).where(staleHoldings(pot, held));
   }
 }
 
