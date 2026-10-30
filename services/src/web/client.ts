@@ -109,12 +109,22 @@ async function main() {
   const ex = await trpc<{ session: string; purpose: string; ref: string }>("session.exchange", { token: cfg.token }, true);
   session = ex.session;
   const act = $("action") as HTMLButtonElement;
+  // the button stays off while working and after success; an error is shown and the button comes back for a retry
+  const guard = (fn: () => Promise<void>) => async () => {
+    act.disabled = true;
+    try {
+      await fn();
+    } catch (e: any) {
+      say(`Something went wrong: ${String(e?.message ?? e)}. You can try again.`);
+      act.disabled = false;
+    }
+  };
 
   if (ex.purpose === "onboard") {
     $("title").textContent = "Set up your key";
     $("body").textContent = "Creates a passkey on this device. It controls your seat: votes, deposits and exits. Nobody else can use it.";
     act.textContent = "Create passkey";
-    act.onclick = async () => {
+    act.onclick = guard(async () => {
       say("Creating passkey...");
       const s = await getSigner(true);
       // deploy the account (sponsored) so ERC-1271 votes verify on-chain from day one
@@ -123,7 +133,7 @@ async function main() {
       const signature = await s.signMessage(message);
       await trpc("me.link", { address: s.address, signature, kind: s.send ? "kernel-passkey" : "eoa" }, true);
       say(`Done. Your key: ${s.address}. Go back to Telegram.`);
-    };
+    });
     return;
   }
 
@@ -132,13 +142,13 @@ async function main() {
     $("title").textContent = "Vote";
     $("body").textContent = `${p.summary}\n\nApprovals: ${p.tally.approvals}/${p.tally.required}${p.stale ? "\nSettings changed: this vote can no longer pass." : ""}`;
     act.textContent = "Approve with my passkey";
-    act.onclick = async () => {
+    act.onclick = guard(async () => {
       say("Waiting for your passkey...");
       const s = await getSigner();
       const signature = await s.signTypedData(reviveTypedData(p.typedData));
       const r = await trpc<any>("proposal.sign", { id: ex.ref, signer: s.address, signature }, true);
       say(r.ready ? (r.delaySeconds > 0 ? "Passed. It executes after the exit window." : "Passed. Executing now.") : `Signed. ${r.approvals}/${r.required}.`);
-    };
+    });
     return;
   }
 
@@ -146,7 +156,7 @@ async function main() {
   if (ex.purpose === "deposit") {
     $("title").textContent = "Deposit USDG";
     act.textContent = "Deposit";
-    act.onclick = async () => {
+    act.onclick = guard(async () => {
       const amount = BigInt(Math.round(Number(($("amount") as HTMLInputElement).value) * 1e6));
       const s = await getSigner();
       const approve = encodeFunctionData({ abi: [{ type: "function", name: "approve", stateMutability: "nonpayable", inputs: [{ type: "address" }, { type: "uint256" }], outputs: [{ type: "bool" }] }], args: [pot, amount] });
@@ -154,33 +164,33 @@ async function main() {
       say("Confirm with your passkey...");
       const tx = await s.send!([{ to: cfg.usdg, data: approve }, { to: pot, data: deposit }]);
       say(`Deposited. tx ${tx}`);
-    };
+    });
   } else if (ex.purpose === "exit") {
     $("title").textContent = "Exit with your exact share";
     $("body").textContent = "You receive your share of every asset the group holds, as it is (USDG and stocks). No vote. Never paused.";
     act.textContent = "Exit everything";
-    act.onclick = async () => {
+    act.onclick = guard(async () => {
       const s = await getSigner();
       const info = (await publicClient.readContract({ address: pot, abi: coferPotAbi, functionName: "memberInfo", args: [s.address] })) as { shares: bigint };
       const data = encodeFunctionData({ abi: coferPotAbi, functionName: "exit", args: [info.shares, s.address] });
       const tx = await s.send!([{ to: pot, data }]);
       say(`Exited. tx ${tx}`);
-    };
+    });
   } else if (ex.purpose === "sign" && ex.ref.startsWith("spend:")) {
     $("title").textContent = "Spend from your allowance";
     act.textContent = "Send";
-    act.onclick = async () => {
+    act.onclick = guard(async () => {
       const amount = BigInt(Math.round(Number(($("amount") as HTMLInputElement).value) * 1e6));
       const to = ($("to") as HTMLInputElement).value as Address;
       const s = await getSigner();
       const data = encodeFunctionData({ abi: coferPotAbi, functionName: "spend", args: [to, amount, "0x0000000000000000000000000000000000000000000000000000000000000000"] });
       const tx = await s.send!([{ to: pot, data }]);
       say(`Sent. tx ${tx}`);
-    };
+    });
   } else if (ex.purpose === "card") {
     $("title").textContent = "Load a card (optional)";
     act.textContent = "Get quote";
-    act.onclick = async () => {
+    act.onclick = guard(async () => {
       const amount = BigInt(Math.round(Number(($("amount") as HTMLInputElement).value) * 1e6));
       const q = await trpc<any>("card.quote", { pot, amountUsdg: amount.toString() }, true);
       const s = await getSigner();
@@ -188,7 +198,7 @@ async function main() {
       const tx = await s.send!([{ to: pot, data }]);
       const st = await trpc<any>("card.confirm", { orderId: q.orderId, spendTx: tx }, true);
       say(`Card order ${st.status}. Load fee ${Number(q.loadFeeUsdg) / 1e6} USDG.`);
-    };
+    });
   }
 }
 
