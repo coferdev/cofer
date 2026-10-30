@@ -5,6 +5,7 @@ import { appRouter, type ApiCtx } from "./router";
 import { verifyLink } from "../core/linkToken";
 import { signerPage, signerRpcUrl, SIGNER_CSP } from "../web/page";
 import { env } from "../env";
+import { logError } from "../core/errors";
 import type { ProposalDeps } from "../services/proposals";
 import type { CardAdapter } from "../cards/CardAdapter";
 
@@ -18,6 +19,12 @@ export function createServer(opts: { deps: ProposalDeps; cards: CardAdapter; bot
   const e = env();
   const pageRpc = signerRpcUrl(e);
   const app = new Hono();
+
+  // Any other route error: plain text out, logged without URLs.
+  app.onError((err, c) => {
+    logError("api", err);
+    return c.text("Internal error", 500);
+  });
 
   app.get("/healthz", (c) => c.json({ ok: true }));
 
@@ -37,6 +44,10 @@ export function createServer(opts: { deps: ProposalDeps; cards: CardAdapter; bot
         }
         const ctx: ApiCtx = { deps: opts.deps, cards: opts.cards, secret: e.LINK_SECRET, session };
         return ctx as unknown as Record<string, unknown>;
+      },
+      // the browser gets fixed text (router errorFormatter); the full error goes to the log, without URLs
+      onError: ({ error, path }) => {
+        if (error.code === "INTERNAL_SERVER_ERROR") logError(`api ${path ?? "?"}`, error.cause ?? error);
       },
     }),
   );

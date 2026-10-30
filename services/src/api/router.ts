@@ -14,6 +14,7 @@ import { addSignature, createProposal, getSignable, ProposalError, readRules, ty
 import { Kind } from "../core/proposal";
 import { previewExit } from "../core/shares";
 import type { CardAdapter } from "../cards/CardAdapter";
+import { RPC_UNREACHABLE_TEXT, userMessage } from "../core/errors";
 
 export interface ApiCtx {
   deps: ProposalDeps;
@@ -22,7 +23,19 @@ export interface ApiCtx {
   session: LinkClaims | null;
 }
 
-const t = initTRPC.context<ApiCtx>().create();
+/**
+ * What an API error may tell the browser. Errors thrown on purpose (TRPCError with a code, input
+ * validation, ProposalError via wrap) keep their fixed text. Anything unexpected arrives as
+ * INTERNAL_SERVER_ERROR and is replaced by fixed text: its own message can hold the RPC address.
+ * Stack traces are never sent.
+ */
+export function safeErrorShape<S extends { message: string; data: { stack?: string } }>(shape: S, error: TRPCError): S {
+  const message = error.code === "INTERNAL_SERVER_ERROR" ? userMessage(error.cause ?? error, RPC_UNREACHABLE_TEXT) : shape.message;
+  const { stack: _stack, ...data } = shape.data;
+  return { ...shape, message, data };
+}
+
+const t = initTRPC.context<ApiCtx>().create({ errorFormatter: ({ shape, error }) => safeErrorShape(shape, error) });
 const authed = t.procedure.use(({ ctx, next }) => {
   if (!ctx.session || ctx.session.p !== "session") throw new TRPCError({ code: "UNAUTHORIZED" });
   return next({ ctx: { ...ctx, session: ctx.session } });

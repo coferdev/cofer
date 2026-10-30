@@ -17,7 +17,7 @@ import { toPasskeyValidator, PasskeyValidatorContractVersion } from "@zerodev/pa
 import { toWebAuthnKey, WebAuthnMode } from "@zerodev/webauthn-key";
 import { coferPotAbi } from "../chain/abi";
 import { signerProblem } from "../core/signerCheck";
-import { failureText, isHandOff } from "../core/retryText";
+import { failureText, isHandOff, ServerSaid } from "../core/retryText";
 
 declare global {
   interface Window {
@@ -49,7 +49,7 @@ async function trpc<T>(path: string, input: unknown, mutation = false): Promise<
     ? await fetch(`/trpc/${path}`, { method: "POST", headers, body: JSON.stringify(input) })
     : await fetch(`/trpc/${path}?input=${encodeURIComponent(JSON.stringify(input))}`, { headers });
   const json = await res.json();
-  if (json.error) throw new Error(json.error.message ?? "request failed");
+  if (json.error) throw new ServerSaid(json.error.message ?? "request failed");
   return json.result.data as T;
 }
 
@@ -149,7 +149,7 @@ type Preview = {
 async function main() {
   // read-only: opening the page (also in Telegram's in-app browser) does not use up the link
   const ex = await trpc<Preview>("session.preview", { token: cfg.token });
-  if (ex.used) throw new Error("link already used; tap the button in Telegram again");
+  if (ex.used) throw new Stop("link already used; tap the button in Telegram again");
   const act = $("action") as HTMLButtonElement;
   // the button stays off while working and after success; an error is shown and the button comes back for a retry.
   // For a money action, an error after the hand-off asks the member to check before trying again.
@@ -160,7 +160,7 @@ async function main() {
       await ensureSession();
       await fn();
     } catch (e: any) {
-      say(e instanceof Stop ? e.message : failureText(String(e?.message ?? e), money && handedOff));
+      say(e instanceof Stop ? e.message : failureText(e, money && handedOff));
       act.disabled = false;
     }
   };
@@ -260,4 +260,4 @@ async function main() {
   }
 }
 
-main().catch((e) => say(String(e?.message ?? e)));
+main().catch((e) => say(e instanceof Stop ? e.message : failureText(e, false)));

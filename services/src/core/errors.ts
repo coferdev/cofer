@@ -11,6 +11,8 @@ import { BaseError, ContractFunctionRevertedError, ExecutionRevertedError } from
 export class UserError extends Error {}
 
 export const RPC_ERROR_TEXT = "Couldn't reach the chain just now. Nothing was proposed. Try again in a minute.";
+/** Same, for places that are not about a vote (the signer API). */
+export const RPC_UNREACHABLE_TEXT = "Couldn't reach the chain just now. Try again in a minute.";
 export const GENERIC_ERROR_TEXT = "Something went wrong on our side. Try again in a minute.";
 
 /**
@@ -32,10 +34,10 @@ export function revertName(e: unknown): string | undefined {
   return r instanceof ContractFunctionRevertedError ? r.data?.errorName : undefined;
 }
 
-/** The only text a bot reply may contain for a caught error. */
-export function userMessage(e: unknown): string {
+/** The only text a bot reply (or, with RPC_UNREACHABLE_TEXT, an API response) may contain for a caught error. */
+export function userMessage(e: unknown, rpcText = RPC_ERROR_TEXT): string {
   if (e instanceof UserError) return e.message;
-  return errorKind(e) === "rpc" ? RPC_ERROR_TEXT : GENERIC_ERROR_TEXT;
+  return errorKind(e) === "rpc" ? rpcText : GENERIC_ERROR_TEXT;
 }
 
 /** Removes every URL (RPC endpoints can carry API keys in the path or query). */

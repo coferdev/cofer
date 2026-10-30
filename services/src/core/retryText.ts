@@ -11,9 +11,30 @@ export function retryText(error: string): string {
   return `Something went wrong: ${error}. You can try again.`;
 }
 
-/** The message for a failed action: the check-first message once it was handed off, else the normal retry. */
-export function failureText(error: string, handedOff: boolean): string {
-  return handedOff ? MAYBE_SENT : retryText(error);
+export const PASSKEY_CANCELLED = "The passkey prompt was cancelled. You can try again.";
+export const BROWSER_FAILED = "Something went wrong. You can try again.";
+
+/** Error text sent by our own API. The API only sends fixed text, so this is safe to show. */
+export class ServerSaid extends Error {}
+
+/** WebAuthn reports a closed or refused passkey prompt as NotAllowedError (also when wrapped by a library). */
+function isPasskeyCancel(e: unknown): boolean {
+  for (let x = e as { name?: string; cause?: unknown } | undefined, i = 0; x && i < 8; x = x.cause as typeof x, i++) {
+    if (x.name === "NotAllowedError" || x.name === "AbortError") return true;
+  }
+  return false;
+}
+
+/**
+ * The message for a failed action. Once handed off: the check-first message. Before: our API's own
+ * text, or fixed text. Errors raised in the browser (viem, ZeroDev, the bundler) are never shown as
+ * is: their text can hold service addresses and is not written for members.
+ */
+export function failureText(e: unknown, handedOff: boolean): string {
+  if (handedOff) return MAYBE_SENT;
+  if (e instanceof ServerSaid) return retryText(e.message);
+  if (isPasskeyCancel(e)) return PASSKEY_CANCELLED;
+  return BROWSER_FAILED;
 }
 
 /** True when a JSON-RPC request body (single or batch) hands a user operation to the bundler. */
