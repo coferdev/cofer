@@ -9,29 +9,14 @@ import { encodeFunctionData, formatUnits, getAddress, keccak256, toHex, type Add
 import { env } from "../env";
 import { db, schema } from "../db/client";
 import { factoryAbi, factoryAddress, potAbi, publicClient, relayerClient, erc20Abi } from "../chain/clients";
-import { RHC } from "../chain/addresses";
 import { Kind, type Action, type TokenMeta } from "../core/proposal";
 import { createProposal, ProposalError, getSignable, type ProposalDeps } from "../services/proposals";
-import { computeMinOut, encodeV3Path, swapInAfterFee } from "../core/swap";
+import { computeMinOut, swapInAfterFee } from "../core/swap";
+import { bestTier, quoteAllTiers } from "../chain/quotes";
 import { enqueueNotify, enqueueRelay } from "../queues";
 import { assertNoMiniApp, linkButton, signerUrl } from "./keyboards";
 import { parseAllowance, parseBuy, parseSell, parseSend, parseUsdg } from "./parse";
 import { allowanceLeft } from "../core/shares";
-
-const QUOTER_V2_ABI = [
-  {
-    type: "function",
-    name: "quoteExactInput",
-    stateMutability: "nonpayable",
-    inputs: [{ type: "bytes", name: "path" }, { type: "uint256", name: "amountIn" }],
-    outputs: [
-      { type: "uint256", name: "amountOut" },
-      { type: "uint160[]", name: "sqrtPriceX96AfterList" },
-      { type: "uint32[]", name: "initializedTicksCrossedList" },
-      { type: "uint256", name: "gasEstimate" },
-    ],
-  },
-] as const;
 
 export const DEFAULT_CONFIG = { guardDelay: 6 * 3600, maxSlipBps: 300, entrySpreadBps: 50, depositsOpen: true } as const;
 export const DEFAULT_THRESHOLD_BPS = 6000; // 3 of 5, 2 of 3, 3 of 4 ...
@@ -122,21 +107,6 @@ async function findAsset(symbol: string) {
   return db().query.assets.findFirst({ where: and(ilike(schema.assets.symbol, symbol), eq(schema.assets.listedOnChain, true)) });
 }
 
-/** Best v3 fee tier quote among common tiers; Stock Token pool tiers on RHC vary (verify per asset). */
-async function bestQuote(tokenIn: Address, tokenOut: Address, amountIn: bigint) {
-  let best: { out: bigint; path: Hex } | null = null;
-  for (const fee of [500, 3000, 10000]) {
-    const path = encodeV3Path([tokenIn, tokenOut], [fee]);
-    try {
-      const { result } = await publicClient().simulateContract({ address: RHC.UNI_V3_QUOTER_V2, abi: QUOTER_V2_ABI, functionName: "quoteExactInput", args: [path, amountIn] });
-      if (!best || result[0] > best.out) best = { out: result[0], path };
-    } catch {
-      /* no pool at this tier */
-    }
-  }
-  return best;
-}
-
 async function buildSwap(pot: Address, tokenIn: Address, tokenOut: Address, amountIn: bigint, slipBps: number): Promise<Action> {
   const c = publicClient();
   const [feeBps, cfg] = await Promise.all([
@@ -144,7 +114,7 @@ async function buildSwap(pot: Address, tokenIn: Address, tokenOut: Address, amou
     c.readContract({ address: pot, abi: potAbi, functionName: "config" }),
   ]);
   const { swapIn } = swapInAfterFee(amountIn, Number(feeBps));
-  const q = await bestQuote(tokenIn, tokenOut, swapIn);
+  const q = bestTier(await quoteAllTiers(c, tokenIn, tokenOut, swapIn));
   if (!q) throw new ProposalError("no Uniswap pool found for that pair");
   let oracleOut: bigint;
   try {
