@@ -40,7 +40,19 @@ describe("background jobs never store or log URLs", () => {
     // what BullMQ stores in Redis: failedReason = err.message, stacktrace = err.stack
     expect(err.message).not.toContain("SECRETKEY123");
     expect(err.stack).not.toContain("SECRETKEY123");
-    expect((err as { cause?: unknown }).cause).toBeUndefined(); // the original (with its URL) is not carried along
+    expect((err as { cause?: unknown }).cause).toBeUndefined(); // this error has no cause, so none is invented
+  });
+
+  test("a stored job error keeps a cleaned copy of its cause chain, never the original objects", async () => {
+    const original = new HttpRequestError({ url: RPC, details: "fetch failed" });
+    const wrapped = new Error("Failed query: delete from holdings", { cause: original });
+    const safe = safeError(wrapped);
+    const cause = safe.cause as Error;
+    expect(cause).toBeInstanceOf(Error);
+    expect(cause).not.toBe(original);
+    expect(cause.name).toBe("HttpRequestError");
+    expect(cause.message).toContain("fetch failed");
+    expect(`${cause.message}${cause.stack}`).not.toContain("SECRETKEY123");
   });
 
   test("logging a Telegram error never prints the bot token", () => {

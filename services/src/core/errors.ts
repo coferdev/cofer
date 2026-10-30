@@ -45,12 +45,44 @@ export function redact(text: string): string {
   return text.replace(/\b[a-z][a-z0-9+.-]*:\/\/[^\s"'<>]+/gi, "<url>");
 }
 
-/** A copy of `e` that is safe to store or log: same name, URLs removed from message and stack, no cause. */
-export function safeError(e: unknown): Error {
+/** How many underlying causes are kept and logged (viem chains are about 5 deep). */
+const MAX_CAUSES = 5;
+
+/** An error's error code, if it has one (Postgres "22P02", RPC -32000, node "ECONNREFUSED"). */
+function errorCode(e: unknown): string | undefined {
+  const c = e && typeof e === "object" ? (e as { code?: unknown }).code : undefined;
+  return c === undefined || c === null ? undefined : String(c);
+}
+
+/** One "Caused by" line: name, code and message (callers redact). */
+function causeLine(c: unknown): string {
+  if (c instanceof Error) {
+    const code = errorCode(c);
+    return `${c.name}${code ? ` [${code}]` : ""}: ${c.message}`;
+  }
+  if (c && typeof c === "object") {
+    try {
+      return JSON.stringify(c).slice(0, 500);
+    } catch {
+      return String(c);
+    }
+  }
+  return String(c);
+}
+
+/**
+ * A copy of `e` that is safe to store or log: same name and code, URLs removed from message and
+ * stack, and a cleaned copy of its cause chain (never the original objects) so logs show the reason.
+ */
+export function safeError(e: unknown, depth = 0): Error {
   const name = e instanceof Error ? e.name : "Error";
-  const out = new Error(redact(e instanceof Error ? e.message : String(e)));
+  const out = new Error(redact(e instanceof Error ? e.message : causeLine(e)));
   out.name = name;
   out.stack = redact(e instanceof Error && e.stack ? e.stack : `${name}: ${out.message}`);
+  const code = errorCode(e);
+  if (code) Object.assign(out, { code: redact(code) });
+  const cause = e instanceof Error ? e.cause : undefined;
+  if (cause !== undefined && cause !== null && depth < MAX_CAUSES) out.cause = safeError(cause, depth + 1);
   return out;
 }
 
@@ -68,7 +100,13 @@ export function safeJob<A extends unknown[], R>(fn: (...args: A) => Promise<R>):
   };
 }
 
+/** Logs the error and up to MAX_CAUSES underlying causes (e.g. the Postgres reason under Drizzle's "Failed query"), without URLs. */
 export function logError(scope: string, e: unknown): void {
-  const text = e instanceof Error ? (e.stack ?? `${e.name}: ${e.message}`) : String(e);
-  console.error(`[${scope}]`, redact(text));
+  const lines = [e instanceof Error ? (e.stack ?? `${e.name}: ${e.message}`) : causeLine(e)];
+  let c = e instanceof Error ? e.cause : undefined;
+  for (let i = 0; c !== undefined && c !== null && i < MAX_CAUSES; i++) {
+    lines.push(`Caused by: ${causeLine(c)}`);
+    c = c instanceof Error ? c.cause : undefined;
+  }
+  console.error(`[${scope}]`, redact(lines.join("\n")));
 }

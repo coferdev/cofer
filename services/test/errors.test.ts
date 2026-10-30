@@ -3,7 +3,9 @@ import { readdirSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 import { ContractFunctionRevertedError, encodeErrorResult, ExecutionRevertedError, HttpRequestError, RpcRequestError, TimeoutError } from "viem";
 import { coferFactoryAbi } from "../src/chain/abi";
-import { errorKind, GENERIC_ERROR_TEXT, logError, redact, revertName, RPC_ERROR_TEXT, UserError, userMessage } from "../src/core/errors";
+import postgres from "postgres";
+import { DrizzleQueryError } from "drizzle-orm/errors";
+import { errorKind, GENERIC_ERROR_TEXT, logError, redact, revertName, RPC_ERROR_TEXT, safeError, UserError, userMessage } from "../src/core/errors";
 import { ProposalError } from "../src/services/proposals";
 import { parseBuy } from "../src/bot/parse";
 
@@ -56,6 +58,50 @@ describe("logs", () => {
     spy.mockRestore();
     expect(printed).toContain("[bot]");
     expect(printed).not.toContain("SECRETKEY123");
+  });
+});
+
+describe("logs show the real reason under a wrapper", () => {
+  const captureLog = (e: unknown) => {
+    const spy = spyOn(console, "error").mockImplementation(() => {});
+    logError("cofer-keeper holdings", e);
+    const printed = spy.mock.calls.flat().join(" ");
+    spy.mockRestore();
+    return printed;
+  };
+  // The real shapes from the keeper: Drizzle's "Failed query" wrapping the driver's PostgresError.
+  const pgError = () =>
+    new postgres.PostgresError({ message: 'malformed array literal: "0x5fc5360D0400a0Fd4f2af552ADD042D716F1d168"', code: "22P02", severity: "ERROR" } as never);
+  const failedQuery = (cause: unknown) => new DrizzleQueryError("delete from holdings where pot = $1 and not (asset = any(($2)))", ["0xpot"], cause as Error);
+
+  test("a Drizzle failed query logs the Postgres reason and code", () => {
+    const printed = captureLog(failedQuery(pgError()));
+    expect(printed).toContain("Failed query: delete from holdings");
+    expect(printed).toContain("Caused by: PostgresError [22P02]: malformed array literal");
+  });
+
+  test("the same reason survives the job queue's cleaned copy (what the worker's failed event logs)", () => {
+    const printed = captureLog(safeError(failedQuery(pgError())));
+    expect(printed).toContain("Caused by: PostgresError [22P02]: malformed array literal");
+  });
+
+  test("no URL, key or database password at any level", () => {
+    const deep = failedQuery(new Error(`connect failed for postgres://cofer:DBPASSWORD@db.internal:5432/cofer`, { cause: httpError() }));
+    for (const printed of [captureLog(deep), captureLog(safeError(deep))]) {
+      expect(printed).toContain("Caused by:");
+      expect(printed).not.toContain("DBPASSWORD");
+      expect(printed).not.toContain("SECRETKEY123");
+    }
+  });
+
+  test("the chain stops after 5 causes and survives an error that is its own cause", () => {
+    let e: Error = new Error("level 0");
+    for (let i = 1; i <= 8; i++) e = new Error(`level ${i}`, { cause: e });
+    expect(captureLog(e).match(/Caused by:/g)!.length).toBe(5);
+    const loop = new Error("loop");
+    (loop as { cause?: unknown }).cause = loop;
+    expect(captureLog(loop).match(/Caused by:/g)!.length).toBe(5);
+    expect(captureLog(safeError(loop)).match(/Caused by:/g)!.length).toBe(5);
   });
 });
 
