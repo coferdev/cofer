@@ -3,7 +3,7 @@ import { trpcServer } from "@hono/trpc-server";
 import { webhookCallback, type Bot } from "grammy";
 import { appRouter, type ApiCtx } from "./router";
 import { verifyLink } from "../core/linkToken";
-import { signerPage } from "../web/page";
+import { signerPage, SIGNER_CSP } from "../web/page";
 import { env } from "../env";
 import type { ProposalDeps } from "../services/proposals";
 import type { CardAdapter } from "../cards/CardAdapter";
@@ -48,7 +48,7 @@ export function createServer(opts: { deps: ProposalDeps; cards: CardAdapter; bot
   app.get("/assets/signer.js", (c) => c.body(opts.signerJs, 200, { "content-type": "text/javascript; charset=utf-8", "cache-control": "public, max-age=300" }));
 
   app.get("/s/:token", (c) => {
-    c.header("content-security-policy", "default-src 'self'; script-src 'self' 'unsafe-inline'; connect-src *; frame-ancestors 'none'");
+    c.header("content-security-policy", SIGNER_CSP);
     c.header("x-frame-options", "DENY");
     return c.html(
       signerPage(c.req.param("token"), {
