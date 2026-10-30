@@ -32,6 +32,7 @@ const schema = z.object({
   TELEGRAM_WEBHOOK_SECRET: z.string().min(16),
   LINK_SECRET: z.string().min(32),
 
+  OPS_CHAT_ID: z.string().regex(/^-?\d+$/).transform(Number).optional(), // private chat for keeper alerts (find it with /chatid); unset = log only
   STOCK_API_BASE: z.string().url().default("https://api.robinhood.com/rhj"),
   CARD_ADAPTER: z.enum(["stub", "provider"]).default("stub"),
   CARD_PROVIDER_URL: z.string().url().optional(),

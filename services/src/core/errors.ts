@@ -110,3 +110,8 @@ export function logError(scope: string, e: unknown): void {
   }
   console.error(`[${scope}]`, redact(lines.join("\n")));
 }
+
+/** Logs a keeper alert (an operational problem, not a thrown error), without URLs. */
+export function logAlert(text: string): void {
+  console.warn("[alert]", redact(text));
+}

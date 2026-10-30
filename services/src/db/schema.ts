@@ -176,3 +176,10 @@ export const cardOrders = pgTable("card_orders", {
   status: text("status").notNull(), // quoted | funded | issued | failed | refunded
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
 });
+
+/** Keeper alerts that are open now (one row per problem); a row is removed when the problem clears. */
+export const alerts = pgTable("alerts", {
+  key: text("key").primaryKey(), // e.g. "feed-stale:0x…"
+  text: text("text").notNull(),
+  openedAt: timestamp("opened_at", { withTimezone: true }).notNull().defaultNow(),
+});

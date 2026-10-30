@@ -196,6 +196,12 @@ export function createBot() {
     );
   });
 
+  // For the operator: the ID of this private chat, to put in OPS_CHAT_ID. Not in /help. Silent in groups.
+  bot.command("chatid", async (ctx) => {
+    if (ctx.chat.type !== "private") return;
+    await ctx.reply(`This chat's ID: ${ctx.chat.id}\nTo get keeper alerts here, set OPS_CHAT_ID=${ctx.chat.id} for the services.`);
+  });
+
   bot.command("region", async (ctx) => {
     const code = (ctx.match ?? "").trim().toUpperCase();
     if (!/^[A-Z]{2}$/.test(code)) return ctx.reply("Usage: /region XX (two-letter country code)");
