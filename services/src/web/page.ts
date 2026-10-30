@@ -34,6 +34,25 @@ export const SIGNER_CSP = `default-src 'self'; script-src 'self' 'unsafe-inline'
 
 const esc = (s: string) => s.replace(/[<>&"']/g, (c) => `&#${c.charCodeAt(0)};`);
 
+/** Public chain RPCs (no key). The only kind of RPC address the page gets by default. */
+export const PUBLIC_RPC: Record<number, string> = {
+  4663: "https://rpc.mainnet.chain.robinhood.com",
+  46630: "https://rpc.testnet.chain.robinhood.com",
+};
+
+/**
+ * The RPC the browser uses: SIGNER_RPC_URL if set, else the chain's public RPC. Never the server's
+ * RHC_RPC_URL, which can carry a paid API key: everything in the page is readable by every member.
+ * Runs once at startup, so a bad setting stops the server instead of serving a page.
+ */
+export function signerRpcUrl(e: { CHAIN_ID: number; RHC_RPC_URL: string; SIGNER_RPC_URL?: string }): string {
+  const url = e.SIGNER_RPC_URL ?? PUBLIC_RPC[e.CHAIN_ID];
+  if (!url) throw new Error(`no public RPC known for chain ${e.CHAIN_ID}; set SIGNER_RPC_URL`);
+  const isPublic = Object.values(PUBLIC_RPC).includes(url);
+  if (url === e.RHC_RPC_URL && !isPublic) throw new Error("SIGNER_RPC_URL must not be the server's RHC_RPC_URL (it is sent to every browser)");
+  return url;
+}
+
 export function signerPage(token: string, cfg: PageCfg): string {
   const boot = JSON.stringify({ ...cfg, token }).replace(/</g, "\\u003c");
   return `<!doctype html>

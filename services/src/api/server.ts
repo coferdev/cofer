@@ -3,7 +3,7 @@ import { trpcServer } from "@hono/trpc-server";
 import { webhookCallback, type Bot } from "grammy";
 import { appRouter, type ApiCtx } from "./router";
 import { verifyLink } from "../core/linkToken";
-import { signerPage, SIGNER_CSP } from "../web/page";
+import { signerPage, signerRpcUrl, SIGNER_CSP } from "../web/page";
 import { env } from "../env";
 import type { ProposalDeps } from "../services/proposals";
 import type { CardAdapter } from "../cards/CardAdapter";
@@ -16,6 +16,7 @@ export async function buildSignerBundle(): Promise<string> {
 
 export function createServer(opts: { deps: ProposalDeps; cards: CardAdapter; bot?: Bot; signerJs: string }) {
   const e = env();
+  const pageRpc = signerRpcUrl(e);
   const app = new Hono();
 
   app.get("/healthz", (c) => c.json({ ok: true }));
@@ -53,7 +54,7 @@ export function createServer(opts: { deps: ProposalDeps; cards: CardAdapter; bot
     return c.html(
       signerPage(c.req.param("token"), {
         chainId: e.CHAIN_ID,
-        rpcUrl: e.RHC_RPC_URL,
+        rpcUrl: pageRpc, // never RHC_RPC_URL: the page is readable by every member
         bundlerUrl: e.BUNDLER_URL ?? "",
         paymasterUrl: e.PAYMASTER_URL ?? "",
         passkeyServerUrl: e.PASSKEY_SERVER_URL ?? "",

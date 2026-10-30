@@ -13,7 +13,8 @@ const schema = z.object({
   REDIS_URL: z.string().default("redis://127.0.0.1:6379"),
 
   CHAIN_ID: z.coerce.number().default(4663),
-  RHC_RPC_URL: z.string().url(), // Dwellir/Alchemy archive RPC (not the public RPC in prod)
+  RHC_RPC_URL: z.string().url(), // Dwellir/Alchemy archive RPC (not the public RPC in prod); server only, never sent to a browser
+  SIGNER_RPC_URL: z.string().url().optional(), // RPC for the signer page; sent to every browser, so never a keyed URL (default: the chain's public RPC)
   FACTORY_ADDRESS: addr,
   ADAPTER_ADDRESS: addr,
   USDG_ADDRESS: addr.default(RHC.USDG).transform((a) => getAddress(a)), // testnet pots use a mock USDG; must match factory.usdg()
