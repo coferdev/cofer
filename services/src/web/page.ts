@@ -29,6 +29,10 @@ input{width:100%;box-sizing:border-box;padding:10px;margin:8px 0;border-radius:8
 button{width:100%;padding:12px;border:0;border-radius:10px;background:var(--accent);color:#fff;font-weight:600;margin-top:12px}
 #status{margin-top:12px;color:var(--muted);word-break:break-all}
 small{color:var(--muted)}
+#notice{position:fixed;inset:0;background:rgba(0,0,0,.55);display:flex;align-items:center;justify-content:center;padding:16px;z-index:10}
+#notice[hidden]{display:none}
+#notice .card{max-width:400px;box-shadow:0 8px 32px rgba(0,0,0,.3)}
+#notice p{color:var(--muted);margin:0}
 </style></head>
 <body><main><div class="card">
 <h1 id="title">Loading...</h1>
@@ -41,6 +45,19 @@ small{color:var(--muted)}
 </div>
 <p><small>Votes count only when signed with your own key. Exiting with your exact share is always available.</small></p>
 </main>
+<div id="notice" role="dialog" aria-modal="true" aria-labelledby="notice-title" hidden><div class="card">
+<h1 id="notice-title">Open in your browser (recommended)</h1>
+<p>For your passkey (Face ID or fingerprint) to work, open this page in your phone's browser. In Telegram, tap ••• and choose Open in browser (on iPhone: Open in Safari).</p>
+<button id="notice-ok">Got it</button>
+</div></div>
+<script>(function(){
+// passkeys do not work in Telegram's in-app browser, so phones get a hint to switch browsers
+var n=navigator,phone=/Android|iPhone|iPad|iPod|Mobile/i.test(n.userAgent)||(n.platform==="MacIntel"&&n.maxTouchPoints>1);
+if(!phone)return;
+var box=document.getElementById("notice"),ok=document.getElementById("notice-ok");
+box.hidden=false;ok.focus();
+ok.onclick=function(){box.hidden=true};
+})();</script>
 <script>window.COFER=${boot};</script>
 <script type="module" src="/assets/signer.js"></script>
 </body></html>`;

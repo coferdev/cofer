@@ -105,14 +105,30 @@ function reviveTypedData(td: any) {
   return { ...td, message: { ...td.message, nonce: BigInt(td.message.nonce), epoch: BigInt(td.message.epoch), deadline: BigInt(td.message.deadline) } };
 }
 
-async function main() {
-  const ex = await trpc<{ session: string; purpose: string; ref: string }>("session.exchange", { token: cfg.token }, true);
+// The one-time link is spent here, on the first tap only. A retry after an error reuses the session.
+async function ensureSession() {
+  if (session) return;
+  const ex = await trpc<{ session: string }>("session.exchange", { token: cfg.token }, true);
   session = ex.session;
+}
+
+type Preview = {
+  used: boolean;
+  purpose: string;
+  ref: string;
+  proposal: { summary: string; approvals: number; required: number; stale: boolean } | null;
+};
+
+async function main() {
+  // read-only: opening the page (also in Telegram's in-app browser) does not use up the link
+  const ex = await trpc<Preview>("session.preview", { token: cfg.token });
+  if (ex.used) throw new Error("link already used; tap the button in Telegram again");
   const act = $("action") as HTMLButtonElement;
   // the button stays off while working and after success; an error is shown and the button comes back for a retry
   const guard = (fn: () => Promise<void>) => async () => {
     act.disabled = true;
     try {
+      await ensureSession();
       await fn();
     } catch (e: any) {
       say(`Something went wrong: ${String(e?.message ?? e)}. You can try again.`);
@@ -137,12 +153,13 @@ async function main() {
     return;
   }
 
-  if (ex.purpose === "sign" && ex.ref.startsWith("0x")) {
-    const p = await trpc<any>("proposal.get", { id: ex.ref });
+  if (ex.purpose === "sign" && ex.ref.startsWith("0x") && ex.proposal) {
+    const pv = ex.proposal;
     $("title").textContent = "Vote";
-    $("body").textContent = `${p.summary}\n\nApprovals: ${p.tally.approvals}/${p.tally.required}${p.stale ? "\nSettings changed: this vote can no longer pass." : ""}`;
+    $("body").textContent = `${pv.summary}\n\nApprovals: ${pv.approvals}/${pv.required}${pv.stale ? "\nSettings changed: this vote can no longer pass." : ""}`;
     act.textContent = "Approve with my passkey";
     act.onclick = guard(async () => {
+      const p = await trpc<any>("proposal.get", { id: ex.ref });
       say("Waiting for your passkey...");
       const s = await getSigner();
       const signature = await s.signTypedData(reviveTypedData(p.typedData));

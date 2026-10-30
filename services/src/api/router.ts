@@ -5,7 +5,7 @@
  */
 import { initTRPC, TRPCError } from "@trpc/server";
 import { z } from "zod";
-import { eq } from "drizzle-orm";
+import { eq, isNull } from "drizzle-orm";
 import { getAddress, type Address, type Hex, type PublicClient } from "viem";
 import { schema, type DB } from "../db/client";
 import { potAbi } from "../chain/clients";
@@ -58,23 +58,43 @@ const wrap = async <T>(f: () => Promise<T>) => {
   }
 };
 
+const linkClaims = (token: string, secret: string): LinkClaims => {
+  try {
+    return verifyLink(token, secret);
+  } catch {
+    throw new TRPCError({ code: "UNAUTHORIZED", message: "link expired or invalid; tap the button in Telegram again" });
+  }
+};
+
 export const appRouter = t.router({
   session: t.router({
+    /**
+     * Read-only look at a one-time link: checks HMAC + expiry, but does not spend it and does not
+     * create a session. Opening or previewing the page (e.g. in Telegram's in-app browser) must not
+     * use up the link; only the action button calls exchange.
+     */
+    preview: t.procedure.input(z.object({ token: z.string() })).query(async ({ ctx, input }) => {
+      const claims = linkClaims(input.token, ctx.secret);
+      const row = await ctx.deps.db.query.linkTokens.findFirst({ where: eq(schema.linkTokens.jti, claims.jti) });
+      const used = !!row?.usedAt;
+      let proposal: { summary: string; approvals: number; required: number; stale: boolean } | null = null;
+      if (!used && claims.p === "sign" && claims.ref.startsWith("0x")) {
+        const p = await wrap(() => getSignable(ctx.deps, claims.ref as Hex));
+        proposal = { summary: p.summary, approvals: p.tally.approvals, required: p.tally.required, stale: p.stale };
+      }
+      return { used, purpose: claims.p, ref: claims.ref, proposal };
+    }),
     /** Exchange a one-time bot link for a 1h session (link is single-use via jti). */
     exchange: t.procedure.input(z.object({ token: z.string() })).mutation(async ({ ctx, input }) => {
-      let claims: LinkClaims;
-      try {
-        claims = verifyLink(input.token, ctx.secret);
-      } catch {
-        throw new TRPCError({ code: "UNAUTHORIZED", message: "link expired or invalid; tap the button in Telegram again" });
-      }
-      const db = ctx.deps.db;
-      const used = await db.query.linkTokens.findFirst({ where: eq(schema.linkTokens.jti, claims.jti) });
-      if (used?.usedAt) throw new TRPCError({ code: "UNAUTHORIZED", message: "link already used" });
-      await db
+      const claims = linkClaims(input.token, ctx.secret);
+      // one atomic statement: of two simultaneous taps, only one gets a row back
+      const now = new Date();
+      const spent = await ctx.deps.db
         .insert(schema.linkTokens)
-        .values({ jti: claims.jti, tgId: claims.tg, purpose: claims.p, usedAt: new Date(), expiresAt: new Date(claims.exp * 1000) })
-        .onConflictDoUpdate({ target: schema.linkTokens.jti, set: { usedAt: new Date() } });
+        .values({ jti: claims.jti, tgId: claims.tg, purpose: claims.p, usedAt: now, expiresAt: new Date(claims.exp * 1000) })
+        .onConflictDoUpdate({ target: schema.linkTokens.jti, set: { usedAt: now }, setWhere: isNull(schema.linkTokens.usedAt) })
+        .returning({ jti: schema.linkTokens.jti });
+      if (spent.length === 0) throw new TRPCError({ code: "UNAUTHORIZED", message: "link already used" });
       const session = signLink({ ...claims, p: "session", exp: Math.floor(Date.now() / 1000) + 3600, jti: newJti() }, ctx.secret);
       return { session, purpose: claims.p, ref: claims.ref, chat: claims.chat };
     }),
