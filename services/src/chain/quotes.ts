@@ -8,6 +8,7 @@
 import { zeroAddress, type Address, type Hex, type PublicClient } from "viem";
 import { RHC } from "./addresses";
 import { encodeV3Path } from "../core/swap";
+import { errorKind } from "../core/errors";
 
 /** 0.01%, 0.05%, 0.3%, 1%. */
 export const FEE_TIERS = [100, 500, 3000, 10_000] as const;
@@ -49,7 +50,8 @@ export type TierQuote =
   | { fee: number; status: "ok"; pool: Address; path: Hex; out: bigint }
   | { fee: number; status: "no-pool" }
   | { fee: number; status: "no-liquidity"; pool: Address }
-  | { fee: number; status: "failed"; error: unknown };
+  | { fee: number; status: "pool-failed"; error: unknown } // the pool reverted, e.g. ran out of the gas cap
+  | { fee: number; status: "rpc-error"; error: unknown }; // could not ask the chain at all
 
 export type OkQuote = Extract<TierQuote, { status: "ok" }>;
 
@@ -69,13 +71,18 @@ async function quoteTier(client: QuoteClient, tokenIn: Address, tokenOut: Addres
     });
     return { fee, status: "ok", pool, path, out: result[0] };
   } catch (error) {
-    return { fee, status: "failed", error };
+    return { fee, status: errorKind(error) === "revert" ? "pool-failed" : "rpc-error", error };
   }
 }
 
 /** One result per fee tier, in FEE_TIERS order. Never throws. */
 export function quoteAllTiers(client: QuoteClient, tokenIn: Address, tokenOut: Address, amountIn: bigint): Promise<TierQuote[]> {
   return Promise.all(FEE_TIERS.map((fee) => quoteTier(client, tokenIn, tokenOut, amountIn, fee)));
+}
+
+/** True if any tier could not be asked at all: the result is then incomplete and must not be used. */
+export function anyRpcError(quotes: TierQuote[]): boolean {
+  return quotes.some((q) => q.status === "rpc-error");
 }
 
 /** The tier that pays the most, or null if none quoted. */

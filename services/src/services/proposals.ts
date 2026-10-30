@@ -22,6 +22,7 @@ import {
 } from "../core/proposal";
 import { tally, packVotes, type Vote, type PotRules, type Tally } from "../core/votes";
 import { groupCanBuyStocks } from "../core/geo";
+import { UserError } from "../core/errors";
 
 export interface ProposalDeps {
   db: DB;
@@ -51,7 +52,8 @@ export async function readRules(client: PublicClient, pot: Address): Promise<Pot
   };
 }
 
-export class ProposalError extends Error {}
+/** Fixed text written for members (a UserError), so it is safe to show in the chat. */
+export class ProposalError extends UserError {}
 
 export async function createProposal(
   deps: ProposalDeps,

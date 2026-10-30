@@ -1,0 +1,71 @@
+import { describe, expect, spyOn, test } from "bun:test";
+import { readdirSync, readFileSync } from "node:fs";
+import { join } from "node:path";
+import { ContractFunctionRevertedError, encodeErrorResult, ExecutionRevertedError, HttpRequestError, RpcRequestError, TimeoutError } from "viem";
+import { coferFactoryAbi } from "../src/chain/abi";
+import { errorKind, GENERIC_ERROR_TEXT, logError, redact, revertName, RPC_ERROR_TEXT, UserError, userMessage } from "../src/core/errors";
+import { ProposalError } from "../src/services/proposals";
+import { parseBuy } from "../src/bot/parse";
+
+const SECRET_URL = "https://rhc-mainnet.example-rpc.io/v2/SECRETKEY123?apikey=SECRETKEY123";
+const httpError = () => new HttpRequestError({ url: SECRET_URL, details: "fetch failed", body: { method: "eth_call" } });
+
+describe("what reaches a Telegram chat", () => {
+  test("viem RPC errors carry the URL in their message, and userMessage never does", () => {
+    const e = httpError();
+    expect(e.message).toContain("SECRETKEY123"); // the leak this guards against
+    expect(userMessage(e)).toBe(RPC_ERROR_TEXT);
+    expect(userMessage(new TimeoutError({ body: {}, url: SECRET_URL }))).toBe(RPC_ERROR_TEXT);
+    expect(userMessage(new Error(`boom at ${SECRET_URL}`))).toBe(RPC_ERROR_TEXT); // unknown => fixed text
+    for (const t of [RPC_ERROR_TEXT, GENERIC_ERROR_TEXT]) expect(t).not.toMatch(/https?:|SECRET/);
+  });
+
+  test("only messages written for members pass through", () => {
+    expect(userMessage(new UserError("percent 0.01..100"))).toBe("percent 0.01..100");
+    expect(userMessage(new ProposalError("only members can propose"))).toBe("only members can propose");
+    expect(() => parseBuy("/buy")).toThrow(UserError);
+  });
+
+  test("a contract revert is not an RPC error", () => {
+    expect(errorKind(new ExecutionRevertedError({ message: "execution reverted: Unexpected error" }))).toBe("revert");
+    expect(userMessage(new ExecutionRevertedError({}))).toBe(GENERIC_ERROR_TEXT);
+    expect(errorKind(httpError())).toBe("rpc");
+    expect(errorKind(new RpcRequestError({ body: {}, url: SECRET_URL, error: { code: -32000, message: "out of gas" } }))).toBe("revert");
+    expect(errorKind(new RpcRequestError({ body: {}, url: SECRET_URL, error: { code: -32005, message: "rate limited" } }))).toBe("rpc");
+  });
+
+  test("revertName reads the contract's error (StalePrice = price paused)", () => {
+    const data = encodeErrorResult({ abi: coferFactoryAbi, errorName: "StalePrice", args: ["0x322F0929c4625eD5bAd873c95208D54E1c003b2d"] });
+    const e = new ContractFunctionRevertedError({ abi: coferFactoryAbi, functionName: "quote", data });
+    expect(revertName(e)).toBe("StalePrice");
+    expect(errorKind(e)).toBe("revert");
+    expect(revertName(httpError())).toBeUndefined();
+  });
+});
+
+describe("logs", () => {
+  test("redact removes every URL", () => {
+    expect(redact(`URL: ${SECRET_URL}\nRequest body: {}`)).toBe("URL: <url>\nRequest body: {}");
+    expect(redact("wss://a.b/c?key=1 and http://x")).toBe("<url> and <url>");
+  });
+
+  test("logError never prints the URL", () => {
+    const spy = spyOn(console, "error").mockImplementation(() => {});
+    logError("bot", httpError());
+    const printed = spy.mock.calls.flat().join(" ");
+    spy.mockRestore();
+    expect(printed).toContain("[bot]");
+    expect(printed).not.toContain("SECRETKEY123");
+  });
+});
+
+describe("bot source guard", () => {
+  test("no bot reply is built from an error's own message", () => {
+    const dir = join(import.meta.dir, "..", "src", "bot");
+    for (const f of readdirSync(dir).filter((n) => n.endsWith(".ts"))) {
+      const src = readFileSync(join(dir, f), "utf8");
+      expect({ f, hit: /\b(e|err|error)\s*(as\s+Error\s*\))?\s*\)?\.(message|shortMessage|details)\b/.test(src) }).toEqual({ f, hit: false });
+      expect({ f, hit: /console\.(error|log|warn)\(/.test(src) }).toEqual({ f, hit: false }); // logs go through logError
+    }
+  });
+});

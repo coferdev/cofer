@@ -12,7 +12,8 @@ import { factoryAbi, factoryAddress, potAbi, publicClient, relayerClient, erc20A
 import { Kind, type Action, type TokenMeta } from "../core/proposal";
 import { createProposal, ProposalError, getSignable, type ProposalDeps } from "../services/proposals";
 import { computeMinOut, swapInAfterFee } from "../core/swap";
-import { bestTier, quoteAllTiers } from "../chain/quotes";
+import { anyRpcError, bestTier, quoteAllTiers } from "../chain/quotes";
+import { errorKind, logError, revertName, RPC_ERROR_TEXT, UserError, userMessage } from "../core/errors";
 import { enqueueNotify, enqueueRelay } from "../queues";
 import { assertNoMiniApp, linkButton, signerUrl } from "./keyboards";
 import { parseAllowance, parseBuy, parseSell, parseSend, parseUsdg } from "./parse";
@@ -98,9 +99,14 @@ async function propose(ctx: Context, action: Action) {
       href: signerUrl(linkCtx(ctx), "sign", p.id),
     });
   } catch (e) {
-    await ctx.reply(e instanceof ProposalError ? e.message : "Could not create that vote.");
-    if (!(e instanceof ProposalError)) console.error(e);
+    await replyError(ctx, e);
   }
+}
+
+/** Replies with fixed text only (never raw error text, which can hold the RPC URL) and logs the rest without URLs. */
+async function replyError(ctx: Context, e: unknown) {
+  if (!(e instanceof UserError)) logError("bot", e);
+  await ctx.reply(userMessage(e));
 }
 
 async function findAsset(symbol: string) {
@@ -114,13 +120,21 @@ async function buildSwap(pot: Address, tokenIn: Address, tokenOut: Address, amou
     c.readContract({ address: pot, abi: potAbi, functionName: "config" }),
   ]);
   const { swapIn } = swapInAfterFee(amountIn, Number(feeBps));
-  const q = bestTier(await quoteAllTiers(c, tokenIn, tokenOut, swapIn));
-  if (!q) throw new ProposalError("no Uniswap pool found for that pair");
+  const quotes = await quoteAllTiers(c, tokenIn, tokenOut, swapIn);
+  if (anyRpcError(quotes)) throw new ProposalError(RPC_ERROR_TEXT); // never propose from partial results
+  const q = bestTier(quotes);
+  if (!q) throw new ProposalError("no Uniswap pool can quote that pair right now");
   let oracleOut: bigint;
   try {
     oracleOut = await c.readContract({ address: factoryAddress(), abi: factoryAbi, functionName: "quote", args: [tokenIn, tokenOut, swapIn] });
-  } catch {
-    throw new ProposalError("price feed is paused (market closed or corporate action). Try again when the market reopens.");
+  } catch (e) {
+    if (errorKind(e) === "rpc") throw new ProposalError(RPC_ERROR_TEXT);
+    const name = revertName(e);
+    if (name === "StalePrice" || name === "BadPrice") {
+      throw new ProposalError("price feed is paused (market closed or corporate action). Try again when the market reopens.");
+    }
+    logError("bot", e);
+    throw new ProposalError("could not read the price for that pair");
   }
   const r = computeMinOut({ poolOut: q.out, oracleOut, userSlipBps: slipBps, potMaxSlipBps: Number(cfg[1]) });
   if (!r.ok) throw new ProposalError(r.reason);
@@ -141,6 +155,17 @@ async function resolveMember(ctx: Context, who: string): Promise<Address | null>
 
 export function createBot() {
   const bot = new Bot(env().TELEGRAM_BOT_TOKEN);
+
+  // First middleware, so it covers every command in both polling and webhook mode: an error
+  // reaches the chat only as fixed text, and the logs never see a URL.
+  bot.use(async (ctx, next) => {
+    try {
+      await next();
+    } catch (e) {
+      logError("bot", e);
+      if (ctx.chat) await ctx.reply(userMessage(e)).catch(() => {});
+    }
+  });
 
   bot.command("start", async (ctx) => {
     if (ctx.chat.type !== "private") return ctx.reply("Hi! Run /newpot to open a group account, or /help.");
@@ -251,7 +276,7 @@ export function createBot() {
       tokenCache.set(out.toLowerCase(), { symbol: asset.symbol, decimals: asset.decimals });
       await propose(ctx, await buildSwap(getAddress(pot.address), usdg(), out, cmd.usdg, cmd.slipBps));
     } catch (e) {
-      await ctx.reply((e as Error).message);
+      await replyError(ctx, e);
     }
   });
 
@@ -270,7 +295,7 @@ export function createBot() {
       if (amountIn === 0n) return ctx.reply(`The group holds no ${asset.symbol}.`);
       await propose(ctx, await buildSwap(getAddress(pot.address), tokenIn, usdg(), amountIn, 100));
     } catch (e) {
-      await ctx.reply((e as Error).message);
+      await replyError(ctx, e);
     }
   });
 
@@ -281,7 +306,7 @@ export function createBot() {
       const to = await resolveMember(ctx, cmd.to);
       if (to) await propose(ctx, { kind: Kind.TRANSFER, asset: usdg(), to, amount: cmd.usdg });
     } catch (e) {
-      await ctx.reply((e as Error).message);
+      await replyError(ctx, e);
     }
   });
 
@@ -292,7 +317,7 @@ export function createBot() {
       const who = await resolveMember(ctx, cmd.who);
       if (who) await propose(ctx, { kind: Kind.SET_ALLOWANCE, member: who, amount: cmd.usdg, period: cmd.period });
     } catch (e) {
-      await ctx.reply((e as Error).message);
+      await replyError(ctx, e);
     }
   });
 
@@ -365,7 +390,11 @@ export function createBot() {
     await ephemeral(ctx, `${s.summary}\nStatus: ${s.status}\nSigned by ${s.tally.approvals} of ${s.tally.required} needed.`);
   });
 
-  bot.catch((err) => console.error("[bot]", err.error));
+  // Last stop for any command: log without URLs, reply with fixed text only.
+  bot.catch(async (err) => {
+    logError("bot", err.error);
+    await err.ctx.reply(userMessage(err.error)).catch(() => {});
+  });
   return bot;
 }
 

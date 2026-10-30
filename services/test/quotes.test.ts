@@ -1,6 +1,6 @@
 import { describe, expect, test } from "bun:test";
-import { zeroAddress, type Address } from "viem";
-import { bestTier, FEE_TIERS, QUOTE_GAS, quoteAllTiers, type QuoteClient } from "../src/chain/quotes";
+import { ExecutionRevertedError, HttpRequestError, zeroAddress, type Address } from "viem";
+import { anyRpcError, bestTier, FEE_TIERS, QUOTE_GAS, quoteAllTiers, type QuoteClient } from "../src/chain/quotes";
 import { encodeV3Path } from "../src/core/swap";
 
 const USDG = "0x5fc5360D0400a0Fd4f2af552ADD042D716F1d168" as Address;
@@ -16,7 +16,7 @@ function fakeClient(tiers: Record<number, Tier>) {
     readContract: async (a: { functionName: string; args?: unknown[]; address: Address }) => {
       if (a.functionName === "getPool") {
         const t = tiers[a.args![2] as number] ?? {};
-        if (t.getPoolThrows) throw new Error("getPool failed");
+        if (t.getPoolThrows) throw new HttpRequestError({ url: "https://rpc.example/KEY", details: "fetch failed" });
         return t.pool ? pool(a.args![2] as number) : zeroAddress;
       }
       if (a.functionName === "liquidity") return tiers[Number(BigInt(a.address))]?.liquidity ?? 0n;
@@ -26,7 +26,7 @@ function fakeClient(tiers: Record<number, Tier>) {
       quoteGas.push(a.gas!);
       const fee = parseInt(a.args[0].slice(42, 48), 16);
       const t = tiers[fee]!;
-      if (t.quoteThrows) throw new Error("execution reverted: out of gas");
+      if (t.quoteThrows) throw new ExecutionRevertedError({ message: "execution reverted: Unexpected error" });
       return { result: [t.out!, [], [], 0n] };
     },
   };
@@ -74,19 +74,29 @@ describe("per-stock fee tiers", () => {
     expect(quoteGas).toEqual([QUOTE_GAS, QUOTE_GAS, QUOTE_GAS, QUOTE_GAS]);
   });
 
-  test("a pool that fails to quote is reported, and the other tiers still count", async () => {
+  test("a pool that reverts is a pool failure; a tier the RPC could not answer is an RPC error", async () => {
     const { client } = fakeClient({
       100: { pool: true, liquidity: 1n, quoteThrows: true }, // e.g. NVDA's badly priced 0.01% pool
       500: { pool: true, liquidity: 1n, out: 480n },
       3000: { getPoolThrows: true },
     });
     const quotes = await quoteAllTiers(client, USDG, STOCK, 100n);
-    expect(quotes.map((q) => q.status)).toEqual(["failed", "ok", "failed", "no-pool"]);
+    expect(quotes.map((q) => q.status)).toEqual(["pool-failed", "ok", "rpc-error", "no-pool"]);
+    expect(anyRpcError(quotes)).toBe(true); // the bot refuses: never propose from partial results
     expect(bestTier(quotes)!.fee).toBe(500);
   });
 
   test("no usable tier gives null", async () => {
     const { client } = fakeClient({ 100: { pool: true, liquidity: 1n, quoteThrows: true } });
     expect(bestTier(await quoteAllTiers(client, USDG, STOCK, 100n))).toBeNull();
+  });
+});
+
+describe("RPC errors are not read as no pool", () => {
+  test("a broken pool alone does not count as an RPC error", async () => {
+    const { client } = fakeClient({ 100: { pool: true, liquidity: 1n, quoteThrows: true }, 500: { pool: true, liquidity: 1n, out: 480n } });
+    const quotes = await quoteAllTiers(client, USDG, STOCK, 100n);
+    expect(anyRpcError(quotes)).toBe(false);
+    expect(bestTier(quotes)!.fee).toBe(500);
   });
 });
