@@ -19,6 +19,7 @@ import { enqueueNotify, enqueueRelay } from "../queues";
 import { assertNoMiniApp, linkButton, signerUrl } from "./keyboards";
 import { parseAllowance, parseBuy, parseSell, parseSend, parseUsdg } from "./parse";
 import { allowanceLeft } from "../core/shares";
+import { roomLeft, roomText } from "../core/betaCap";
 
 export const DEFAULT_CONFIG = { guardDelay: 6 * 3600, maxSlipBps: 300, entrySpreadBps: 50, depositsOpen: true } as const;
 export const DEFAULT_THRESHOLD_BPS = 6000; // 3 of 5, 2 of 3, 3 of 4 ...
@@ -247,7 +248,17 @@ export function createBot() {
     if (!(await requireLinked(ctx))) return;
     const pot = await potOf(ctx.chat.id);
     if (!pot) return ctx.reply("No group account here yet.");
-    await ephemeral(ctx, "Add USDG to the group account. You'll get shares for exactly what you put in.", {
+    // beta limit: shown when the value can be read; the signer page checks it again before anything is signed
+    let room: string | null = null;
+    try {
+      const [nav] = await publicClient().readContract({ address: getAddress(pot.address), abi: potAbi, functionName: "navUsdg" });
+      if (roomLeft(nav) === 0n) return ephemeral(ctx, roomText(nav)!);
+      room = roomText(nav);
+    } catch {
+      /* not shown; the signer page refuses if it cannot read the value */
+    }
+    const intro = "Add USDG to the group account. You'll get shares for exactly what you put in.";
+    await ephemeral(ctx, room ? `${intro}\n${room}` : intro, {
       label: "Deposit",
       href: signerUrl(linkCtx(ctx), "deposit", pot.address),
     });

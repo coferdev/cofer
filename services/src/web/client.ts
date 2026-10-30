@@ -18,6 +18,7 @@ import { toWebAuthnKey, WebAuthnMode } from "@zerodev/webauthn-key";
 import { coferPotAbi } from "../chain/abi";
 import { signerProblem } from "../core/signerCheck";
 import { failureText, isHandOff, ServerSaid } from "../core/retryText";
+import { capRefusal, navReadFailureText, roomText } from "../core/betaCap";
 
 declare global {
   interface Window {
@@ -218,11 +219,27 @@ async function main() {
 
   const pot = (ex.ref.startsWith("spend:") ? ex.ref.slice(6) : ex.ref) as Address;
   if (ex.purpose === "deposit") {
+    // the group's value as the contract prices deposits (beta limit); a failed read refuses, never guesses
+    const readNav = async () => {
+      try {
+        const [nav] = (await publicClient.readContract({ address: pot, abi: coferPotAbi, functionName: "navUsdg" })) as readonly [bigint, bigint];
+        return nav;
+      } catch (err) {
+        throw new Stop(navReadFailureText(err));
+      }
+    };
     $("title").textContent = "Deposit USDG";
     $("amount").hidden = false;
     act.textContent = "Deposit";
+    readNav().then(
+      (nav) => ($("body").textContent = roomText(nav) ?? ""),
+      () => {}, // checked again on tap, which shows the reason
+    );
     act.onclick = guard(async () => {
       const amount = BigInt(Math.round(Number(($("amount") as HTMLInputElement).value) * 1e6));
+      // before the passkey is asked for: nothing is signed or sent if the deposit would pass the beta limit
+      const refusal = capRefusal(amount, await readNav());
+      if (refusal) throw new Stop(refusal);
       const s = await memberSigner();
       const approve = encodeFunctionData({ abi: [{ type: "function", name: "approve", stateMutability: "nonpayable", inputs: [{ type: "address" }, { type: "uint256" }], outputs: [{ type: "bool" }] }], args: [pot, amount] });
       const deposit = encodeFunctionData({ abi: coferPotAbi, functionName: "deposit", args: [amount] });
