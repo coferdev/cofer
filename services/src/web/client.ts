@@ -195,6 +195,7 @@ async function main() {
   const pot = (ex.ref.startsWith("spend:") ? ex.ref.slice(6) : ex.ref) as Address;
   if (ex.purpose === "deposit") {
     $("title").textContent = "Deposit USDG";
+    $("amount").hidden = false;
     act.textContent = "Deposit";
     act.onclick = guard(async () => {
       const amount = BigInt(Math.round(Number(($("amount") as HTMLInputElement).value) * 1e6));
@@ -218,6 +219,8 @@ async function main() {
     });
   } else if (ex.purpose === "sign" && ex.ref.startsWith("spend:")) {
     $("title").textContent = "Spend from your allowance";
+    $("amount").hidden = false;
+    $("to").hidden = false;
     act.textContent = "Send";
     act.onclick = guard(async () => {
       const amount = BigInt(Math.round(Number(($("amount") as HTMLInputElement).value) * 1e6));
@@ -229,6 +232,7 @@ async function main() {
     });
   } else if (ex.purpose === "card") {
     $("title").textContent = "Load a card (optional)";
+    $("amount").hidden = false;
     act.textContent = "Get quote";
     act.onclick = guard(async () => {
       const amount = BigInt(Math.round(Number(($("amount") as HTMLInputElement).value) * 1e6));

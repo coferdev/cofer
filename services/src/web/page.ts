@@ -45,8 +45,8 @@ export function signerPage(token: string, cfg: PageCfg): string {
 <body><main><div class="card">
 <h1 id="title">Loading...</h1>
 <p id="body"></p>
-<input id="amount" inputmode="decimal" placeholder="Amount (USDG)">
-<input id="to" placeholder="Recipient 0x... (spend only)">
+<input id="amount" inputmode="decimal" placeholder="Amount (USDG)" hidden>
+<input id="to" placeholder="Recipient 0x..." hidden>
 <label><input type="checkbox" id="useWallet" class="check"> <small>Use a browser wallet instead of a passkey</small></label>
 <button id="action">...</button>
 <p id="status"></p>

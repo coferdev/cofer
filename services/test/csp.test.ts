@@ -18,6 +18,11 @@ describe("signer page content-security-policy", () => {
     expect(html).not.toMatch(/\sstyle=/);
   });
 
+  test("the amount and recipient boxes start hidden (the page shows them only where needed)", () => {
+    expect(html).toMatch(/<input id="amount"[^>]* hidden>/);
+    expect(html).toMatch(/<input id="to"[^>]* hidden>/);
+  });
+
   test("the rest of the policy is unchanged", () => {
     const rest = SIGNER_CSP.split(";").map((d) => d.trim()).filter((d) => !d.startsWith("style-src"));
     expect(rest).toEqual(["default-src 'self'", "script-src 'self' 'unsafe-inline'", "connect-src *", "frame-ancestors 'none'"]);
