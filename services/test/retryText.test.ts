@@ -45,8 +45,21 @@ describe("signer page source guard", () => {
   test("the page never shows an error's own text, except our API's and its own stops", () => {
     const src = readFileSync(join(import.meta.dir, "..", "src", "web", "client.ts"), "utf8");
     const lines = src.split("\n").filter((l) => /\be\??\.message\b/.test(l));
-    expect(lines.length).toBeGreaterThan(0);
-    for (const l of lines) expect({ l, ok: l.includes("e instanceof Stop ? e.message") }).toEqual({ l, ok: true });
+    expect(lines).toEqual(["  if (e instanceof Stop) return say(e.message);"]); // only inside showFailure
     expect(src).toContain('throw new ServerSaid(json.error.message ?? "request failed")');
+    // every failure the page shows goes through showFailure
+    expect(src).toContain("showFailure(e, money && handedOff);");
+    expect(src).toContain("main().catch((e) => showFailure(e, false));");
+    const outside = src.replace(/function showFailure[\s\S]*?\n\}\n/, "");
+    expect(outside).not.toContain("failureText(e"); // failureText is used only inside showFailure
+  });
+
+  test("the full original error goes to the browser's own console, the member sees safe text", () => {
+    const src = readFileSync(join(import.meta.dir, "..", "src", "web", "client.ts"), "utf8");
+    const fn = /function showFailure\(e: unknown, handedOff: boolean\) \{([\s\S]*?)\n\}/.exec(src)![1]!;
+    expect(fn).toContain('console.error("[cofer signer]", e);');
+    expect(fn).toContain("say(failureText(e, handedOff));");
+    expect(fn.indexOf("instanceof Stop")).toBeLessThan(fn.indexOf("console.error")); // stops are not console noise
+    expect(src.match(/console\.(error|log|warn)\(/g)).toEqual(["console.error("]); // the only console call on the page
   });
 });

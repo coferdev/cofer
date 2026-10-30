@@ -118,6 +118,16 @@ async function getSigner(register = false): Promise<Signer> {
 /** A stop the member should read as is (not wrapped in "Something went wrong"). */
 class Stop extends Error {}
 
+/**
+ * Shows a failure. Members only ever read a Stop or failureText's safe text; the full original
+ * error goes to this browser's own console (Safari developer tools) and is not sent anywhere.
+ */
+function showFailure(e: unknown, handedOff: boolean) {
+  if (e instanceof Stop) return say(e.message);
+  console.error("[cofer signer]", e);
+  say(failureText(e, handedOff));
+}
+
 /** Signer for a member action: the picked key must be the one linked to this Telegram user. Nothing is signed or sent before this check. */
 async function memberSigner(): Promise<Signer> {
   const s = await getSigner();
@@ -159,8 +169,8 @@ async function main() {
     try {
       await ensureSession();
       await fn();
-    } catch (e: any) {
-      say(e instanceof Stop ? e.message : failureText(e, money && handedOff));
+    } catch (e) {
+      showFailure(e, money && handedOff);
       act.disabled = false;
     }
   };
@@ -260,4 +270,4 @@ async function main() {
   }
 }
 
-main().catch((e) => say(e instanceof Stop ? e.message : failureText(e, false)));
+main().catch((e) => showFailure(e, false));
