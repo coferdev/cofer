@@ -3,7 +3,7 @@
  *   api      Hono (tRPC signer API, signer page, Telegram webhook)
  *   bot      long-polling bot (development only; production uses the api webhook)
  *   indexer  log watcher -> Postgres projections
- *   keeper   relay worker + scheduled jobs (expire, sweep, stocks, holdings, feeds, ops)
+ *   keeper   relay worker + scheduled jobs (expire, sweep, stocks, holdings, feeds, ops, health)
  *   notifier Telegram card posts/edits
  *   all      everything in one process (small deployments)
  */

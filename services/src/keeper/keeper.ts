@@ -15,9 +15,10 @@ import { feedProblems, type FeedNow } from "../core/feedHealth";
 import { continuityAlertKey, continuityStep, pendingFrom, type Pending, type Reading } from "../core/continuity";
 import { alertDeps, checkAlert, type AlertDeps } from "./alerts";
 import { watchJobFailures } from "./jobAlerts";
+import { HEALTH_EVERY_MS, healthPing } from "./health";
 import { voteAlertClears } from "../relayer/voteAlerts";
 import { relayerFundsProblem } from "../core/relayerFunds";
-import { indexerLagProblem } from "../core/indexerLag";
+import { INDEXER_LAG_ALERT, indexerLagProblem } from "../core/indexerLag";
 import { CURSOR } from "../indexer/indexer";
 
 export async function expireProposals(now = Math.floor(Date.now() / 1000)) {
@@ -315,7 +316,7 @@ export async function checkRelayerFunds(
   return balance;
 }
 
-export const INDEXER_LAG_ALERT = "indexer-behind";
+export { INDEXER_LAG_ALERT };
 
 /** Alerts while the indexer is more than INDEXER_MAX_LAG_SEC behind. A failed chain read is logged and changes nothing. */
 export async function checkIndexerLag(
@@ -375,6 +376,7 @@ export async function scheduleKeeper() {
   await q.upsertJobScheduler("holdings", { every: 300_000 }, { name: "holdings" });
   await q.upsertJobScheduler("feeds", { every: 900_000 }, { name: "feeds" });
   await q.upsertJobScheduler("ops", { every: 300_000 }, { name: "ops" });
+  await q.upsertJobScheduler("health", { every: HEALTH_EVERY_MS }, { name: "health" });
 }
 
 export function startKeeper() {
@@ -392,6 +394,8 @@ export function startKeeper() {
           return refreshHoldings();
         case "ops":
           return opsChecks();
+        case "health":
+          return healthPing();
         case "feeds":
           return { feeds: await feedHealth(), continuity: await multiplierContinuity() };
       }

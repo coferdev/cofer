@@ -8,6 +8,9 @@ import { ageText } from "./feedHealth";
 // The owner's setting.
 export const INDEXER_MAX_LAG_SEC = 300; // 5 minutes
 
+/** The alert's name (the keeper's ops job opens it; the health ping reads it). */
+export const INDEXER_LAG_ALERT = "indexer-behind";
+
 /** The alert text while the indexer is too far behind (or has never saved a block), or null. */
 export function indexerLagProblem(
   s: { cursor: bigint | null; target: bigint; cursorTime: number | null; targetTime: number },
