@@ -12,7 +12,7 @@ import { fetchCanonicalStocks, type CanonicalStock } from "../stocks/canonical";
 import { env } from "../env";
 import { logError } from "../core/errors";
 import { feedProblems, type FeedNow } from "../core/feedHealth";
-import { continuityStep, pendingFrom, type Pending, type Reading } from "../core/continuity";
+import { continuityAlertKey, continuityStep, pendingFrom, type Pending, type Reading } from "../core/continuity";
 import { alertDeps, checkAlert, type AlertDeps } from "./alerts";
 
 export async function expireProposals(now = Math.floor(Date.now() / 1000)) {
@@ -239,7 +239,7 @@ export async function multiplierContinuity(deps: ContinuityDeps = continuityDeps
     const r = continuityStep({ symbol: t.symbol, base: prev?.base ?? null, mismatchSince: prev?.mismatchSince ?? null, now, pending: t.pending, nowSec: deps.now() });
     await deps.save(t.asset, r.base, r.mismatchSince);
     if (r.accepted) await deps.alerts.send(r.accepted);
-    await checkAlert(`continuity:${t.asset.toLowerCase()}`, r.problem, deps.alerts);
+    await checkAlert(continuityAlertKey(t.asset), r.problem, deps.alerts);
     out.push({ asset: t.symbol, problem: r.problem !== null });
   }
   return out;

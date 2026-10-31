@@ -41,6 +41,9 @@ export interface ContinuityResult {
   accepted?: string; // sent once when an unexplained level is accepted after CONTINUITY_ACCEPT_AFTER_SEC
 }
 
+/** The alert's name for one stock (the keeper opens it; the bot pauses buys while it is open). */
+export const continuityAlertKey = (asset: string) => `continuity:${asset.toLowerCase()}`;
+
 const absDiff = (a: bigint, b: bigint) => (a > b ? a - b : b - a);
 /** True if `actual` is within `bps` of `expected`. */
 const within = (actual: bigint, expected: bigint, bps: number) => expected > 0n && absDiff(actual, expected) * 10_000n <= expected * BigInt(bps);

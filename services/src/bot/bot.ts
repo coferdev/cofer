@@ -20,6 +20,8 @@ import { assertNoMiniApp, linkButton, signerUrl } from "./keyboards";
 import { parseAllowance, parseBuy, parseSell, parseSend, parseUsdg } from "./parse";
 import { allowanceLeft } from "../core/shares";
 import { roomLeft, roomText } from "../core/betaCap";
+import { buyPause, potNote } from "../core/buyPause";
+import { continuityAlertKey } from "../core/continuity";
 
 export const DEFAULT_CONFIG = { guardDelay: 6 * 3600, maxSlipBps: 300, entrySpreadBps: 50, depositsOpen: true } as const;
 export const DEFAULT_THRESHOLD_BPS = 6000; // 3 of 5, 2 of 3, 3 of 4 ...
@@ -109,6 +111,11 @@ async function propose(ctx: Context, action: Action) {
 async function replyError(ctx: Context, e: unknown) {
   if (!(e instanceof UserError)) logError("bot", e);
   await ctx.reply(userMessage(e));
+}
+
+/** True while the keeper's multiplier continuity alert is open for this stock. */
+async function continuityOpen(asset: string) {
+  return !!(await db().query.alerts.findFirst({ where: eq(schema.alerts.key, continuityAlertKey(asset)) }));
 }
 
 async function findAsset(symbol: string) {
@@ -303,6 +310,9 @@ export function createBot() {
       const cmd = parseBuy(ctx.message!.text);
       const asset = await findAsset(cmd.symbol);
       if (!asset) return ctx.reply(`${cmd.symbol} isn't on the list.`);
+      // new buys only: /sell, exit and leave never check this
+      const paused = buyPause(asset, await continuityOpen(asset.address), Math.floor(Date.now() / 1000));
+      if (paused) return ctx.reply(paused);
       const out = getAddress(asset.address);
       tokenCache.set(out.toLowerCase(), { symbol: asset.symbol, decimals: asset.decimals });
       await propose(ctx, await buildSwap(getAddress(pot.address), "buy", usdg(), out, cmd.usdg, cmd.slipBps));
@@ -380,12 +390,16 @@ export function createBot() {
     const pot = await potOf(ctx.chat.id);
     if (!pot) return ctx.reply("No group account here yet.");
     const rows = await db().select().from(schema.holdings).where(eq(schema.holdings.pot, pot.address));
-    const lines = rows.map((r) => {
+    const now = Math.floor(Date.now() / 1000);
+    const lines: string[] = [];
+    for (const r of rows) {
       const meta = tokenMetaSync(getAddress(r.asset));
       const qty = formatUnits(BigInt(r.rawBalance) - BigInt(r.reserved), meta.decimals);
       const val = r.valueUsdg ? `${formatUnits(BigInt(r.valueUsdg), 6)} USDG` : "price paused";
-      return `${meta.symbol}: ${qty} (${val})`;
-    });
+      const stock = await db().query.assets.findFirst({ where: eq(schema.assets.address, r.asset) });
+      const note = stock?.isStock ? potNote(stock, await continuityOpen(r.asset), now) : null;
+      lines.push(`${meta.symbol}: ${qty} (${val})${note ? ` · ${note}` : ""}`);
+    }
     await ctx.reply([`Group account ${pot.address}`, ...lines].join("\n") || "Empty.");
   });
 
