@@ -8,6 +8,7 @@ import { db, schema } from "../db/client";
 import { getSignable } from "../services/proposals";
 import { publicClient } from "../chain/clients";
 import { Q, startWorker } from "../queues";
+import { watchJobFailures } from "../keeper/jobAlerts";
 import { proposalCard, assertNoMiniApp } from "../bot/keyboards";
 import { humanPeriod } from "../core/proposal";
 
@@ -41,7 +42,7 @@ export function renderCard(p: {
 }
 
 export function startNotifier(api: Api) {
-  return startWorker(
+  const w = startWorker(
     Q.notify,
     async (job) => {
       if (job.name === "text") {
@@ -77,4 +78,6 @@ export function startNotifier(api: Api) {
     },
     { concurrency: 2, limiter: { max: 25, duration: 1000 } },
   );
+  watchJobFailures(w);
+  return w;
 }

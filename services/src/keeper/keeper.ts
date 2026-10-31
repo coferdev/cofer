@@ -14,6 +14,7 @@ import { errorKind, logError } from "../core/errors";
 import { feedProblems, type FeedNow } from "../core/feedHealth";
 import { continuityAlertKey, continuityStep, pendingFrom, type Pending, type Reading } from "../core/continuity";
 import { alertDeps, checkAlert, type AlertDeps } from "./alerts";
+import { watchJobFailures } from "./jobAlerts";
 import { voteAlertClears } from "../relayer/voteAlerts";
 import { relayerFundsProblem } from "../core/relayerFunds";
 import { indexerLagProblem } from "../core/indexerLag";
@@ -377,7 +378,7 @@ export async function scheduleKeeper() {
 }
 
 export function startKeeper() {
-  return startWorker(
+  const w = startWorker(
     Q.keeper,
     async (job) => {
       switch (job.name) {
@@ -397,4 +398,6 @@ export function startKeeper() {
     },
     { concurrency: 1 },
   );
+  watchJobFailures(w);
+  return w;
 }
