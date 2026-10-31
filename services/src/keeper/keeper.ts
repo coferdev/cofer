@@ -11,6 +11,8 @@ import { Q, queues, enqueueRelay, enqueueNotify, startWorker } from "../queues";
 import { fetchCanonicalStocks, type CanonicalStock } from "../stocks/canonical";
 import { env } from "../env";
 import { logError } from "../core/errors";
+import { feedProblems, type FeedNow } from "../core/feedHealth";
+import { alertDeps, checkAlert, type AlertDeps } from "./alerts";
 
 export async function expireProposals(now = Math.floor(Date.now() / 1000)) {
   const rows = await db()
@@ -110,15 +112,56 @@ export async function refreshHoldings() {
   }
 }
 
-export async function feedHealth(): Promise<{ asset: string; ageSec: number }[]> {
+export interface FeedTarget {
+  symbol: string;
+  asset: Address;
+}
+
+export interface FeedHealthDeps {
+  targets(): Promise<FeedTarget[]>;
+  /** The feed now, or null if the factory has no feed for this asset. Throws if the chain cannot be read. */
+  read(asset: Address): Promise<FeedNow | null>;
+  alerts: AlertDeps;
+  now(): number;
+}
+
+function feedHealthDeps(): FeedHealthDeps {
   const client = publicClient();
-  const listed = await db().select().from(schema.assets).where(eq(schema.assets.listedOnChain, true));
-  const now = Math.floor(Date.now() / 1000);
+  return {
+    async targets() {
+      const listed = await db().select().from(schema.assets).where(eq(schema.assets.listedOnChain, true));
+      return [{ symbol: "USDG", asset: env().USDG_ADDRESS }, ...listed.map((a) => ({ symbol: a.symbol, asset: getAddress(a.address) }))];
+    },
+    async read(asset) {
+      // read live, so a feed changed on the factory (48h timelock) is checked against its new limit
+      const info = await client.readContract({ address: factoryAddress(), abi: factoryAbi, functionName: "assetInfo", args: [asset] });
+      if (!info.listed || info.feed === zeroAddress) return null;
+      const r = await client.readContract({ address: info.feed, abi: aggregatorAbi, functionName: "latestRoundData" });
+      return { answer: r[1], updatedAt: Number(r[3]), maxStaleness: info.maxStaleness };
+    },
+    alerts: alertDeps(),
+    now: () => Math.floor(Date.now() / 1000),
+  };
+}
+
+/**
+ * Checks every listed feed (USDG included) and opens or clears its alerts. A feed that cannot be
+ * read is logged and its alerts are left as they are: an RPC hiccup neither raises nor clears one.
+ */
+export async function feedHealth(deps: FeedHealthDeps = feedHealthDeps()): Promise<{ asset: string; ageSec: number }[]> {
   const out: { asset: string; ageSec: number }[] = [];
-  for (const a of listed) {
-    if (!a.feed) continue;
-    const r = await client.readContract({ address: a.feed as Address, abi: aggregatorAbi, functionName: "latestRoundData" });
-    out.push({ asset: a.symbol, ageSec: now - Number(r[3]) });
+  for (const t of await deps.targets()) {
+    let f: FeedNow | null;
+    try {
+      f = await deps.read(t.asset);
+    } catch (e) {
+      logError("cofer-keeper feeds", e);
+      continue;
+    }
+    if (!f) continue;
+    const now = deps.now();
+    for (const p of feedProblems(t.symbol, t.asset, f, now)) await checkAlert(p.key, p.problem, deps.alerts);
+    out.push({ asset: t.symbol, ageSec: now - f.updatedAt });
   }
   return out;
 }
