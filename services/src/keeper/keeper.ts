@@ -3,7 +3,7 @@
  * permissionless, so liveness never depends on this process: members can always exit, and anyone
  * can execute a passed proposal.
  */
-import { and, inArray, lt, lte, eq, notInArray } from "drizzle-orm";
+import { and, inArray, like, lt, lte, eq, notInArray } from "drizzle-orm";
 import { getAddress, zeroAddress, type Address } from "viem";
 import { db, schema } from "../db/client";
 import { aggregatorAbi, erc20Abi, factoryAbi, factoryAddress, potAbi, publicClient } from "../chain/clients";
@@ -14,6 +14,7 @@ import { errorKind, logError } from "../core/errors";
 import { feedProblems, type FeedNow } from "../core/feedHealth";
 import { continuityAlertKey, continuityStep, pendingFrom, type Pending, type Reading } from "../core/continuity";
 import { alertDeps, checkAlert, type AlertDeps } from "./alerts";
+import { voteAlertClears } from "../relayer/voteAlerts";
 
 export async function expireProposals(now = Math.floor(Date.now() / 1000)) {
   const rows = await db()
@@ -269,6 +270,29 @@ export async function multiplierContinuity(deps: ContinuityDeps = continuityDeps
   return out;
 }
 
+/** Clears vote-failure alerts once the vote executed or ended (opened by the relayer). */
+export async function clearVoteAlerts(
+  deps: { open(): Promise<string[]>; proposal(id: string): Promise<{ status: string; deadline: number } | undefined>; alerts: AlertDeps; now(): number } = {
+    open: async () => (await db().select({ key: schema.alerts.key }).from(schema.alerts).where(like(schema.alerts.key, "vote-failed:%"))).map((r) => r.key),
+    proposal: (id) => db().query.proposals.findFirst({ where: eq(schema.proposals.id, id) }),
+    alerts: alertDeps(),
+    now: () => Math.floor(Date.now() / 1000),
+  },
+) {
+  let cleared = 0;
+  for (const key of await deps.open()) {
+    const id = key.slice("vote-failed:".length);
+    const why = voteAlertClears(await deps.proposal(id), deps.now());
+    if (why && (await checkAlert(key, null, deps.alerts, why)) === "cleared") cleared++;
+  }
+  return cleared;
+}
+
+/** Every 5 minutes: operational checks. */
+export async function opsChecks() {
+  return { voteAlertsCleared: await clearVoteAlerts() };
+}
+
 export async function scheduleKeeper() {
   const q = queues().keeper;
   await q.upsertJobScheduler("expire", { every: 60_000 }, { name: "expire" });
@@ -276,6 +300,7 @@ export async function scheduleKeeper() {
   await q.upsertJobScheduler("stocks", { every: 3_600_000 }, { name: "stocks" });
   await q.upsertJobScheduler("holdings", { every: 300_000 }, { name: "holdings" });
   await q.upsertJobScheduler("feeds", { every: 900_000 }, { name: "feeds" });
+  await q.upsertJobScheduler("ops", { every: 300_000 }, { name: "ops" });
 }
 
 export function startKeeper() {
@@ -291,6 +316,8 @@ export function startKeeper() {
           return refreshStocks();
         case "holdings":
           return refreshHoldings();
+        case "ops":
+          return opsChecks();
         case "feeds":
           return { feeds: await feedHealth(), continuity: await multiplierContinuity() };
       }

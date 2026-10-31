@@ -74,10 +74,11 @@ export function alertDeps(): AlertDeps {
 /**
  * Reports the current state of one problem: `problem` is its text while it holds, null when it
  * does not. Returns what was sent ("opened" / "cleared") or null when nothing changed.
+ * `clearedNote` says why it cleared ("Cleared (it executed): …").
  * If delivery fails, the change is undone (so the next run sends it again) and the failure is
  * logged; it never throws, so one failed message does not stop the checks after it.
  */
-export async function checkAlert(key: string, problem: string | null, deps: AlertDeps = alertDeps()): Promise<"opened" | "cleared" | null> {
+export async function checkAlert(key: string, problem: string | null, deps: AlertDeps = alertDeps(), clearedNote?: string): Promise<"opened" | "cleared" | null> {
   if (problem !== null) {
     if (!(await deps.open(key, problem))) return null;
     try {
@@ -92,7 +93,7 @@ export async function checkAlert(key: string, problem: string | null, deps: Aler
   const was = await deps.close(key);
   if (was === null) return null;
   try {
-    await deps.send(`Cleared: ${was}`);
+    await deps.send(`Cleared${clearedNote ? ` (${clearedNote})` : ""}: ${was}`);
   } catch (e) {
     logError("alerts", e);
     await deps.open(key, was);

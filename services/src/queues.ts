@@ -22,6 +22,12 @@ export function startWorker(name: string, fn: (job: Job) => Promise<unknown>, op
   return w;
 }
 
+/** True when a failed job will not be retried: its last attempt failed (BullMQ counts the attempt before "failed" fires). */
+export function isFinalFailure(job: Pick<Job, "attemptsMade" | "opts">, err?: Error): boolean {
+  if (err?.name === "UnrecoverableError") return true;
+  return job.attemptsMade >= (job.opts.attempts ?? 1);
+}
+
 let _queues: { relay: Queue; notify: Queue; keeper: Queue } | undefined;
 export function queues() {
   _queues ??= {
