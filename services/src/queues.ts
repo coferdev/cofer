@@ -15,7 +15,7 @@ export const Q = { relay: "cofer-relay", notify: "cofer-notify", keeper: "cofer-
  * Every background worker starts here. A failed job is stored in Redis (failedReason, stacktrace)
  * with URLs removed, and failures and worker errors are logged the same way. Retries are unchanged.
  */
-export function startWorker(name: string, fn: (job: Job) => Promise<unknown>, opts: Omit<WorkerOptions, "connection"> = {}): Worker {
+export function startWorker(name: string, fn: (job: Job, token?: string) => Promise<unknown>, opts: Omit<WorkerOptions, "connection"> = {}): Worker {
   const w = new Worker(name, safeJob(fn), { connection: redis(), ...opts });
   w.on("failed", (job, err) => logError(`${name} ${job?.name ?? "?"}`, err));
   w.on("error", (err) => logError(name, err));
