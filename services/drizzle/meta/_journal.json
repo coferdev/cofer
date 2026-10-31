@@ -15,6 +15,13 @@
       "when": 1793391124872,
       "tag": "0001_alerts",
       "breakpoints": true
+    },
+    {
+      "idx": 2,
+      "version": "7",
+      "when": 1793413007109,
+      "tag": "0002_feed_readings",
+      "breakpoints": true
     }
   ]
 }

@@ -183,3 +183,13 @@ export const alerts = pgTable("alerts", {
   text: text("text").notNull(),
   openedAt: timestamp("opened_at", { withTimezone: true }).notNull().defaultNow(),
 });
+
+/** Last trusted feed reading per Stock Token, for the multiplier continuity check (keeper). */
+export const feedReadings = pgTable("feed_readings", {
+  asset: text("asset").primaryKey(),
+  answer: numeric("answer", { precision: 78, scale: 0 }).notNull(), // feed answer, raw
+  feedUpdatedAt: bigint("feed_updated_at", { mode: "number" }).notNull(), // feed's own time, unix seconds
+  multiplier: numeric("multiplier", { precision: 78, scale: 0 }).notNull(), // token uiMultiplier(), 1e18 = 1
+  mismatchSince: bigint("mismatch_since", { mode: "number" }), // unix seconds; set while feed and multiplier disagree
+  seenAt: timestamp("seen_at", { withTimezone: true }).notNull().defaultNow(),
+});

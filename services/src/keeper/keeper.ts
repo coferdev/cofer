@@ -12,6 +12,7 @@ import { fetchCanonicalStocks, type CanonicalStock } from "../stocks/canonical";
 import { env } from "../env";
 import { logError } from "../core/errors";
 import { feedProblems, type FeedNow } from "../core/feedHealth";
+import { continuityStep, pendingFrom, type Pending, type Reading } from "../core/continuity";
 import { alertDeps, checkAlert, type AlertDeps } from "./alerts";
 
 export async function expireProposals(now = Math.floor(Date.now() / 1000)) {
@@ -166,6 +167,84 @@ export async function feedHealth(deps: FeedHealthDeps = feedHealthDeps()): Promi
   return out;
 }
 
+export interface ContinuityTarget {
+  symbol: string;
+  asset: Address;
+  pending: Pending | null;
+}
+
+export interface ContinuityDeps {
+  targets(): Promise<ContinuityTarget[]>;
+  /** Feed price and token multiplier read together, or null if the factory has no feed. Throws if the chain cannot be read. */
+  read(asset: Address): Promise<Reading | null>;
+  load(asset: Address): Promise<{ base: Reading; mismatchSince: number | null } | null>;
+  save(asset: Address, base: Reading, mismatchSince: number | null): Promise<void>;
+  alerts: AlertDeps;
+  now(): number;
+}
+
+function continuityDeps(): ContinuityDeps {
+  const client = publicClient();
+  return {
+    async targets() {
+      const rows = await db()
+        .select()
+        .from(schema.assets)
+        .where(and(eq(schema.assets.listedOnChain, true), eq(schema.assets.isStock, true)));
+      return rows.map((a) => ({ symbol: a.symbol, asset: getAddress(a.address), pending: pendingFrom(a.pendingMultiplier, a.pendingEffectiveAt) }));
+    },
+    async read(asset) {
+      const info = await client.readContract({ address: factoryAddress(), abi: factoryAbi, functionName: "assetInfo", args: [asset] });
+      if (!info.listed || info.feed === zeroAddress) return null;
+      // read at the same moment, so a lagging issuer list never makes a split look like a mismatch
+      const [r, multiplier] = await Promise.all([
+        client.readContract({ address: info.feed, abi: aggregatorAbi, functionName: "latestRoundData" }),
+        client.readContract({ address: asset, abi: erc20Abi, functionName: "uiMultiplier" }),
+      ]);
+      return { answer: r[1], updatedAt: Number(r[3]), multiplier };
+    },
+    async load(asset) {
+      const row = await db().query.feedReadings.findFirst({ where: eq(schema.feedReadings.asset, asset) });
+      if (!row) return null;
+      return { base: { answer: BigInt(row.answer), updatedAt: row.feedUpdatedAt, multiplier: BigInt(row.multiplier) }, mismatchSince: row.mismatchSince };
+    },
+    async save(asset, base, mismatchSince) {
+      const v = { answer: base.answer.toString(), feedUpdatedAt: base.updatedAt, multiplier: base.multiplier.toString(), mismatchSince, seenAt: new Date() };
+      await db()
+        .insert(schema.feedReadings)
+        .values({ asset, ...v })
+        .onConflictDoUpdate({ target: schema.feedReadings.asset, set: v });
+    },
+    alerts: alertDeps(),
+    now: () => Math.floor(Date.now() / 1000),
+  };
+}
+
+/**
+ * Multiplier continuity alert for every listed Stock Token (see core/continuity.ts). A token that
+ * cannot be read is logged and left as it was; a bad price is skipped (feed health reports it).
+ */
+export async function multiplierContinuity(deps: ContinuityDeps = continuityDeps()): Promise<{ asset: string; problem: boolean }[]> {
+  const out: { asset: string; problem: boolean }[] = [];
+  for (const t of await deps.targets()) {
+    let now: Reading | null;
+    try {
+      now = await deps.read(t.asset);
+    } catch (e) {
+      logError("cofer-keeper continuity", e);
+      continue;
+    }
+    if (!now || now.answer <= 0n || now.multiplier <= 0n) continue;
+    const prev = await deps.load(t.asset);
+    const r = continuityStep({ symbol: t.symbol, base: prev?.base ?? null, mismatchSince: prev?.mismatchSince ?? null, now, pending: t.pending, nowSec: deps.now() });
+    await deps.save(t.asset, r.base, r.mismatchSince);
+    if (r.accepted) await deps.alerts.send(r.accepted);
+    await checkAlert(`continuity:${t.asset.toLowerCase()}`, r.problem, deps.alerts);
+    out.push({ asset: t.symbol, problem: r.problem !== null });
+  }
+  return out;
+}
+
 export async function scheduleKeeper() {
   const q = queues().keeper;
   await q.upsertJobScheduler("expire", { every: 60_000 }, { name: "expire" });
@@ -189,7 +268,7 @@ export function startKeeper() {
         case "holdings":
           return refreshHoldings();
         case "feeds":
-          return feedHealth();
+          return { feeds: await feedHealth(), continuity: await multiplierContinuity() };
       }
     },
     { concurrency: 1 },
