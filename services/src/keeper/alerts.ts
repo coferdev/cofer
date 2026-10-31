@@ -12,6 +12,7 @@ import { db, schema } from "../db/client";
 import { env } from "../env";
 import { logAlert, logError, redact } from "../core/errors";
 import { enqueueChatMessage } from "../queues";
+import { noMiniApp } from "../bot/noMiniApp";
 
 type ChatSend = (chat: number, text: string) => Promise<void>;
 
@@ -22,6 +23,7 @@ type ChatSend = (chat: number, text: string) => Promise<void>;
  */
 export function alertBotSender(token: string, fetchImpl?: typeof fetch): ChatSend {
   const api = new Api(token, fetchImpl ? { fetch: fetchImpl } : undefined);
+  api.config.use(noMiniApp);
   return async (chat, text) => {
     try {
       await api.sendMessage(chat, text);

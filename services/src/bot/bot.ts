@@ -20,6 +20,7 @@ import { enqueueNotify, enqueueRelay } from "../queues";
 import { assertNoMiniApp, linkButton, signerUrl } from "./keyboards";
 import { parseAllowance, parseBuy, parseSell, parseSend, parseUsdg } from "./parse";
 import { privateReply, type PrivateReplyDeps } from "./privateReply";
+import { noMiniApp } from "./noMiniApp";
 import { verifyLink } from "../core/linkToken";
 import { alertDeps } from "../keeper/alerts";
 import { allowanceLeft } from "../core/shares";
@@ -194,6 +195,7 @@ async function resolveMember(ctx: Context, who: string): Promise<Address | null>
 
 export function createBot() {
   const bot = new Bot(env().TELEGRAM_BOT_TOKEN);
+  bot.api.config.use(noMiniApp); // every outgoing call, including the notifier's (it uses bot.api)
 
   // First middleware, so it covers every command in both polling and webhook mode: an error
   // reaches the chat only as fixed text, and the logs never see a URL.

@@ -59,19 +59,23 @@ describe("Telegram compliance: plain bot, never a Mini App", () => {
     expect(() => assertNoMiniApp(kb)).toThrow();
   });
 
-  test("no source file uses web_app / webApp / setChatMenuButton", () => {
+  test("no source or script file uses web_app / webApp / setChatMenuButton (only the two guards name them)", () => {
     const hits: string[] = [];
+    // the guards have to name what they refuse
+    const guards = [join("src", "bot", "keyboards.ts"), join("src", "bot", "noMiniApp.ts")];
+    const root = new URL("..", import.meta.url).pathname;
     const walk = (d: string) => {
       for (const f of readdirSync(d)) {
         const p = join(d, f);
         if (statSync(p).isDirectory()) walk(p);
-        else if (p.endsWith(".ts") && !p.includes("keyboards.ts")) {
+        else if (p.endsWith(".ts") && !guards.some((g) => p.endsWith(g))) {
           const s = readFileSync(p, "utf8");
-          if (/\.webApp\(|web_app\s*:|setChatMenuButton|MenuButtonWebApp/.test(s)) hits.push(p);
+          if (/\.webApp\(|["']?web_app["']?\s*:|setChatMenuButton|MenuButtonWebApp|answerWebAppQuery|savePreparedInlineMessage|login_url/.test(s)) hits.push(p);
         }
       }
     };
-    walk(new URL("../src", import.meta.url).pathname);
+    walk(join(root, "src"));
+    walk(join(root, "scripts"));
     expect(hits).toEqual([]);
   });
 });
