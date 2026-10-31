@@ -7,7 +7,7 @@ import { and, inArray, like, lt, lte, eq, notInArray } from "drizzle-orm";
 import { getAddress, zeroAddress, type Address } from "viem";
 import { db, schema } from "../db/client";
 import { aggregatorAbi, erc20Abi, factoryAbi, factoryAddress, potAbi, publicClient, relayerClient } from "../chain/clients";
-import { Q, queues, enqueueRelay, enqueueNotify, startWorker } from "../queues";
+import { Q, queues, enqueueNotify, ensureRelay, startWorker } from "../queues";
 import { fetchCanonicalStocks, type CanonicalStock } from "../stocks/canonical";
 import { env } from "../env";
 import { errorKind, logError } from "../core/errors";
@@ -31,16 +31,29 @@ export async function expireProposals(now = Math.floor(Date.now() / 1000)) {
   return rows.length;
 }
 
-/** Backup for delayed relay jobs: anything whose exit window has passed gets executed. */
-export async function sweepQueued(now = Math.floor(Date.now() / 1000)) {
-  const rows = await db()
-    .select({ id: schema.proposals.id })
+/**
+ * Backup for relay jobs: every passed vote that should run now (ready, or queued past its exit
+ * window) gets a live relay job. A lost job is added again; one that failed all its tries is
+ * retried RELAY_RETRY_AFTER_MS later; one still waiting or running is left alone.
+ */
+export async function sweepQueued(now = Math.floor(Date.now() / 1000), ensure: (id: string, at?: number) => Promise<unknown> = ensureRelay) {
+  const queued = await db()
+    .select({ id: schema.proposals.id, queuedEta: schema.proposals.queuedEta })
     .from(schema.proposals)
     .where(and(eq(schema.proposals.status, "queued"), lte(schema.proposals.queuedEta, now)));
-  for (const r of rows) await enqueueRelay(r.id);
   const ready = await db().select({ id: schema.proposals.id }).from(schema.proposals).where(eq(schema.proposals.status, "ready"));
-  for (const r of ready) await enqueueRelay(r.id);
-  return rows.length + ready.length;
+  // the queued run's job is the one the relayer scheduled at eta + 2 (relayer.ts); a ready vote's is its first
+  const due = [...queued.map((r) => ({ id: r.id, at: r.queuedEta === null ? undefined : r.queuedEta + 2 })), ...ready.map((r) => ({ id: r.id, at: undefined }))];
+  let first: unknown;
+  for (const d of due) {
+    try {
+      await ensure(d.id, d.at);
+    } catch (e) {
+      first ??= e; // e.g. the job changed state meanwhile; the next sweep (30s) looks again
+    }
+  }
+  if (first !== undefined) throw first;
+  return due.length;
 }
 
 /**
