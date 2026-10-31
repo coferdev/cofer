@@ -57,8 +57,8 @@ describe("where the pause applies", () => {
     expect(check).toBeLessThan(buy.indexOf("await propose("));
   });
 
-  test("/sell, /exit, /send and /spend never check it", () => {
-    for (const name of ['"sell"', '["exit", "claim"]', '"send"', '"spend"']) {
+  test("/sell, /exit, /claim, /send and /spend never check it", () => {
+    for (const name of ['"sell"', '"exit"', '"claim"', '"send"', '"spend"']) {
       const body = cmd(name);
       expect(body.length).toBeGreaterThan(0);
       expect(body).not.toMatch(/buyPause|continuityOpen|corporateActionPending/);

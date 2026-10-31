@@ -6,7 +6,7 @@
  */
 import { createHmac, timingSafeEqual } from "node:crypto";
 
-export type LinkPurpose = "onboard" | "sign" | "deposit" | "exit" | "card" | "session";
+export type LinkPurpose = "onboard" | "sign" | "deposit" | "exit" | "claim" | "card" | "session";
 
 export interface LinkClaims {
   tg: number; // telegram user id

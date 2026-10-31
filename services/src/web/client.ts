@@ -258,6 +258,35 @@ async function main() {
       const tx = await s.send!([{ to: pot, data }]);
       say(`Exited. tx ${tx}`);
     }, true);
+  } else if (ex.purpose === "claim") {
+    $("title").textContent = "Claim a set-aside token";
+    $("body").textContent =
+      "If a token could not be sent to you when you exited (for example, its issuer had paused it), it was set aside for you. This sends it to you now. No vote needed. It does not exit or change your share.";
+    act.textContent = "Claim";
+    act.onclick = guard(async () => {
+      const s = await memberSigner();
+      const held = (await publicClient.readContract({ address: pot, abi: coferPotAbi, functionName: "heldAssets" })) as readonly Address[];
+      const owed: Address[] = [];
+      for (const a of held) {
+        const amt = (await publicClient.readContract({ address: pot, abi: coferPotAbi, functionName: "owed", args: [a, s.address] })) as bigint;
+        if (amt > 0n) owed.push(a);
+      }
+      if (owed.length === 0) throw new Stop("Nothing is set aside for you in this group.");
+      // one claim per token, so a token that is still paused does not block the others
+      const done: Hex[] = [];
+      let firstError: unknown;
+      for (const a of owed) {
+        say(owed.length > 1 ? `Confirm claim ${done.length + 1} of ${owed.length} with your passkey...` : "Confirm with your passkey...");
+        try {
+          done.push(await s.send!([{ to: pot, data: encodeFunctionData({ abi: coferPotAbi, functionName: "claimOwed", args: [a, s.address] }) }]));
+        } catch (e) {
+          firstError ??= e;
+        }
+      }
+      if (done.length === 0) throw firstError;
+      const left = owed.length - done.length;
+      say(`Claimed ${done.length} token${done.length === 1 ? "" : "s"}. tx ${done.join(", ")}${left ? `\n${left} could not be claimed yet (the token may still be paused). Try /claim again later.` : ""}`);
+    }, true);
   } else if (ex.purpose === "sign" && ex.ref.startsWith("spend:")) {
     $("title").textContent = "Spend from your allowance";
     $("amount").hidden = false;

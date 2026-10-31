@@ -278,7 +278,17 @@ export function createBot() {
     });
   });
 
-  bot.command(["exit", "claim"], async (ctx) => {
+  bot.command("claim", async (ctx) => {
+    if (!(await requireLinked(ctx))) return;
+    const pot = await potOf(ctx.chat.id);
+    if (!pot) return ctx.reply("No group account here yet.");
+    await ephemeral(ctx, "Claim a token that was set aside for you when you exited (for example, one its issuer had paused). This does not exit or change your share.", {
+      label: "Claim my set-aside token",
+      href: signerUrl(linkCtx(ctx), "claim", pot.address),
+    });
+  });
+
+  bot.command("exit", async (ctx) => {
     if (!(await requireLinked(ctx))) return;
     const pot = await potOf(ctx.chat.id);
     if (!pot) return ctx.reply("No group account here yet.");
@@ -418,8 +428,10 @@ export function createBot() {
         "/spend spend your allowance",
         "/card load a card from your allowance (optional)",
         "/exit take your exact share, any time",
+        "/claim get a token set aside for you during an exit",
         "/me your share and allowance",
         "/pot what the group holds",
+        "/plan 3 vote to prepay the optional group plan for 3 months",
         "/region XX declare your country (stock buys)",
       ].join("\n"),
     ),
