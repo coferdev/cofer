@@ -262,7 +262,7 @@ export async function multiplierContinuity(deps: ContinuityDeps = continuityDeps
     const prev = await deps.load(t.asset);
     const r = continuityStep({ symbol: t.symbol, base: prev?.base ?? null, mismatchSince: prev?.mismatchSince ?? null, now, pending: t.pending, nowSec: deps.now() });
     await deps.save(t.asset, r.base, r.mismatchSince);
-    if (r.accepted) await deps.alerts.send(r.accepted);
+    if (r.accepted) await deps.alerts.send(r.accepted).catch((e) => logError("alerts", e));
     await checkAlert(continuityAlertKey(t.asset), r.problem, deps.alerts);
     out.push({ asset: t.symbol, problem: r.problem !== null });
   }

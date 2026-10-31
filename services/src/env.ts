@@ -33,6 +33,7 @@ const schema = z.object({
   LINK_SECRET: z.string().min(32),
 
   OPS_CHAT_ID: z.string().regex(/^-?\d+$/).transform(Number).optional(), // private chat for keeper alerts (find it with /chatid); unset = log only
+  ALERT_BOT_TOKEN: z.string().min(1).optional(), // secret: a separate bot that sends alerts to OPS_CHAT_ID (unset = the main bot, via the notifier); never logged
   STOCK_API_BASE: z.string().url().default("https://api.robinhood.com/rhj"),
   CARD_ADAPTER: z.enum(["stub", "provider"]).default("stub"),
   CARD_PROVIDER_URL: z.string().url().optional(),

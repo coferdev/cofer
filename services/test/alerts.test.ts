@@ -67,9 +67,8 @@ describe("alerts: where they go", () => {
 
   test("the ops chat is only used when OPS_CHAT_ID is set, and never a group chat", () => {
     const src = readFileSync(join(import.meta.dir, "..", "src", "keeper", "alerts.ts"), "utf8");
-    expect(src).toContain("logAlert(text);");
-    expect(src).toContain("if (chat !== undefined) await enqueueChatMessage(chat, `Cofer alert: ${redact(text)}`);");
-    expect(src.match(/enqueueChatMessage\(/g)?.length).toBe(1);
+    expect(src).toContain("send: (text) => deliver(text, { chat: env().OPS_CHAT_ID, botSend: botSend(), enqueue: enqueueChatMessage }),");
+    expect(src.match(/enqueueChatMessage/g)?.length).toBe(2); // the import and that one line
   });
 
   test("OPS_CHAT_ID is optional and must be a number", () => {
