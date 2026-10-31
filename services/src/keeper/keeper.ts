@@ -16,6 +16,8 @@ import { continuityAlertKey, continuityStep, pendingFrom, type Pending, type Rea
 import { alertDeps, checkAlert, type AlertDeps } from "./alerts";
 import { voteAlertClears } from "../relayer/voteAlerts";
 import { relayerFundsProblem } from "../core/relayerFunds";
+import { indexerLagProblem } from "../core/indexerLag";
+import { CURSOR } from "../indexer/indexer";
 
 export async function expireProposals(now = Math.floor(Date.now() / 1000)) {
   const rows = await db()
@@ -312,6 +314,35 @@ export async function checkRelayerFunds(
   return balance;
 }
 
+export const INDEXER_LAG_ALERT = "indexer-behind";
+
+/** Alerts while the indexer is more than INDEXER_MAX_LAG_SEC behind. A failed chain read is logged and changes nothing. */
+export async function checkIndexerLag(
+  deps: { cursor(): Promise<bigint | null>; head(): Promise<bigint>; blockTime(n: bigint): Promise<number>; confirmations: number; alerts: AlertDeps } = {
+    cursor: async () => (await db().query.cursors.findFirst({ where: eq(schema.cursors.name, CURSOR) }))?.block ?? null,
+    head: () => publicClient().getBlockNumber(),
+    blockTime: async (n) => Number((await publicClient().getBlock({ blockNumber: n })).timestamp),
+    confirmations: env().CONFIRMATIONS,
+    alerts: alertDeps(),
+  },
+) {
+  const cursor = await deps.cursor(); // a database failure fails the job (seen by the job-failure alert)
+  let target: bigint, targetTime: number, cursorTime: number | null;
+  try {
+    target = (await deps.head()) - BigInt(deps.confirmations);
+    if (cursor !== null && cursor >= target) {
+      await checkAlert(INDEXER_LAG_ALERT, null, deps.alerts);
+      return 0;
+    }
+    [targetTime, cursorTime] = await Promise.all([deps.blockTime(target), cursor === null ? null : deps.blockTime(cursor)]);
+  } catch (e) {
+    logError("cofer-keeper indexer lag", e);
+    return null;
+  }
+  await checkAlert(INDEXER_LAG_ALERT, indexerLagProblem({ cursor, target, cursorTime, targetTime }), deps.alerts);
+  return cursorTime === null ? null : targetTime - cursorTime;
+}
+
 /**
  * Every 5 minutes: operational checks. Each one runs even if an earlier one failed; the job still
  * fails afterwards (with the first error), so a check that keeps failing is seen.
@@ -319,6 +350,7 @@ export async function checkRelayerFunds(
 export async function opsChecks(checks: Record<string, () => Promise<unknown>> = {
   voteAlertsCleared: clearVoteAlerts,
   relayerWei: async () => (await checkRelayerFunds())?.toString() ?? null,
+  indexerLagSec: () => checkIndexerLag(),
 }) {
   const out: Record<string, unknown> = {};
   let first: unknown;

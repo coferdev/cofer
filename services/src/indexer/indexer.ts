@@ -12,7 +12,7 @@ import { enqueueNotify, enqueueChatMessage } from "../queues";
 import { logError } from "../core/errors";
 
 const CHUNK = 2_000n;
-const CURSOR = "main";
+export const CURSOR = "main"; // also read by the keeper's lag check
 
 export async function indexOnce(): Promise<bigint> {
   const client = publicClient();
