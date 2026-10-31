@@ -109,6 +109,26 @@ describe("one card per vote", () => {
   });
 });
 
+describe("updates that change nothing send nothing (they merge without using the group's budget)", () => {
+  test("same text and buttons as last shown: no call; a real change: one edit", async () => {
+    const w = world();
+    w.d.lastShown = new Map();
+    await updateCard(ID, w.d); // posted
+    expect(await updateCard(ID, w.d)).toBe("unchanged");
+    expect(await updateCard(ID, w.d)).toBe("unchanged");
+    expect(w.edits).toEqual([]);
+    w.d.load = async () => ({ chatId: CHAT, messageId: w.messageId(), text: "Vote: Buy TSLA (2/3)", open: true });
+    expect(await updateCard(ID, w.d)).toBe("edited");
+    expect(w.edits).toEqual([100]);
+  });
+
+  test("the real notifier remembers what each card showed", () => {
+    const src = readFileSync(join(import.meta.dir, "..", "src", "notifier", "notifier.ts"), "utf8");
+    expect(src).toContain("lastShown,");
+    expect(src).toContain('if (c.messageId && d.lastShown?.get(proposalId) === shown) return "unchanged";');
+  });
+});
+
 describe("Telegram's 'too many requests'", () => {
   test("the wait Telegram asks for, in ms; anything else is not a 429", () => {
     expect(retryAfterMs(tgError(429, "Too Many Requests: retry after 7", 7))).toBe(7000);

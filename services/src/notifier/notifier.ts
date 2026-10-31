@@ -14,6 +14,7 @@ import { Q, startWorker } from "../queues";
 import { watchJobFailures } from "../keeper/jobAlerts";
 import { proposalCard, assertNoMiniApp } from "../bot/keyboards";
 import { humanPeriod } from "../core/proposal";
+import { RateLimited } from "../bot/rateLimit";
 
 export function renderCard(p: {
   summary: string;
@@ -52,14 +53,17 @@ export interface CardDeps {
   send(chatId: number, text: string, kb?: InlineKeyboard): Promise<number>;
   edit(chatId: number, messageId: number, text: string, kb?: InlineKeyboard): Promise<void>;
   saveMessageId(proposalId: string, messageId: number): Promise<void>;
+  /** What each card last showed (text and buttons), so an update that changes nothing sends nothing. */
+  lastShown?: Map<string, string>;
 }
 
 const notModified = (e: unknown) => e instanceof Error && /message is not modified/i.test(e.message);
 /** The card was deleted (e.g. by a group admin) or can no longer be edited: post a new one. */
 const cardGone = (e: unknown) => e instanceof Error && /message to edit not found|message can't be edited|MESSAGE_ID_INVALID/i.test(e.message);
 
-/** Telegram's "too many requests": how long it asks us to wait, or null for any other error. */
+/** Telegram's "too many requests", or our own per-group budget: how long to wait, or null for any other error. */
 export function retryAfterMs(e: unknown): number | null {
+  if (e instanceof RateLimited) return e.retryAfterMs; // our own per-group budget (bot/rateLimit.ts)
   if (!(e instanceof GrammyError) || e.error_code !== 429) return null;
   return Math.max(1, e.parameters?.retry_after ?? 5) * 1000;
 }
@@ -71,22 +75,38 @@ export async function updateCard(proposalId: string, d: CardDeps): Promise<"post
     if (!c) return "gone";
     const kb = c.open ? proposalCard(proposalId) : undefined;
     if (kb) assertNoMiniApp(kb);
+    const shown = `${c.open}|${c.messageId}|${c.text}`;
+    if (c.messageId && d.lastShown?.get(proposalId) === shown) return "unchanged"; // merged with an earlier update: no call, no budget used
     if (c.messageId) {
       try {
         await d.edit(c.chatId, c.messageId, c.text, kb);
+        d.lastShown?.set(proposalId, shown);
         return "edited";
       } catch (e) {
         if (notModified(e)) return "unchanged";
         if (!cardGone(e)) throw e;
       }
     }
-    await d.saveMessageId(proposalId, await d.send(c.chatId, c.text, kb));
+    const messageId = await d.send(c.chatId, c.text, kb);
+    await d.saveMessageId(proposalId, messageId);
+    d.lastShown?.set(proposalId, `${c.open}|${messageId}|${c.text}`);
     return c.messageId ? "reposted" : "posted";
   });
 }
 
+const LAST_SHOWN_MAX = 5_000; // votes remembered per process (oldest forgotten first; forgetting only costs one edit)
+
 function cardDeps(api: Api): CardDeps {
+  const lastShown = new Map<string, string>();
+  const remember = lastShown.set.bind(lastShown);
+  lastShown.set = (k, v) => {
+    lastShown.delete(k);
+    remember(k, v);
+    if (lastShown.size > LAST_SHOWN_MAX) lastShown.delete(lastShown.keys().next().value!);
+    return lastShown;
+  };
   return {
+    lastShown,
     // a Postgres lock per vote, held for the update and released when the transaction ends
     withLock: (id, fn) =>
       db().transaction(async (tx) => {

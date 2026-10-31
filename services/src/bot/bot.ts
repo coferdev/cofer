@@ -16,11 +16,12 @@ import { shownQuantity } from "../core/valuation";
 import { chooseTier, quoteAllTiers } from "../chain/quotes";
 import { depthRefusal, depthTestSize, type Side } from "../core/depth";
 import { errorKind, logError, revertName, RPC_ERROR_TEXT, UserError, userMessage } from "../core/errors";
-import { enqueueNotify, enqueueRelay } from "../queues";
+import { enqueueNotify, enqueueRelay, redis } from "../queues";
 import { assertNoMiniApp, linkButton, signerUrl } from "./keyboards";
 import { parseAllowance, parseBuy, parseSell, parseSend, parseUsdg } from "./parse";
 import { privateReply, type PrivateReplyDeps } from "./privateReply";
 import { noMiniApp } from "./noMiniApp";
+import { chatRateLimit, RateLimited, redisStore, updateUser } from "./rateLimit";
 import { verifyLink } from "../core/linkToken";
 import { alertDeps } from "../keeper/alerts";
 import { allowanceLeft } from "../core/shares";
@@ -196,13 +197,18 @@ async function resolveMember(ctx: Context, who: string): Promise<Address | null>
 export function createBot() {
   const bot = new Bot(env().TELEGRAM_BOT_TOKEN);
   bot.api.config.use(noMiniApp); // every outgoing call, including the notifier's (it uses bot.api)
+  bot.api.config.use(chatRateLimit(redisStore(redis() as unknown as Parameters<typeof redisStore>[0]))); // per-chat budgets, shared via Redis
 
-  // First middleware, so it covers every command in both polling and webhook mode: an error
+  // which member this update is for, so a reply that cannot go to a busy group can go to them by DM
+  bot.use((ctx, next) => updateUser.run({ userId: ctx.from?.id }, next));
+
+  // Before every command (only the member record above runs first), so it covers both polling and webhook mode: an error
   // reaches the chat only as fixed text, and the logs never see a URL.
   bot.use(async (ctx, next) => {
     try {
       await next();
     } catch (e) {
+      if (e instanceof RateLimited) return; // the group is busy and no DM was possible: dropped (the member can run it again)
       logError("bot", e);
       if (ctx.chat) await ctx.reply(userMessage(e)).catch(() => {});
     }
@@ -469,6 +475,7 @@ export function createBot() {
 
   // Last stop for any command: log without URLs, reply with fixed text only.
   bot.catch(async (err) => {
+    if (err.error instanceof RateLimited) return;
     logError("bot", err.error);
     await err.ctx.reply(userMessage(err.error)).catch(() => {});
   });
