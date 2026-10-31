@@ -109,6 +109,6 @@ describe("wiring", () => {
 
   test("the keeper's ops job runs every 5 minutes and clears vote alerts", () => {
     expect(keeper).toContain('await q.upsertJobScheduler("ops", { every: 300_000 }, { name: "ops" });');
-    expect(keeper).toContain("voteAlertsCleared: await clearVoteAlerts()");
+    expect(keeper).toContain("voteAlertsCleared: clearVoteAlerts,");
   });
 });

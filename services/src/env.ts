@@ -1,5 +1,5 @@
 import { z } from "zod";
-import { getAddress } from "viem";
+import { getAddress, parseEther } from "viem";
 import { RHC } from "./chain/addresses";
 
 const hex = z.string().regex(/^0x[0-9a-fA-F]+$/);
@@ -22,6 +22,11 @@ const schema = z.object({
   CONFIRMATIONS: z.coerce.number().default(20), // ~2 s at 0.1 s blocks
 
   RELAYER_PRIVATE_KEY: hex, // pays ETH gas for permissionless execute(); holds no user funds
+  RELAYER_MIN_ETH: z
+    .string()
+    .regex(/^\d+(\.\d{1,18})?$/)
+    .default("0.005")
+    .transform((v) => parseEther(v)), // alert when the relayer's ETH balance is below this
   BUNDLER_URL: z.string().url().optional(), // ZeroDev or Alchemy (member userOps from the signer site)
   PAYMASTER_URL: z.string().url().optional(),
   PASSKEY_SERVER_URL: z.string().url().optional(), // ZeroDev passkey server (signer site)

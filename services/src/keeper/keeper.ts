@@ -6,7 +6,7 @@
 import { and, inArray, like, lt, lte, eq, notInArray } from "drizzle-orm";
 import { getAddress, zeroAddress, type Address } from "viem";
 import { db, schema } from "../db/client";
-import { aggregatorAbi, erc20Abi, factoryAbi, factoryAddress, potAbi, publicClient } from "../chain/clients";
+import { aggregatorAbi, erc20Abi, factoryAbi, factoryAddress, potAbi, publicClient, relayerClient } from "../chain/clients";
 import { Q, queues, enqueueRelay, enqueueNotify, startWorker } from "../queues";
 import { fetchCanonicalStocks, type CanonicalStock } from "../stocks/canonical";
 import { env } from "../env";
@@ -15,6 +15,7 @@ import { feedProblems, type FeedNow } from "../core/feedHealth";
 import { continuityAlertKey, continuityStep, pendingFrom, type Pending, type Reading } from "../core/continuity";
 import { alertDeps, checkAlert, type AlertDeps } from "./alerts";
 import { voteAlertClears } from "../relayer/voteAlerts";
+import { relayerFundsProblem } from "../core/relayerFunds";
 
 export async function expireProposals(now = Math.floor(Date.now() / 1000)) {
   const rows = await db()
@@ -288,9 +289,49 @@ export async function clearVoteAlerts(
   return cleared;
 }
 
-/** Every 5 minutes: operational checks. */
-export async function opsChecks() {
-  return { voteAlertsCleared: await clearVoteAlerts() };
+export const RELAYER_FUNDS_ALERT = "relayer-eth-low";
+
+/** Alerts while the relayer's ETH is below RELAYER_MIN_ETH. A failed balance read is logged and changes nothing. */
+export async function checkRelayerFunds(
+  deps: { address(): string; balance(address: string): Promise<bigint>; min: bigint; alerts: AlertDeps } = {
+    address: () => relayerClient().account.address, // public address only; the key never leaves the account object
+    balance: (address) => publicClient().getBalance({ address: address as Address }),
+    min: env().RELAYER_MIN_ETH,
+    alerts: alertDeps(),
+  },
+) {
+  const address = deps.address();
+  let balance: bigint;
+  try {
+    balance = await deps.balance(address);
+  } catch (e) {
+    logError("cofer-keeper relayer funds", e);
+    return null;
+  }
+  await checkAlert(RELAYER_FUNDS_ALERT, relayerFundsProblem(address, balance, deps.min), deps.alerts);
+  return balance;
+}
+
+/**
+ * Every 5 minutes: operational checks. Each one runs even if an earlier one failed; the job still
+ * fails afterwards (with the first error), so a check that keeps failing is seen.
+ */
+export async function opsChecks(checks: Record<string, () => Promise<unknown>> = {
+  voteAlertsCleared: clearVoteAlerts,
+  relayerWei: async () => (await checkRelayerFunds())?.toString() ?? null,
+}) {
+  const out: Record<string, unknown> = {};
+  let first: unknown;
+  for (const [name, run] of Object.entries(checks)) {
+    try {
+      out[name] = await run();
+    } catch (e) {
+      first ??= e;
+      out[name] = null;
+    }
+  }
+  if (first !== undefined) throw first;
+  return out;
 }
 
 export async function scheduleKeeper() {
