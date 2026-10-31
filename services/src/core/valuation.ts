@@ -6,6 +6,8 @@
  *     shown qty  = rawBalance x uiMultiplier / 1e18       (display units only)
  * The contract uses the same rule (CoferFactory.quote).
  */
+import { formatUnits } from "viem";
+import { multiplierToWad } from "../stocks/canonical";
 
 export interface FeedReading {
   answer: bigint;
@@ -32,6 +34,25 @@ export function valueInUsdg(h: PricedHolding, usdgFeed: FeedReading, usdgDecimal
 /** Quantity to show users (e.g. "2.000 TSLA" after a 2:1 split), from raw balance. */
 export function displayUnits(rawBalance: bigint, uiMultiplier: bigint = 10n ** 18n): bigint {
   return (rawBalance * uiMultiplier) / 10n ** 18n;
+}
+
+/**
+ * The quantity a member sees for a Stock Token: available raw balance x the issuer's multiplier
+ * (an 18-dp decimal string), cut to 6 decimals, never rounded up. Value is never computed from it.
+ * No multiplier (USDG, or an unreadable one) shows the raw amount.
+ */
+export function shownQuantity(rawAvailable: bigint, decimals: number, multiplier: string | null): string {
+  let units = rawAvailable;
+  if (multiplier) {
+    try {
+      units = displayUnits(rawAvailable, multiplierToWad(multiplier));
+    } catch {
+      /* unreadable: raw */
+    }
+  }
+  const [i, f = ""] = formatUnits(units, decimals).split(".");
+  const frac = f.slice(0, 6).replace(/0+$/, "");
+  return frac ? `${i}.${frac}` : i!;
 }
 
 /**

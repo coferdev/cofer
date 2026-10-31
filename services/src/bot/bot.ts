@@ -12,6 +12,7 @@ import { factoryAbi, factoryAddress, potAbi, publicClient, relayerClient, erc20A
 import { Kind, type Action, type TokenMeta } from "../core/proposal";
 import { createProposal, ProposalError, getSignable, type ProposalDeps } from "../services/proposals";
 import { computeMinOut, swapInAfterFee } from "../core/swap";
+import { shownQuantity } from "../core/valuation";
 import { chooseTier, quoteAllTiers } from "../chain/quotes";
 import { depthRefusal, depthTestSize, type Side } from "../core/depth";
 import { errorKind, logError, revertName, RPC_ERROR_TEXT, UserError, userMessage } from "../core/errors";
@@ -394,9 +395,10 @@ export function createBot() {
     const lines: string[] = [];
     for (const r of rows) {
       const meta = tokenMetaSync(getAddress(r.asset));
-      const qty = formatUnits(BigInt(r.rawBalance) - BigInt(r.reserved), meta.decimals);
-      const val = r.valueUsdg ? `${formatUnits(BigInt(r.valueUsdg), 6)} USDG` : "price paused";
       const stock = await db().query.assets.findFirst({ where: eq(schema.assets.address, r.asset) });
+      // shown quantity = raw x multiplier (after a 2-for-1 split, 1 raw TSLA shows as 2); value is raw x feed
+      const qty = shownQuantity(BigInt(r.rawBalance) - BigInt(r.reserved), meta.decimals, stock?.isStock ? stock.currentMultiplier : null);
+      const val = r.valueUsdg ? `${formatUnits(BigInt(r.valueUsdg), 6)} USDG` : "price paused";
       const note = stock?.isStock ? potNote(stock, await continuityOpen(r.asset), now) : null;
       lines.push(`${meta.symbol}: ${qty} (${val})${note ? ` · ${note}` : ""}`);
     }

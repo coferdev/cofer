@@ -10,7 +10,7 @@ import { aggregatorAbi, erc20Abi, factoryAbi, factoryAddress, potAbi, publicClie
 import { Q, queues, enqueueRelay, enqueueNotify, startWorker } from "../queues";
 import { fetchCanonicalStocks, type CanonicalStock } from "../stocks/canonical";
 import { env } from "../env";
-import { logError } from "../core/errors";
+import { errorKind, logError } from "../core/errors";
 import { feedProblems, type FeedNow } from "../core/feedHealth";
 import { continuityAlertKey, continuityStep, pendingFrom, type Pending, type Reading } from "../core/continuity";
 import { alertDeps, checkAlert, type AlertDeps } from "./alerts";
@@ -74,7 +74,6 @@ export async function refreshStocks() {
   return list.length;
 }
 
-/** Holdings snapshot per pot (display only; valuation = raw x feed, multiplier never re-applied). */
 /**
  * This pot's holdings rows for assets it no longer holds. notInArray sends one value per asset
  * (`asset not in ($2, $3)`); a JS array inside a sql`` template is not a Postgres array.
@@ -83,34 +82,59 @@ export function staleHoldings(pot: Address, held: readonly Address[]) {
   return and(eq(schema.holdings.pot, pot), notInArray(schema.holdings.asset, [...held]));
 }
 
-export async function refreshHoldings() {
-  const client = publicClient();
-  const pots = await db().select().from(schema.pots);
-  for (const p of pots) {
-    const pot = getAddress(p.address);
-    const held = await client.readContract({ address: pot, abi: potAbi, functionName: "heldAssets" });
-    for (const asset of held) {
-      const [bal, reserved] = await Promise.all([
-        client.readContract({ address: asset, abi: erc20Abi, functionName: "balanceOf", args: [pot] }),
-        client.readContract({ address: pot, abi: potAbi, functionName: "reserved", args: [asset] }),
-      ]);
-      let value: string | null = null;
-      try {
-        const v = await client.readContract({ address: factoryAddress(), abi: factoryAbi, functionName: "valueInUsdg", args: [asset, bal - reserved] });
-        value = v.toString();
-      } catch {
-        value = null; // stale feed (e.g. US market closed past maxStaleness): shown as "price paused"
-      }
-      await db()
-        .insert(schema.holdings)
-        .values({ pot, asset, rawBalance: bal.toString(), reserved: reserved.toString(), valueUsdg: value })
-        .onConflictDoUpdate({
-          target: [schema.holdings.pot, schema.holdings.asset],
-          set: { rawBalance: bal.toString(), reserved: reserved.toString(), valueUsdg: value, updatedAt: new Date() },
-        });
-    }
-    await db().delete(schema.holdings).where(staleHoldings(pot, held));
+/**
+ * A holding's value, or null for "price paused" when the factory refuses to price it (stale or bad
+ * feed). A chain failure is not a paused price: it is thrown, so the pot keeps its previous rows.
+ */
+export async function valueOrPaused(read: () => Promise<bigint>): Promise<bigint | null> {
+  try {
+    return await read();
+  } catch (e) {
+    if (errorKind(e) === "rpc") throw e;
+    return null; // e.g. US market closed past maxStaleness
   }
+}
+
+/** Holdings snapshot for one pot (display only; valuation = raw x feed, multiplier never re-applied). */
+export async function refreshPotHoldings(pot: Address) {
+  const client = publicClient();
+  const held = await client.readContract({ address: pot, abi: potAbi, functionName: "heldAssets" });
+  for (const asset of held) {
+    const [bal, reserved] = await Promise.all([
+      client.readContract({ address: asset, abi: erc20Abi, functionName: "balanceOf", args: [pot] }),
+      client.readContract({ address: pot, abi: potAbi, functionName: "reserved", args: [asset] }),
+    ]);
+    const v = await valueOrPaused(() => client.readContract({ address: factoryAddress(), abi: factoryAbi, functionName: "valueInUsdg", args: [asset, bal - reserved] }));
+    const value = v === null ? null : v.toString();
+    await db()
+      .insert(schema.holdings)
+      .values({ pot, asset, rawBalance: bal.toString(), reserved: reserved.toString(), valueUsdg: value })
+      .onConflictDoUpdate({
+        target: [schema.holdings.pot, schema.holdings.asset],
+        set: { rawBalance: bal.toString(), reserved: reserved.toString(), valueUsdg: value, updatedAt: new Date() },
+      });
+  }
+  await db().delete(schema.holdings).where(staleHoldings(pot, held));
+}
+
+/** Every pot's holdings. One pot that fails is logged and skipped (its previous rows stay); the others still refresh. */
+export async function refreshHoldings(
+  deps: { pots(): Promise<Address[]>; refresh(pot: Address): Promise<void> } = {
+    pots: async () => (await db().select({ address: schema.pots.address }).from(schema.pots)).map((p) => getAddress(p.address)),
+    refresh: refreshPotHoldings,
+  },
+) {
+  let failed = 0;
+  const pots = await deps.pots();
+  for (const pot of pots) {
+    try {
+      await deps.refresh(pot);
+    } catch (e) {
+      failed++;
+      logError(`cofer-keeper holdings ${pot}`, e);
+    }
+  }
+  return { pots: pots.length, failed };
 }
 
 export interface FeedTarget {
