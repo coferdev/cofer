@@ -19,6 +19,9 @@ import { errorKind, logError, revertName, RPC_ERROR_TEXT, UserError, userMessage
 import { enqueueNotify, enqueueRelay } from "../queues";
 import { assertNoMiniApp, linkButton, signerUrl } from "./keyboards";
 import { parseAllowance, parseBuy, parseSell, parseSend, parseUsdg } from "./parse";
+import { privateReply, type PrivateReplyDeps } from "./privateReply";
+import { verifyLink } from "../core/linkToken";
+import { alertDeps } from "../keeper/alerts";
 import { allowanceLeft } from "../core/shares";
 import { roomLeft, roomText } from "../core/betaCap";
 import { buyPause, potNote } from "../core/buyPause";
@@ -69,19 +72,32 @@ async function potOf(chatId: number) {
   return db().query.pots.findFirst({ where: eq(schema.pots.chatId, chatId) });
 }
 
-/** Sends a message only the tapping user sees (Bot API 10.2 ephemeral), falling back to a DM. */
-async function ephemeral(ctx: Context, text: string, url?: { label: string; href: string }) {
-  const kb = url ? linkButton(url.label, url.href) : undefined;
-  if (kb) assertNoMiniApp(kb);
-  const extra = kb ? { reply_markup: kb } : {};
-  try {
-    await ctx.api.sendMessage(ctx.chat!.id, text, {
-      ...extra,
-      ephemeral_message_parameters: { receiver_user_id: ctx.from!.id, callback_query_id: ctx.callbackQuery?.id },
-    });
-  } catch {
-    await ctx.api.sendMessage(ctx.from!.id, text, extra).catch(() => ctx.reply("Open a private chat with me first, then try again."));
-  }
+/** Cancels a one-time signer link (marks it used), e.g. one that was shown to a whole group. */
+async function burnLink(href: string) {
+  const c = verifyLink(new URL(href).pathname.split("/s/")[1] ?? "", env().LINK_SECRET);
+  const now = new Date();
+  await db()
+    .insert(schema.linkTokens)
+    .values({ jti: c.jti, tgId: c.tg, purpose: c.p, usedAt: now, expiresAt: new Date(c.exp * 1000) })
+    .onConflictDoUpdate({ target: schema.linkTokens.jti, set: { usedAt: now } });
+}
+
+function privateDeps(ctx: Context): PrivateReplyDeps {
+  return {
+    send: (chatId, text, opts) => ctx.api.sendMessage(chatId, text, opts as never),
+    remove: (chatId, messageId) => ctx.api.deleteMessage(chatId, messageId),
+    burn: burnLink,
+    leaked: (chatId) =>
+      alertDeps()
+        .send(`A personal message was shown to a whole group (chat ${chatId}) instead of only to one member. It was deleted, its link was cancelled, and the member got it by DM. Check that ephemeral messages still work.`)
+        .catch((e) => logError("bot", e)),
+  };
+}
+
+/** A reply only the tapping member sees (ephemeral in a group, else a DM); see privateReply.ts. */
+async function ephemeral(ctx: Context, text: string, link?: { label: string; make(): string }) {
+  const r = await privateReply(privateDeps(ctx), { chatId: ctx.chat!.id, chatType: ctx.chat!.type, userId: ctx.from!.id, callbackQueryId: ctx.callbackQuery?.id, text, link });
+  if (r === "none") await ctx.reply("Open a private chat with me first, then try again.");
 }
 
 async function requireLinked(ctx: Context) {
@@ -89,7 +105,7 @@ async function requireLinked(ctx: Context) {
   if (u?.address) return u;
   await ephemeral(ctx, "First set up your key (a passkey on your phone). Takes 20 seconds.", {
     label: "Set up my key",
-    href: signerUrl(linkCtx(ctx), "onboard"),
+    make: () => signerUrl(linkCtx(ctx), "onboard"),
   });
   return null;
 }
@@ -101,7 +117,7 @@ async function propose(ctx: Context, action: Action) {
     const p = await createProposal(proposalDeps(), { pot: getAddress(pot.address), action, proposerTg: ctx.from!.id });
     await ephemeral(ctx, `Proposed: ${p.summary}\nYour vote counts only once you sign it.`, {
       label: "Sign my vote",
-      href: signerUrl(linkCtx(ctx), "sign", p.id),
+      make: () => signerUrl(linkCtx(ctx), "sign", p.id),
     });
   } catch (e) {
     await replyError(ctx, e);
@@ -274,7 +290,7 @@ export function createBot() {
     const intro = "Add USDG to the group account. You'll get shares for exactly what you put in.";
     await ephemeral(ctx, room ? `${intro}\n${room}` : intro, {
       label: "Deposit",
-      href: signerUrl(linkCtx(ctx), "deposit", pot.address),
+      make: () => signerUrl(linkCtx(ctx), "deposit", pot.address),
     });
   });
 
@@ -284,7 +300,7 @@ export function createBot() {
     if (!pot) return ctx.reply("No group account here yet.");
     await ephemeral(ctx, "Claim a token that was set aside for you when you exited (for example, one its issuer had paused). This does not exit or change your share.", {
       label: "Claim my set-aside token",
-      href: signerUrl(linkCtx(ctx), "claim", pot.address),
+      make: () => signerUrl(linkCtx(ctx), "claim", pot.address),
     });
   });
 
@@ -294,7 +310,7 @@ export function createBot() {
     if (!pot) return ctx.reply("No group account here yet.");
     await ephemeral(ctx, "Take your exact share of everything the group holds (USDG and any stocks, as they are). No vote needed. Never paused.", {
       label: "Exit with my share",
-      href: signerUrl(linkCtx(ctx), "exit", pot.address),
+      make: () => signerUrl(linkCtx(ctx), "exit", pot.address),
     });
   });
 
@@ -377,7 +393,7 @@ export function createBot() {
     if (!(await requireLinked(ctx))) return;
     const pot = await potOf(ctx.chat.id);
     if (!pot) return ctx.reply("No group account here yet.");
-    await ephemeral(ctx, "Spend from your own allowance. No vote needed.", { label: "Spend", href: signerUrl(linkCtx(ctx), "sign", `spend:${pot.address}`) });
+    await ephemeral(ctx, "Spend from your own allowance. No vote needed.", { label: "Spend", make: () => signerUrl(linkCtx(ctx), "sign", `spend:${pot.address}`) });
   });
 
   bot.command("card", async (ctx) => {
@@ -386,7 +402,7 @@ export function createBot() {
     if (!pot) return ctx.reply("No group account here yet.");
     await ephemeral(ctx, "Load a card from your allowance (optional; issued by a third-party card provider, availability varies by region).", {
       label: "Load a card",
-      href: signerUrl(linkCtx(ctx), "card", pot.address),
+      make: () => signerUrl(linkCtx(ctx), "card", pot.address),
     });
   });
 
@@ -440,7 +456,7 @@ export function createBot() {
   bot.callbackQuery(/^sign:(0x[0-9a-f]{64})$/, async (ctx) => {
     await ctx.answerCallbackQuery();
     if (!(await requireLinked(ctx))) return;
-    await ephemeral(ctx, "Review the exact action and sign with your passkey.", { label: "Review & sign", href: signerUrl(linkCtx(ctx), "sign", ctx.match[1]) });
+    await ephemeral(ctx, "Review the exact action and sign with your passkey.", { label: "Review & sign", make: () => signerUrl(linkCtx(ctx), "sign", ctx.match[1]) });
   });
 
   bot.callbackQuery(/^info:(0x[0-9a-f]{64})$/, async (ctx) => {
