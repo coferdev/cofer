@@ -20,6 +20,8 @@ Fixes from the 2026-11-01 review of `0.1.0` (commit `aba0779`). `contracts/src` 
 ### Changed
 - CI: the contracts job skips deploy scripts in the size check, so `forge test` runs.
 - CI: every action is pinned to a commit SHA, the job token is read-only, and checkouts do not keep credentials.
+- Bun is pinned to 1.4.4 (`packageManager` in `services/package.json`, also used by CI); `@zerodev/*` are pinned to exact versions.
+- Installs: no package may run install scripts (`trustedDependencies: []` for Bun, `ignore-scripts` for npm in `contracts/`), and Bun skips package versions less than 3 days old. `contracts/package-lock.json` is now committed.
 
 ## [0.1.0] - 2026-10-31
 
