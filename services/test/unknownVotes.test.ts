@@ -35,7 +35,7 @@ describe("votes not made through the bot (M-3)", () => {
     expect(f.ops[0]).toContain(DIGEST);
   });
 
-  test("an unknown executed vote (e.g. a swap, which never queues) is reported too", async () => {
+  test("an unknown executed vote (e.g. a unanimous swap, which runs at once) is reported too", async () => {
     const f = fakeDeps();
     expect(await onVoteEvent(f.deps, { pot: POT, event: executed, isNew: true, known: false })).toBe("alerted");
     expect(f.group[0]![1]).toBe("A vote that was not made through this bot just executed: swap. Check /pot.");

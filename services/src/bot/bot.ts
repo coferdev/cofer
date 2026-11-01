@@ -11,7 +11,7 @@ import { db, schema } from "../db/client";
 import { factoryAbi, factoryAddress, feeRouterAbi, potAbi, publicClient, relayerClient, erc20Abi } from "../chain/clients";
 import { Kind, type Action, type TokenMeta } from "../core/proposal";
 import { createProposal, ProposalError, getSignable, type ProposalDeps } from "../services/proposals";
-import { computeMinOut, swapInAfterFee } from "../core/swap";
+import { computeMinOut, queuedSwapNote, swapInAfterFee } from "../core/swap";
 import { shownQuantity } from "../core/valuation";
 import { chooseTier, quoteAllTiers } from "../chain/quotes";
 import { depthRefusal, depthTestSize, type Side } from "../core/depth";
@@ -137,12 +137,13 @@ async function requireLinked(ctx: Context) {
   return null;
 }
 
-async function propose(ctx: Context, action: Action) {
+/** @param note optional extra text for the proposer (e.g. queuedSwapNote for swaps). */
+async function propose(ctx: Context, action: Action, note?: string | null) {
   const pot = await potOf(ctx.chat!.id);
   if (!pot) return ctx.reply("No group account here yet. An admin can run /newpot.");
   try {
     const p = await createProposal(proposalDeps(), { pot: getAddress(pot.address), action, proposerTg: ctx.from!.id });
-    await ephemeral(ctx, `Proposed: ${p.summary}\nYour vote counts only once you sign it.`, {
+    await ephemeral(ctx, `Proposed: ${p.summary}\nYour vote counts only once you sign it.${note ? `\n\n${note}` : ""}`, {
       label: "Sign my vote",
       make: () => signerUrl(linkCtx(ctx), "sign", p.id),
     });
@@ -181,7 +182,8 @@ async function oracleQuote(tokenIn: Address, tokenOut: Address, amountIn: bigint
   }
 }
 
-async function buildSwap(pot: Address, side: Side, tokenIn: Address, tokenOut: Address, amountIn: bigint, slipBps: number): Promise<Action> {
+/** The swap vote, plus the note explaining the exit-window wait (audit H-2) from the group's own settings. */
+async function buildSwap(pot: Address, side: Side, tokenIn: Address, tokenOut: Address, amountIn: bigint, slipBps: number): Promise<{ action: Action; note: string | null }> {
   const c = publicClient();
   const [feeBps, cfg] = await Promise.all([
     c.readContract({ address: factoryAddress(), abi: factoryAbi, functionName: "swapFeeBps" }),
@@ -204,7 +206,8 @@ async function buildSwap(pot: Address, side: Side, tokenIn: Address, tokenOut: A
   const q = choice.quote;
   const r = computeMinOut({ poolOut: q.out, oracleOut, userSlipBps: slipBps, potMaxSlipBps: Number(cfg[1]) });
   if (!r.ok) throw new ProposalError(r.reason);
-  return { kind: Kind.SWAP, adapter: getAddress(env().ADAPTER_ADDRESS), tokenIn, tokenOut, amountIn, minOut: r.minOut, route: q.path };
+  const action: Action = { kind: Kind.SWAP, adapter: getAddress(env().ADAPTER_ADDRESS), tokenIn, tokenOut, amountIn, minOut: r.minOut, route: q.path };
+  return { action, note: queuedSwapNote({ side, guardDelaySec: Number(cfg[0]), slipBps, maxSlipBps: Number(cfg[1]) }) };
 }
 
 async function resolveMember(ctx: Context, who: string): Promise<Address | null> {
@@ -380,7 +383,8 @@ export function createBot(opts: { cardsOn: boolean }) {
       if (paused) return ctx.reply(paused);
       const out = getAddress(asset.address);
       tokenCache.set(out.toLowerCase(), { symbol: asset.symbol, decimals: asset.decimals });
-      await propose(ctx, await buildSwap(getAddress(pot.address), "buy", usdg(), out, cmd.usdg, cmd.slipBps));
+      const s = await buildSwap(getAddress(pot.address), "buy", usdg(), out, cmd.usdg, cmd.slipBps);
+      await propose(ctx, s.action, s.note);
     } catch (e) {
       await replyError(ctx, e);
     }
@@ -399,7 +403,8 @@ export function createBot(opts: { cardsOn: boolean }) {
       const avail = await publicClient().readContract({ address: getAddress(pot.address), abi: potAbi, functionName: "distributable", args: [tokenIn] });
       const amountIn = (avail * BigInt(cmd.pctBps)) / 10_000n;
       if (amountIn === 0n) return ctx.reply(`The group holds no ${asset.symbol}.`);
-      await propose(ctx, await buildSwap(getAddress(pot.address), "sell", tokenIn, usdg(), amountIn, cmd.slipBps));
+      const s = await buildSwap(getAddress(pot.address), "sell", tokenIn, usdg(), amountIn, cmd.slipBps);
+      await propose(ctx, s.action, s.note);
     } catch (e) {
       await replyError(ctx, e);
     }

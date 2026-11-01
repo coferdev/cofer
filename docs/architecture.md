@@ -27,8 +27,9 @@ they never hold member funds.
 1. A member runs a command (`/send`, `/buy`, ...). The bot builds the proposal, stores it, and posts a card.
 2. Each member taps the card, gets a personal one-time link, opens the signer page, taps "Check this vote"
    (the page rebuilds and checks it), reads the summary built from the exact bytes, then approves with the passkey.
-3. When enough members have signed, the relayer calls `execute()`. A non-unanimous vote (except a swap) is
-   first queued for `guardDelay`, so anyone who disagrees can exit before it runs.
+3. When enough members have signed, the relayer calls `execute()`. A non-unanimous vote, swaps included, is
+   first queued for `guardDelay`, so anyone who disagrees can exit before it runs. A queued swap's price
+   checks run again when it executes.
 4. The indexer sees `ProposalQueued` / `ProposalExecuted` and the notifier updates the card. A vote the bot
    did not create is announced to the group and the ops chat.
 
@@ -80,7 +81,7 @@ signer page (gas paid by the paymaster). No vote, no relayer. `exit` and `leave`
 | `claimOwed` | anyone | no | Always pays the account it is owed to |
 | `execute` | anyone | the votes it carries | Runs or queues one of the 8 vote kinds below |
 
-Vote kinds: `TRANSFER`, `SWAP` (no exit window; oracle floor), `ADD_MEMBER`, `REMOVE_MEMBER` (pays the removed
+Vote kinds: `TRANSFER`, `SWAP` (oracle floor checked when it runs), `ADD_MEMBER`, `REMOVE_MEMBER` (pays the removed
 member their exact share first), `SET_ALLOWANCE`, `SET_THRESHOLD`, `SET_CONFIG`, `PAY_PLAN`. Member, threshold
 and settings changes bump the epoch, which cancels every vote signed before them.
 
@@ -100,7 +101,7 @@ and settings changes bump the epoch, which cancels every vote signed before them
 | Dependency | Trusted for | If it fails or misbehaves |
 | --- | --- | --- |
 | Chainlink feeds on RHC | Prices for deposits (NAV) and the swap floor | Stale or bad prices revert deposits and swaps; exits never use them. See open issue M-1 for stale-but-allowed prices. |
-| Uniswap SwapRouter02 and pools | Executing swaps | `minOut` and the oracle floor bound each swap. See open issue H-2. |
+| Uniswap SwapRouter02 and pools | Executing swaps | `minOut` and the oracle floor bound each swap; a non-unanimous swap waits the exit window first. |
 | USDG and Stock Token issuers | The tokens themselves | An issuer can pause a token; exits set that token aside and pay the rest. |
 | ZeroDev (bundler, paymaster, passkey server) | Sending member userOps; passkey set-up | Members can still use a browser wallet; votes can be submitted by anyone. |
 | Telegram | Delivering commands, cards and links | Funds are unaffected; members can act on-chain directly. |

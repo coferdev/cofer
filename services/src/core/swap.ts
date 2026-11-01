@@ -18,6 +18,27 @@ export function encodeV3Path(tokens: Address[], fees: number[]): Hex {
   return concat(parts);
 }
 
+/** The slip= the bot suggests for a swap that will wait the exit window (capped at the group's limit). */
+export const QUEUED_SLIP_SUGGESTION_BPS = 200;
+
+const pctText = (bps: number) => `${bps / 100}%`;
+
+/**
+ * Note added to a swap proposal (audit H-2): unless every member signs, a swap waits the group's exit
+ * window, and the price can move meanwhile. Suggests a higher slip= when the proposer's is below
+ * min(2%, the group's limit). null when the group has no exit window.
+ */
+export function queuedSwapNote(a: { side: "buy" | "sell"; guardDelaySec: number; slipBps: number; maxSlipBps: number }): string | null {
+  if (a.guardDelaySec <= 0) return null;
+  const hours = a.guardDelaySec % 3600 === 0 ? `${a.guardDelaySec / 3600} hour${a.guardDelaySec === 3600 ? "" : "s"}` : `${Math.ceil(a.guardDelaySec / 60)} minutes`;
+  let note =
+    `Unless every member signs, this ${a.side} waits the group's exit window (${hours}) before it runs, so anyone who disagrees can /exit first. ` +
+    `If the price moves more than ${pctText(a.slipBps)} (your slip) in that time, it fails and needs a new vote.`;
+  const suggest = Math.min(QUEUED_SLIP_SUGGESTION_BPS, a.maxSlipBps);
+  if (a.slipBps < suggest) note += ` For more room, propose again with slip=${suggest / 100} (this group allows up to ${pctText(a.maxSlipBps)}).`;
+  return note;
+}
+
 export function swapInAfterFee(amountIn: bigint, feeBps: number): { fee: bigint; swapIn: bigint } {
   const fee = (amountIn * BigInt(feeBps)) / 10_000n;
   return { fee, swapIn: amountIn - fee };

@@ -62,7 +62,6 @@ These change the audited contracts. Each needs the owner's decision and a re-aud
 
 | ID | Issue | Severity |
 | --- | --- | --- |
-| H-2 | Swaps skip the exit window, so a colluding majority can run many swaps in one transaction through pools they control and drain the minority. | High |
 | M-1 | Deposits are priced on stock feeds up to 4 days old, so a member can deposit at a stale price and exit in kind at a profit. | Medium |
 
 ## Fixed in code, pending re-audit
@@ -71,6 +70,7 @@ These changes are in `contracts/src` after the reviewed version (`v0.1.0`, commi
 
 | ID | Issue | Fix | Checked by |
 | --- | --- | --- | --- |
+| H-2 | Swaps skipped the exit window, so a colluding majority could run many swaps in one transaction through pools they control and drain the minority. | Every non-unanimous vote, swaps included, now waits `guardDelay`; a queued swap's price checks run again when it executes. Unanimous swaps still run at once. | `contracts/test/CoferPot.t.sol` › `test_majoritySwapWaitsGuardDelay`, `test_dissenterExitsInFullBeforeQueuedSwap`, `test_queuedSwapRechecksPriceAtExecution`, `test_unanimousSwapRunsAtOnce` |
 | L-1 | The group-plan price was not part of the signed vote and had no timelock, so the owner could raise it between a vote and its execution. | A plan vote now carries `maxCost`; the pot refuses with `PlanCostAboveMax` if months x the current price is higher. A lower price is paid as is. | `contracts/test/CoferPot.t.sol` › `test_payPlanRefusesAboveMaxCost`, `test_payPlanPaysLowerPriceUnderMaxCost` |
 
 ## Audit history

@@ -406,10 +406,11 @@ contract CoferPotTest is CoferBase {
         uint256 fee = (usdgIn * 30) / 10000;
         uint256 expected = factory.quote(address(usdg), address(tsla), usdgIn - fee);
         bytes memory data = _swapData(address(usdg), address(tsla), usdgIn, (expected * 99) / 100);
-        assertTrue(_exec(SWAP, data, uint256(keccak256(abi.encode(usdgIn, block.timestamp))), _idx(0, 1, 2)));
+        assertTrue(_exec(SWAP, data, uint256(keccak256(abi.encode(usdgIn, block.timestamp))), _all()));
     }
 
-    function test_swapBuysStockTakesFeeNoDelay() public {
+    /// @dev Every member signs: the swap runs at once (no exit window), takes the 0.30% fee and values at the feed.
+    function test_unanimousSwapRunsAtOnce() public {
         _deposit(0, 1_000e6);
         _buyTsla(1_000e6);
         assertEq(usdg.balanceOf(address(feeRouter)), 3e6, "0.30% fee");
@@ -426,7 +427,7 @@ contract CoferPotTest is CoferBase {
         uint64 deadline = uint64(block.timestamp + 1 days);
         bytes32 d = pot.hashProposal(SWAP, data, 1, 0, deadline);
         vm.expectRevert();
-        pot.execute(SWAP, data, 1, 0, deadline, _votes(d, _idx(0, 1, 2)));
+        pot.execute(SWAP, data, 1, 0, deadline, _votes(d, _all()));
     }
 
     function test_swapRevertsIfPoolPaysLessThanMinOut() public {
@@ -437,7 +438,7 @@ contract CoferPotTest is CoferBase {
         uint64 deadline = uint64(block.timestamp + 1 days);
         bytes32 d = pot.hashProposal(SWAP, data, 1, 0, deadline);
         vm.expectRevert();
-        pot.execute(SWAP, data, 1, 0, deadline, _votes(d, _idx(0, 1, 2)));
+        pot.execute(SWAP, data, 1, 0, deadline, _votes(d, _all()));
     }
 
     function test_swapRevertsOnStaleFeed() public {
@@ -448,7 +449,7 @@ contract CoferPotTest is CoferBase {
         uint64 deadline = uint64(block.timestamp + 1 days);
         bytes32 d = pot.hashProposal(SWAP, data, 1, 0, deadline);
         vm.expectRevert();
-        pot.execute(SWAP, data, 1, 0, deadline, _votes(d, _idx(0, 1, 2)));
+        pot.execute(SWAP, data, 1, 0, deadline, _votes(d, _all()));
     }
 
     function test_swapToUnlistedAssetReverts() public {
@@ -457,7 +458,7 @@ contract CoferPotTest is CoferBase {
         uint64 deadline = uint64(block.timestamp + 1 days);
         bytes32 d = pot.hashProposal(SWAP, data, 1, 0, deadline);
         vm.expectRevert(abi.encodeWithSelector(ICoferPot.AssetNotBuyable.selector, address(0xBEEF)));
-        pot.execute(SWAP, data, 1, 0, deadline, _votes(d, _idx(0, 1, 2)));
+        pot.execute(SWAP, data, 1, 0, deadline, _votes(d, _all()));
     }
 
     function test_sellStockBackAndAssetPruned() public {
@@ -466,9 +467,55 @@ contract CoferPotTest is CoferBase {
         uint256 bal = tsla.balanceOf(address(pot));
         uint256 expected = factory.quote(address(tsla), address(usdg), bal - (bal * 30) / 10000);
         bytes memory data = _swapData(address(tsla), address(usdg), bal, (expected * 99) / 100);
-        assertTrue(_exec(SWAP, data, 99, _idx(0, 1, 2)));
+        assertTrue(_exec(SWAP, data, 99, _all()));
         assertEq(tsla.balanceOf(address(pot)), 0);
         assertEq(pot.heldAssets().length, 1, "TSLA pruned from held list");
+    }
+
+    // ------------------------------------------------------------ swaps wait the exit window (audit H-2)
+
+    function _majorityBuy(uint256 usdgIn, uint256 nonce) internal view returns (bytes memory data, uint64 ep, ICoferPot.Vote[] memory v) {
+        uint256 expected = factory.quote(address(usdg), address(tsla), usdgIn - (usdgIn * 30) / 10000);
+        data = _swapData(address(usdg), address(tsla), usdgIn, (expected * 99) / 100);
+        ep = pot.epoch();
+        v = _votes(pot.hashProposal(SWAP, data, nonce, ep, FAR_DEADLINE), _idx(0, 1, 2)); // 3 of 5: passes, not unanimous
+    }
+
+    function test_majoritySwapWaitsGuardDelay() public {
+        for (uint256 i; i < 5; ++i) _deposit(i, 1_000e6);
+        (bytes memory data, uint64 ep, ICoferPot.Vote[] memory v) = _majorityBuy(2_000e6, 501);
+        assertFalse(pot.execute(SWAP, data, 501, ep, FAR_DEADLINE, v), "queued, not run");
+        assertEq(tsla.balanceOf(address(pot)), 0, "nothing swapped yet");
+        assertEq(usdg.balanceOf(address(pot)), 5_000e6);
+        vm.expectRevert(abi.encodeWithSelector(ICoferPot.TooEarly.selector, uint64(block.timestamp + 6 hours)));
+        pot.execute(SWAP, data, 501, ep, FAR_DEADLINE, v);
+        vm.warp(block.timestamp + 6 hours);
+        usdgFeed.set(1e8);
+        tslaFeed.set(250e8);
+        assertTrue(pot.execute(SWAP, data, 501, ep, FAR_DEADLINE, v), "runs after the exit window");
+        assertTrue(tsla.balanceOf(address(pot)) > 0);
+    }
+
+    function test_dissenterExitsInFullBeforeQueuedSwap() public {
+        for (uint256 i; i < 5; ++i) _deposit(i, 1_000e6);
+        (bytes memory data, uint64 ep, ICoferPot.Vote[] memory v) = _majorityBuy(4_000e6, 502);
+        assertFalse(pot.execute(SWAP, data, 502, ep, FAR_DEADLINE, v));
+        uint256 before = usdg.balanceOf(m[4]);
+        vm.prank(m[4]);
+        pot.leave(); // the member who did not sign takes their exact share before the swap can run
+        assertEq(usdg.balanceOf(m[4]) - before, 1_000e6, "full share, in USDG, before any swap");
+    }
+
+    function test_queuedSwapRechecksPriceAtExecution() public {
+        for (uint256 i; i < 5; ++i) _deposit(i, 1_000e6);
+        (bytes memory data, uint64 ep, ICoferPot.Vote[] memory v) = _majorityBuy(1_000e6, 503);
+        assertFalse(pot.execute(SWAP, data, 503, ep, FAR_DEADLINE, v));
+        vm.warp(block.timestamp + 6 hours);
+        usdgFeed.set(1e8);
+        tslaFeed.set(200e8); // TSLA fell 20%: the signed minOut is now far below the oracle floor
+        vm.expectRevert(); // SlippageTooLoose: the floor is checked against the price at execution
+        pot.execute(SWAP, data, 503, ep, FAR_DEADLINE, v);
+        assertEq(tsla.balanceOf(address(pot)), 0, "nothing swapped");
     }
 
     function test_payPlan() public {

@@ -22,8 +22,8 @@ import {ReentrancyGuard} from "./lib/ReentrancyGuard.sol";
 ///    reserved and claimable later via `claimOwed`; the other assets still go out.
 ///  - Allowance spends need no vote and are capped per member per period, in USDG.
 ///  - Everything else needs EIP-712 signatures from `requiredVotes()` distinct current members.
-///    Execution is permissionless. Non-unanimous votes (except swaps) wait `guardDelay` so members
-///    who disagree can exit first.
+///    Execution is permissionless. Every non-unanimous vote, swaps included, waits `guardDelay` so
+///    members who disagree can exit first.
 ///  - Non-upgradeable. The studio cannot move, freeze or pause funds; the factory can only pause
 ///    NEW deposits and pot creation.
 contract CoferPot is ICoferPot, ReentrancyGuard {
@@ -205,7 +205,7 @@ contract CoferPot is ICoferPot, ReentrancyGuard {
         uint256 required = requiredVotes();
         if (approvals < required) revert NotEnoughVotes(approvals, required);
 
-        uint32 delay = (kind == uint8(Kind.SWAP) || approvals >= _memberList.length) ? 0 : config.guardDelay;
+        uint32 delay = approvals >= _memberList.length ? 0 : config.guardDelay;
         if (delay > 0) {
             uint64 q = queuedAt[digest];
             if (q == 0) {
