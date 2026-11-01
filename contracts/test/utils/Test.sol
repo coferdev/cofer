@@ -1,8 +1,11 @@
 // SPDX-License-Identifier: MIT
 pragma solidity 0.8.28;
 
-/// @notice Dependency-free subset of forge-std (cheatcodes + asserts) so the suite compiles with
-///         plain solc and runs under `forge test` or Hardhat 3 Solidity tests without installs.
+/// @notice Written for this repo; no code copied. The Vm interface declares 19 cheatcodes, each with
+///         the same signature as in forge-std v1.17.0 src/Vm.sol (tag commit
+///         f3dae6e6ee381f25eb6a246f7da9b85c91a68219). The assert helpers are this repo's own and
+///         revert with a message, so the suite compiles with plain solc and runs under `forge test`
+///         or Hardhat 3 Solidity tests without installs.
 interface Vm {
     function prank(address) external;
     function startPrank(address) external;

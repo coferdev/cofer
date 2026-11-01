@@ -1,7 +1,13 @@
 // SPDX-License-Identifier: MIT
 pragma solidity 0.8.28;
 
-/// @notice 512-bit mulDiv (rounds down), vendored from OpenZeppelin Contracts v4.9 Math.mulDiv (MIT).
+/// @notice 512-bit mulDiv (rounds down), adapted from OpenZeppelin Contracts v4.9.6 (tag commit
+///         dc44c9f1a4c3b10af99492eed84f83ed244203f6), contracts/utils/math/Math.sol,
+///         mulDiv(uint256,uint256,uint256), the same in every v4.9.x release (MIT; original credit
+///         to Remco Bloemen). Changes that do not alter any result: prod0 is x * y in the unchecked
+///         block instead of mul(x, y) in assembly; twos uses 0 - denominator instead of
+///         ~denominator + 1; a MulDivOverflow() error replaces the require string; the result is
+///         returned implicitly. Checked against plain maths by testFuzz_mulDivMatchesPlainMath.
 library FullMath {
     error MulDivOverflow();
 

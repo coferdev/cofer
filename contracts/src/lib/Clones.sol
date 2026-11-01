@@ -1,7 +1,13 @@
 // SPDX-License-Identifier: MIT
 pragma solidity 0.8.28;
 
-/// @notice EIP-1167 minimal proxy deployment (vendored from OpenZeppelin Contracts v5, MIT).
+/// @notice EIP-1167 minimal proxy deployment, vendored from OpenZeppelin Contracts (MIT),
+///         contracts/proxy/Clones.sol:
+///         - cloneDeterministic: v5.0.2 (tag commit dbb6104ce834628e473d2173bbc9d47f81a9eec3), same
+///           assembly; the block is marked "memory-safe" and the error is FailedDeployment() (the
+///           name OpenZeppelin uses from v5.1) instead of ERC1167FailedCreateClone().
+///         - predictDeterministicAddress: v5.1.0 (tag commit 69c8def5f222ff96f2b5beff05dfba996368aa79),
+///           unchanged (identical through v5.5.0).
 library Clones {
     error FailedDeployment();
 
