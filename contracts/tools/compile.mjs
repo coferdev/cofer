@@ -42,6 +42,7 @@ const input = {
   settings: {
     optimizer: { enabled: true, runs: 200 },
     evmVersion: "cancun",
+    metadata: { bytecodeHash: "ipfs", appendCBOR: true }, // same as foundry.toml (bytecode_hash, cbor_metadata)
     outputSelection: { "*": { "*": ["abi", "evm.bytecode.object", "evm.deployedBytecode.object"] } },
   },
 };

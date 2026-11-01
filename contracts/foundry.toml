@@ -9,6 +9,10 @@ evm_version = "cancun"
 optimizer = true
 optimizer_runs = 200
 via_ir = false
+# Pinned (these are the compiler defaults): the IPFS hash of the metadata sits at the end of the code,
+# so a build matches only from the exact same sources and settings (see services/scripts/check-deploy.ts).
+bytecode_hash = "ipfs"
+cbor_metadata = true
 fuzz = { runs = 512 }
 
 [rpc_endpoints]
