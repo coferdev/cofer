@@ -182,7 +182,7 @@ describe("chat card + card adapter", () => {
   });
 
   test("stub card adapter quotes with a load fee and issues after funding", async () => {
-    const c = new StubCardAdapter();
+    const c = new StubCardAdapter("0x00000000000000000000000000000000000000f1");
     expect(await c.quote({ pot: "0x0000000000000000000000000000000000000001", member: "0x0000000000000000000000000000000000000002", amountUsdg: 5_000_000n })).toBeNull();
     const q = (await c.quote({ pot: "0x0000000000000000000000000000000000000001", member: "0x0000000000000000000000000000000000000002", amountUsdg: 100_000_000n }))!;
     expect(q.amountUsdg).toBe(101_500_000n);

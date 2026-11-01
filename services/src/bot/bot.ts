@@ -28,6 +28,7 @@ import { allowanceLeft } from "../core/shares";
 import { roomLeft, roomText } from "../core/betaCap";
 import { buyPause, potNote } from "../core/buyPause";
 import { continuityAlertKey } from "../core/continuity";
+import { CARDS_OFF_TEXT, helpText } from "./help";
 
 export const DEFAULT_CONFIG = { guardDelay: 6 * 3600, maxSlipBps: 300, entrySpreadBps: 50, depositsOpen: true } as const;
 export const DEFAULT_THRESHOLD_BPS = 6000; // 3 of 5, 2 of 3, 3 of 4 ...
@@ -194,7 +195,8 @@ async function resolveMember(ctx: Context, who: string): Promise<Address | null>
   return getAddress(u.address);
 }
 
-export function createBot() {
+/** @param opts.cardsOn true only when a card adapter runs (index.ts: selectCardAdapter); otherwise /card is hidden. */
+export function createBot(opts: { cardsOn: boolean }) {
   const bot = new Bot(env().TELEGRAM_BOT_TOKEN);
   bot.api.config.use(noMiniApp); // every outgoing call, including the notifier's (it uses bot.api)
   bot.api.config.use(chatRateLimit(redisStore(redis() as unknown as Parameters<typeof redisStore>[0]))); // per-chat budgets, shared via Redis
@@ -405,6 +407,7 @@ export function createBot() {
   });
 
   bot.command("card", async (ctx) => {
+    if (!opts.cardsOn) return ctx.reply(CARDS_OFF_TEXT);
     if (!(await requireLinked(ctx))) return;
     const pot = await potOf(ctx.chat.id);
     if (!pot) return ctx.reply("No group account here yet.");
@@ -439,27 +442,7 @@ export function createBot() {
     await ctx.reply([`Group account ${pot.address}`, ...lines].join("\n") || "Empty.");
   });
 
-  bot.command("help", (ctx) =>
-    ctx.reply(
-      [
-        "/newpot open the group account",
-        "/join ask to join (members vote)",
-        "/deposit add USDG",
-        "/buy TSLA 100 vote to buy with 100 USDG (add slip=0.5 for 0.5% slippage; default 1%)",
-        "/sell TSLA 50% vote to sell (slip=0.5 works here too)",
-        "/send 50 @bob vote to send",
-        "/allowance @amy 50 week set a no-vote allowance",
-        "/spend spend your allowance",
-        "/card load a card from your allowance (optional)",
-        "/exit take your exact share, any time",
-        "/claim get a token set aside for you during an exit",
-        "/me your share and allowance",
-        "/pot what the group holds",
-        "/plan 3 vote to prepay the optional group plan for 3 months",
-        "/region XX declare your country (stock buys)",
-      ].join("\n"),
-    ),
-  );
+  bot.command("help", (ctx) => ctx.reply(helpText({ cardsOn: opts.cardsOn })));
 
   bot.callbackQuery(/^sign:(0x[0-9a-f]{64})$/, async (ctx) => {
     await ctx.answerCallbackQuery();

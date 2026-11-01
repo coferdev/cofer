@@ -15,7 +15,7 @@ export async function buildSignerBundle(): Promise<string> {
   return await out.outputs[0]!.text();
 }
 
-export function createServer(opts: { deps: ProposalDeps; cards: CardAdapter; bot?: Bot; signerJs: string }) {
+export function createServer(opts: { deps: ProposalDeps; cards: CardAdapter | null; bot?: Bot; signerJs: string }) {
   const e = env();
   const pageRpc = signerRpcUrl(e);
   const app = new Hono();

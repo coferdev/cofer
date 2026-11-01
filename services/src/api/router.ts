@@ -18,7 +18,7 @@ import { RPC_UNREACHABLE_TEXT, userMessage } from "../core/errors";
 
 export interface ApiCtx {
   deps: ProposalDeps;
-  cards: CardAdapter;
+  cards: CardAdapter | null; // null = cards are off (cards/select.ts)
   secret: string;
   session: LinkClaims | null;
 }
@@ -198,16 +198,17 @@ export const appRouter = t.router({
 
   card: t.router({
     quote: authed.input(z.object({ pot: zAddr, amountUsdg: zBig })).mutation(async ({ ctx, input }) => {
+      const cards = cardsOrRefuse(ctx.cards);
       const user = await ctx.deps.db.query.users.findFirst({ where: eq(schema.users.tgId, ctx.session.tg) });
       if (!user?.address) throw new TRPCError({ code: "PRECONDITION_FAILED", message: "link your key first" });
-      const q = await ctx.cards.quote({ pot: input.pot, member: getAddress(user.address), amountUsdg: input.amountUsdg });
+      const q = await cards.quote({ pot: input.pot, member: getAddress(user.address), amountUsdg: input.amountUsdg });
       if (!q) throw new TRPCError({ code: "BAD_REQUEST", message: "cards are not available for this amount or region" });
       await ctx.deps.db.insert(schema.cardOrders).values({
         id: q.orderId,
         pot: input.pot,
         member: user.address,
         amountUsdg: q.amountUsdg.toString(),
-        provider: ctx.cards.name,
+        provider: cards.name,
         fundingAddress: q.fundingAddress,
         status: "quoted",
       });
@@ -215,7 +216,16 @@ export const appRouter = t.router({
       return { ...q, amountUsdg: q.amountUsdg.toString(), loadFeeUsdg: q.loadFeeUsdg.toString() };
     }),
     confirm: authed.input(z.object({ orderId: z.string(), spendTx: zHex })).mutation(async ({ ctx, input }) => {
-      const st = await ctx.cards.confirm(input);
+      const cards = cardsOrRefuse(ctx.cards);
+      // only the member who asked for the quote may confirm it (same answer whether the order is missing or someone else's)
+      const [user, order] = await Promise.all([
+        ctx.deps.db.query.users.findFirst({ where: eq(schema.users.tgId, ctx.session.tg) }),
+        ctx.deps.db.query.cardOrders.findFirst({ where: eq(schema.cardOrders.id, input.orderId) }),
+      ]);
+      if (!order || !user?.address || getAddress(order.member) !== getAddress(user.address)) {
+        throw new TRPCError({ code: "NOT_FOUND", message: "unknown card order" });
+      }
+      const st = await cards.confirm(input);
       await ctx.deps.db.update(schema.cardOrders).set({ status: st.status, spendTx: input.spendTx }).where(eq(schema.cardOrders.id, input.orderId));
       return st;
     }),
@@ -223,6 +233,12 @@ export const appRouter = t.router({
 });
 
 export type AppRouter = typeof appRouter;
+
+/** Cards are optional and off by default: refuse the card routes when no adapter runs. */
+function cardsOrRefuse(cards: CardAdapter | null): CardAdapter {
+  if (!cards) throw new TRPCError({ code: "PRECONDITION_FAILED", message: "cards are not available" });
+  return cards;
+}
 
 export function linkMessage(tgId: number, nonce: string): string {
   return `Link Telegram account ${tgId} to my Cofer key.\nNonce: ${nonce}`;

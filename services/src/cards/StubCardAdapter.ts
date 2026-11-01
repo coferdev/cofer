@@ -2,15 +2,17 @@ import { keccak256, toHex, type Address, type Hex } from "viem";
 import type { CardAdapter, CardQuote, CardStatus } from "./CardAdapter";
 
 /**
- * Development stub. Behaves like a provider that charges a flat 1.5% load fee and "issues" a card
- * once the spend tx is reported. Swap for the real provider adapter (CARD_ADAPTER=provider) once
- * its API contract is confirmed out of band.
+ * Development stub, TESTNET ONLY (cards/select.ts refuses it on any other chain). Behaves like a
+ * provider that charges a flat 1.5% load fee and "issues" a card once the spend tx is reported; no
+ * real card exists. Swap for the real provider adapter (CARD_ADAPTER=provider) once its API
+ * contract is confirmed out of band.
  */
 export class StubCardAdapter implements CardAdapter {
   readonly name = "stub";
   private orders = new Map<string, CardStatus>();
 
-  constructor(private readonly fundingAddress: Address = "0x000000000000000000000000000000000000dEaD") {}
+  /** @param fundingAddress where card spends go; required, there is no default. */
+  constructor(private readonly fundingAddress: Address) {}
 
   async quote(args: { pot: Address; member: Address; amountUsdg: bigint }): Promise<CardQuote | null> {
     if (args.amountUsdg < 10_000_000n) return null; // 10 USDG minimum

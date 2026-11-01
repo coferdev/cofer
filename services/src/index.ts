@@ -15,26 +15,20 @@ import { startIndexer } from "./indexer/indexer";
 import { startKeeper, scheduleKeeper } from "./keeper/keeper";
 import { startRelayer } from "./relayer/relayer";
 import { startNotifier } from "./notifier/notifier";
-import { StubCardAdapter } from "./cards/StubCardAdapter";
+import { selectCardAdapter } from "./cards/select";
 import { logError } from "./core/errors";
-import type { CardAdapter } from "./cards/CardAdapter";
-
-function cards(): CardAdapter {
-  if (env().CARD_ADAPTER === "provider") {
-    throw new Error("Provider card adapter is out of band: implement CardAdapter for the provider's API (see cards/CardAdapter.ts)");
-  }
-  return new StubCardAdapter();
-}
 
 async function main() {
   const e = env();
   const role = e.ROLE;
+  // checked first, in every role: a card setting that must never run (e.g. the stub off testnet) stops start-up
+  const cards = selectCardAdapter(e);
   await assertFactoryUsdg(publicClient(), factoryAddress(), e.USDG_ADDRESS);
-  const bot = createBot();
+  const bot = createBot({ cardsOn: cards !== null });
   const run = (r: string) => role === "all" || role === r;
 
   if (run("api")) {
-    const app = createServer({ deps: proposalDeps(), cards: cards(), bot, signerJs: await buildSignerBundle() });
+    const app = createServer({ deps: proposalDeps(), cards, bot, signerJs: await buildSignerBundle() });
     Bun.serve({ port: e.PORT, fetch: app.fetch });
     if (e.BOT_MODE === "webhook") {
       await bot.api.setWebhook(`${e.PUBLIC_URL}/tg/webhook`, {

@@ -41,7 +41,8 @@ const schema = z.object({
   ALERT_BOT_TOKEN: z.string().min(1).optional(), // secret: a separate bot that sends alerts to OPS_CHAT_ID (unset = the main bot, via the notifier); never logged
   HEALTHCHECK_PING_URL: z.string().url().optional(), // secret-ish: pinged every 5 min while healthy (e.g. healthchecks.io); never logged
   STOCK_API_BASE: z.string().url().default("https://api.robinhood.com/rhj"),
-  CARD_ADAPTER: z.enum(["stub", "provider"]).default("stub"),
+  CARD_ADAPTER: z.enum(["off", "stub", "provider"]).default("off"), // stub is testnet-only (see cards/select.ts)
+  CARD_STUB_FUNDING_ADDRESS: addr.optional(), // testnet stub only: where card spends go (an address you control)
   CARD_PROVIDER_URL: z.string().url().optional(),
   CARD_PROVIDER_KEY: z.string().optional(),
 });

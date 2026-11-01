@@ -2,6 +2,7 @@ import { describe, expect, test } from "bun:test";
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import { signerUrl } from "../src/bot/keyboards";
+import { helpText } from "../src/bot/help";
 import { verifyLink } from "../src/core/linkToken";
 
 const SRC = join(import.meta.dir, "..", "src");
@@ -52,8 +53,12 @@ describe("/claim gets a set-aside token, never an exit", () => {
 
 describe("/help", () => {
   test("lists /claim and /plan", () => {
-    const help = command('"help"');
-    expect(help).toContain('"/claim get a token set aside for you during an exit"');
-    expect(help).toContain('"/plan 3 vote to prepay the optional group plan for 3 months"');
+    // the text lives in bot/help.ts; the /help command replies with it
+    expect(command('"help"')).toContain("helpText(");
+    for (const cardsOn of [false, true]) {
+      const help = helpText({ cardsOn });
+      expect(help).toContain("/claim get a token set aside for you during an exit");
+      expect(help).toContain("/plan 3 vote to prepay the optional group plan for 3 months");
+    }
   });
 });
