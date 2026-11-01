@@ -48,6 +48,20 @@ export FACTORY=0x...                  # CoferFactory address
 Only after the cause is understood and fixed: call the same functions with `false`, check with
 `cast call` as above, and tell the groups.
 
+## After any admin change
+
+Every admin change (pause, guardian, ownership, listing, feed, adapter, fee, sinks, plan price) is
+announced in the ops chat by the indexer; queued feed, adapter and fee changes are also announced in
+every group. The keeper alerts within 5 minutes if the owner or guardian differ from `EXPECTED_OWNER`
+/ `EXPECTED_GUARDIAN`, or an ownership transfer is pending. After the change, update
+`contracts/deployments/4663.json` if the expected values changed, and run the full check:
+
+```bash
+cd services && bun run check-deploy ../contracts/deployments/4663.json --rpc $RHC_RPC
+```
+
+An alert you cannot explain is an incident: pause deposits first, then investigate.
+
 If the guardian key may be compromised, the Safe calls `setGuardian(<new wallet>)` first, then
 checks `cast call $FACTORY "guardian()(address)" --rpc-url $RHC_RPC`.
 

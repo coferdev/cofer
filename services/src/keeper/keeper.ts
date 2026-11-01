@@ -6,7 +6,7 @@
 import { and, inArray, like, lt, lte, eq, notInArray } from "drizzle-orm";
 import { getAddress, zeroAddress, type Address } from "viem";
 import { db, schema } from "../db/client";
-import { aggregatorAbi, erc20Abi, factoryAbi, factoryAddress, potAbi, publicClient, relayerClient } from "../chain/clients";
+import { aggregatorAbi, erc20Abi, factoryAbi, factoryAddress, feeRouterAbi, potAbi, publicClient, relayerClient } from "../chain/clients";
 import { Q, queues, enqueueNotify, ensureRelay, startWorker } from "../queues";
 import { fetchCanonicalStocks, type CanonicalStock } from "../stocks/canonical";
 import { env } from "../env";
@@ -19,6 +19,7 @@ import { HEALTH_EVERY_MS, healthPing } from "./health";
 import { voteAlertClears } from "../relayer/voteAlerts";
 import { relayerFundsProblem } from "../core/relayerFunds";
 import { INDEXER_LAG_ALERT, indexerLagProblem } from "../core/indexerLag";
+import { ROLES_ALERT, roleProblem, type RoleState } from "../core/roles";
 import { CURSOR } from "../indexer/indexer";
 
 export async function expireProposals(now = Math.floor(Date.now() / 1000)) {
@@ -329,6 +330,38 @@ export async function checkRelayerFunds(
   return balance;
 }
 
+/** Alerts while the factory/fee-router roles differ from what is expected (see core/roles.ts). A failed read is logged and changes nothing. */
+export async function checkRoles(
+  deps: { read(): Promise<RoleState>; expected: { owner?: string; guardian?: string }; alerts: AlertDeps } = {
+    read: async () => {
+      const c = publicClient();
+      const factory = factoryAddress();
+      const router = (await c.readContract({ address: factory, abi: factoryAbi, functionName: "feeRouter" })) as Address;
+      const [factoryOwner, factoryPendingOwner, guardian, routerOwner, routerPendingOwner] = await Promise.all([
+        c.readContract({ address: factory, abi: factoryAbi, functionName: "owner" }),
+        c.readContract({ address: factory, abi: factoryAbi, functionName: "pendingOwner" }),
+        c.readContract({ address: factory, abi: factoryAbi, functionName: "guardian" }),
+        c.readContract({ address: router, abi: feeRouterAbi, functionName: "owner" }),
+        c.readContract({ address: router, abi: feeRouterAbi, functionName: "pendingOwner" }),
+      ]);
+      return { factoryOwner, factoryPendingOwner, guardian, routerOwner, routerPendingOwner } as RoleState;
+    },
+    expected: { owner: env().EXPECTED_OWNER, guardian: env().EXPECTED_GUARDIAN },
+    alerts: alertDeps(),
+  },
+) {
+  let s: RoleState;
+  try {
+    s = await deps.read();
+  } catch (e) {
+    logError("cofer-keeper roles", e);
+    return null;
+  }
+  const problem = roleProblem(s, deps.expected);
+  await checkAlert(ROLES_ALERT, problem, deps.alerts);
+  return problem === null;
+}
+
 export { INDEXER_LAG_ALERT };
 
 /** Alerts while the indexer is more than INDEXER_MAX_LAG_SEC behind. A failed chain read is logged and changes nothing. */
@@ -366,6 +399,7 @@ export async function opsChecks(checks: Record<string, () => Promise<unknown>> =
   voteAlertsCleared: clearVoteAlerts,
   relayerWei: async () => (await checkRelayerFunds())?.toString() ?? null,
   indexerLagSec: () => checkIndexerLag(),
+  rolesAsExpected: () => checkRoles(),
 }) {
   const out: Record<string, unknown> = {};
   let first: unknown;

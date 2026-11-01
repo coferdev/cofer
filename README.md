@@ -91,14 +91,22 @@ unset DEPLOYER_KEY
 
 ### 5. Check what is live (read-only)
 
+After the hand-off, prove that what is live is the audited build with the documented roles and settings.
+Copy `contracts/deployments/4663.example.json` to `contracts/deployments/4663.json`, fill in every address
+(and add each listed stock), then:
+
 ```bash
-cast call <factory> "owner()(address)" --rpc-url $RHC_RPC          # the Safe
-cast call <factory> "pendingOwner()(address)" --rpc-url $RHC_RPC   # 0x000...000 after hand-off
-cast call <factory> "guardian()(address)" --rpc-url $RHC_RPC
-cast call <factory> "isAdapter(address)(bool)" <adapter> --rpc-url $RHC_RPC
-cast call <factory> "swapFeeBps()(uint16)" --rpc-url $RHC_RPC
-cast call <feeRouter> "owner()(address)" --rpc-url $RHC_RPC        # the Safe
+cd contracts && forge build && cd ..
+cd services && bun run check-deploy ../contracts/deployments/4663.json --rpc $RHC_RPC
 ```
+
+It compares each contract's code with the local build (deploy-time values masked) and checks the wiring,
+the Safe (2-of-3) as owner of both contracts with no pending owner, the guardian, the fee sinks, the swap
+fee, the plan price, the pause flags, the adapter and every listed asset. It prints PASS or FAIL per line,
+exits with an error on any mismatch, and never signs or sends anything. Commit the filled-in `4663.json`
+with the deploy, and run the check again after every admin change.
+
+Set `EXPECTED_OWNER` and `EXPECTED_GUARDIAN` in the services `.env` so the keeper alerts if the roles ever change.
 
 ### 6. Services
 

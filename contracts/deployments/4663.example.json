@@ -1,0 +1,26 @@
+{
+  "_howto": "Copy to 4663.json after the mainnet deploy, replace every 0xFILL_IN value, add each listed stock to assets, then run: cd services && bun run check-deploy ../contracts/deployments/4663.json",
+  "chainId": 4663,
+  "contracts": {
+    "factory": "0xFILL_IN_CoferFactory",
+    "feeRouter": "0xFILL_IN_FeeRouter",
+    "implementation": "0xFILL_IN_CoferPot_implementation",
+    "adapter": "0xFILL_IN_UniV3SwapAdapter"
+  },
+  "expected": {
+    "owner": "0x5ACD09eAe4f160e2f2e2356e6eF0496EF6f0f064",
+    "safe": { "threshold": 2, "owners": 3 },
+    "guardian": "0xFILL_IN_guardian_wallet",
+    "sinks": ["0xFILL_IN_guardian_wallet", "0xFILL_IN_guardian_wallet", "0xFILL_IN_guardian_wallet", "0xFILL_IN_guardian_wallet"],
+    "sinkBps": [8000, 1000, 500, 500],
+    "usdg": "0x5fc5360D0400a0Fd4f2af552ADD042D716F1d168",
+    "swapRouter": "0xCaf681a66D020601342297493863E78C959E5cb2",
+    "swapFeeBps": 30,
+    "planPricePerMonth": "9000000",
+    "depositsPaused": false,
+    "creationPaused": false,
+    "assets": [
+      { "address": "0x5fc5360D0400a0Fd4f2af552ADD042D716F1d168", "feed": "0x8bEeE3503F6860D5dac4cE26b5eEe92982951c2e", "maxStaleness": 86400, "buyable": true, "isStock": false }
+    ]
+  }
+}

@@ -15,8 +15,9 @@ they never hold member funds.
 | Bot | `services/src/bot/` | Plain Telegram bot (no Mini App). Commands, proposal cards, personal one-time links to the signer site. | Bot token |
 | Signer API + page | `services/src/api/`, `services/src/web/` | Exchanges a one-time link for a 1h session; serves the signing page. The page checks every vote before the passkey is asked (`services/src/core/signCheck.ts`). | `LINK_SECRET` |
 | Relayer | `services/src/relayer/` | Submits `CoferPot.execute()` (permissionless) and pays its gas. | Relayer key (gas only) |
-| Indexer | `services/src/indexer/` | Reads chain logs into Postgres; alerts on votes the bot did not create. | Nothing |
-| Keeper | `services/src/keeper/` | Scheduled jobs and ops alerts (feeds, relayer balance, indexer lag, failed votes and jobs). | Optional alerts bot token |
+| Indexer | `services/src/indexer/` | Reads chain logs (pots, factory, fee router) into Postgres; alerts on votes the bot did not create and on every admin change (queued feed, adapter and fee changes also go to every group). | Nothing |
+| Post-deploy check | `services/scripts/check-deploy.ts` | Read-only: compares live code with the local build and live roles and settings with `contracts/deployments/4663.json`; fails on any mismatch. | Nothing |
+| Keeper | `services/src/keeper/` | Scheduled jobs and ops alerts (feeds, relayer balance, indexer lag, failed votes and jobs, owner/guardian drift). | Optional alerts bot token |
 | Notifier | `services/src/notifier/` | One card per vote in the group, edited in place; at most 18 messages a minute per group. | Nothing |
 | Member key | Member's device | Kernel v3.1 smart account with a passkey (or a browser wallet). Signs votes; sends deposits, exits, spends and claims as userOps. | The member's seat |
 

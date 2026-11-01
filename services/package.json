@@ -18,7 +18,8 @@
     "banned-words": "bun ../tools/banned-words.ts",
     "db:generate": "drizzle-kit generate",
     "db:migrate": "drizzle-kit migrate",
-    "assets": "bun scripts/build-asset-list.ts"
+    "assets": "bun scripts/build-asset-list.ts",
+    "check-deploy": "bun scripts/check-deploy.ts"
   },
   "dependencies": {
     "@hono/trpc-server": "^0.4.0",

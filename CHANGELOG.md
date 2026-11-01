@@ -20,6 +20,8 @@ Fixes from the 2026-11-01 review of `0.1.0` (commit `aba0779`). `contracts/src` 
 - `LICENSE` (MIT) and `SECURITY.md`: how to report a problem, roles and who holds them, accepted risks with reasons, open issues.
 - README: a deploy guide from a fresh clone; rule 3 now describes the owner Safe, the guardian and the fee sinks accurately.
 - CI: a TruffleHog secret scan, and Dependabot updates for GitHub Actions.
+- Alerts for every admin change on `CoferFactory` and `FeeRouter` (ownership, guardian, pauses, listings, feeds, adapters, fees, sinks, plan price) in the ops chat; queued feed, adapter and fee changes are also announced in every group with the time they can apply. The keeper checks every 5 minutes that the owner and guardian match `EXPECTED_OWNER` / `EXPECTED_GUARDIAN` and that no ownership transfer is pending (FeeRouter ownership changes emit no events).
+- A read-only post-deploy check (`bun run check-deploy <manifest>`): live code against the local build, wiring, roles (including the Safe's 2-of-3), settings and listed assets, from `contracts/deployments/4663.json`; exits with an error on any mismatch.
 - Tests: a stateful invariant suite on `CoferPot` (100,000 random calls: share and set-aside accounting, solvency, exits never revert), negative tests for every owner and guardian function and every pot entry point, and for every signer API route and the Telegram webhook.
 - `docs/`: architecture with a roles matrix of every privileged function, invariants each linked to the test that checks it (untested ones marked), a threat model with what Cofer does not protect, and a pause runbook.
 
