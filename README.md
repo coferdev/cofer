@@ -5,6 +5,7 @@ A shared group money account on Robinhood Chain (4663), run from a Telegram grou
 - `contracts/`: Solidity 0.8.28, dependency-free (minimal libs vendored). `CoferPot` (one EIP-1167 clone per group), `CoferFactory` (registry + timelocked admin), `UniV3SwapAdapter`, `FeeRouter`, mocks, forge-style tests, `script/Deploy.s.sol`.
 - `services/`: Bun + Hono + tRPC v11 + Drizzle (Postgres) + BullMQ + viem + grammY. Plain Telegram bot, signer site + API, relayer, indexer, keeper, notifier, card adapter interface + stub.
 - `tools/banned-words.ts`: CI gate for banned marketing words.
+- `docs/`: [architecture and roles](docs/architecture.md), [invariants and their tests](docs/invariants.md), [threat model](docs/threat-model.md), [pause runbook](docs/runbook.md). Security contact and open issues: [SECURITY.md](SECURITY.md).
 
 ## Verify
 

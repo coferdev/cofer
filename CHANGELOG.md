@@ -20,6 +20,7 @@ Fixes from the 2026-11-01 review of `0.1.0` (commit `aba0779`). `contracts/src` 
 - `LICENSE` (MIT) and `SECURITY.md`: how to report a problem, roles and who holds them, accepted risks with reasons, open issues.
 - README: a deploy guide from a fresh clone; rule 3 now describes the owner Safe, the guardian and the fee sinks accurately.
 - CI: a TruffleHog secret scan, and Dependabot updates for GitHub Actions.
+- `docs/`: architecture with a roles matrix of every privileged function, invariants each linked to the test that checks it (untested ones marked), a threat model with what Cofer does not protect, and a pause runbook.
 
 ### Changed
 - CI: the contracts job skips deploy scripts in the size check, so `forge test` runs.

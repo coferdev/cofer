@@ -16,6 +16,10 @@ Robinhood Chain RPCs, and Chainlink feeds.
 
 ## Roles
 
+Every privileged function and who can call it is listed in [docs/architecture.md](docs/architecture.md);
+attackers and what stops them are in [docs/threat-model.md](docs/threat-model.md); how to pause is in
+[docs/runbook.md](docs/runbook.md).
+
 | Role | Held by | What it can do | What it cannot do |
 | --- | --- | --- | --- |
 | Owner of `CoferFactory` and `FeeRouter` | 2-of-3 Safe multisig on Robinhood Chain, `0x5ACD09eAe4f160e2f2e2356e6eF0496EF6f0f064`. It takes over from the deployer by calling `acceptOwnership()` on both contracts after deploy. | Pause or unpause new deposits and new pots. List assets, and set assets buyable or not (immediate). Queue feed, swap-adapter and swap-fee changes (48h timelock), and remove an adapter (immediate). Replace the guardian. On `FeeRouter`: set the plan price (immediate, capped at 100 USDG a month) and set the fee sinks and split. | Move, freeze or gate a pot's funds. Block or pause an exit. Vote in a pot. |
