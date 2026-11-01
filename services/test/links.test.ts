@@ -107,13 +107,13 @@ function signedIn(db: unknown) {
 describe("one key per Telegram account", () => {
   test("sign-up preview shows the key this Telegram user already has", async () => {
     const api = caller(fakeUsers(A).db);
-    const p = await api.session.preview({ token: link({ p: "onboard", ref: "" }) });
+    const p = await api.session.preview({ token: link({ p: "onboard", ref: "", chat: 7 }) }); // onboarding links are DM-only (chat = user)
     expect(p.linked).toBe(A);
   });
 
   test("sign-up preview has no key for a new user", async () => {
     const api = caller(fakeUsers(null).db);
-    expect((await api.session.preview({ token: link({ p: "onboard", ref: "" }) })).linked).toBeNull();
+    expect((await api.session.preview({ token: link({ p: "onboard", ref: "", chat: 7 }) })).linked).toBeNull();
   });
 
   test("linking works for a new user and again for the same address (a retry)", async () => {

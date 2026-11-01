@@ -120,7 +120,7 @@ describe("wiring", () => {
   const bot = readFileSync(join(import.meta.dir, "..", "src", "bot", "bot.ts"), "utf8");
   test("every personal link is made fresh through privateReply, never sent as a fixed link", () => {
     expect(bot).not.toMatch(/href: signerUrl\(/);
-    expect(bot.match(/make: \(\) => signerUrl\(/g)?.length).toBe(8);
+    expect(bot.match(/make: \(\) => signerUrl\(/g)?.length).toBe(7); // the onboarding link goes by DM only (sendOnboardingLink), never through privateReply in a group
     expect(bot).toContain("const r = await privateReply(privateDeps(ctx),");
     expect(bot).not.toContain("ephemeral_message_parameters"); // only privateReply.ts sets it
   });

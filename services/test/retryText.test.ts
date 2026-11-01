@@ -45,7 +45,7 @@ describe("signer page source guard", () => {
   test("the page never shows an error's own text, except our API's and its own stops", () => {
     const src = readFileSync(join(import.meta.dir, "..", "src", "web", "client.ts"), "utf8");
     const lines = src.split("\n").filter((l) => /\be\??\.message\b/.test(l));
-    expect(lines).toEqual(["  if (e instanceof Stop) return say(e.message);"]); // only inside showFailure
+    expect(lines).toEqual(["  say(e instanceof Stop ? e.message : failureText(e, handedOff));"]); // only inside showFailure, and only a Stop's own text
     expect(src).toContain('throw new ServerSaid(json.error.message ?? "request failed")');
     // every failure the page shows goes through showFailure
     expect(src).toContain("showFailure(e, money && handedOff);");
@@ -54,12 +54,20 @@ describe("signer page source guard", () => {
     expect(outside).not.toContain("failureText(e"); // failureText is used only inside showFailure
   });
 
-  test("the full original error goes to the browser's own console, the member sees safe text", () => {
+  test("the full original error (or a stop's recorded reason) goes to the browser's own console, the member sees safe text", () => {
     const src = readFileSync(join(import.meta.dir, "..", "src", "web", "client.ts"), "utf8");
     const fn = /function showFailure\(e: unknown, handedOff: boolean\) \{([\s\S]*?)\n\}/.exec(src)![1]!;
-    expect(fn).toContain('console.error("[cofer signer]", e);');
-    expect(fn).toContain("say(failureText(e, handedOff));");
-    expect(fn.indexOf("instanceof Stop")).toBeLessThan(fn.indexOf("console.error")); // stops are not console noise
+    // a Stop logs only its detail (a plain Stop has none and stays silent); anything else logs the original error
+    expect(fn).toContain("const logged = e instanceof Stop ? e.detail : e;");
+    expect(fn).toContain('if (logged !== undefined) console.error("[cofer signer]", logged);');
+    expect(fn).toContain("say(e instanceof Stop ? e.message : failureText(e, handedOff));");
+    expect(fn.indexOf("instanceof Stop")).toBeLessThan(fn.indexOf("console.error"));
     expect(src.match(/console\.(error|log|warn)\(/g)).toEqual(["console.error("]); // the only console call on the page
+  });
+
+  test("a vote-check refusal records its exact reason, members still read the fixed text", () => {
+    const src = readFileSync(join(import.meta.dir, "..", "src", "web", "client.ts"), "utf8");
+    expect(src).toContain("throw new Stop(VOTE_MISMATCH_TEXT, `vote check failed: ${check.problem}`);");
+    expect(src).toMatch(/throw new Stop\(VOTE_MISMATCH_TEXT, `vote check failed: \$\{check\.envelope\.pot\} is not a Cofer pot`\)/);
   });
 });

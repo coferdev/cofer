@@ -1,6 +1,7 @@
 /** Minimal server-rendered shell for the signer site. All logic lives in client.ts. */
 
 import { createHash } from "node:crypto";
+import { CONFIG_ELEMENT_ID, configJson } from "./pageConfig";
 
 export interface PageCfg {
   chainId: number;
@@ -32,7 +33,8 @@ small{color:var(--muted)}
 
 const styleHash = createHash("sha256").update(PAGE_CSS, "utf8").digest("base64");
 
-export const SIGNER_CSP = `default-src 'self'; script-src 'self' 'unsafe-inline'; style-src 'sha256-${styleHash}'; connect-src *; frame-ancestors 'none'`;
+/** Only /assets/signer.js runs: no inline script is allowed (settings travel in a JSON data block). */
+export const SIGNER_CSP = `default-src 'self'; script-src 'self'; style-src 'sha256-${styleHash}'; connect-src *; frame-ancestors 'none'`;
 
 const esc = (s: string) => s.replace(/[<>&"']/g, (c) => `&#${c.charCodeAt(0)};`);
 
@@ -56,7 +58,7 @@ export function signerRpcUrl(e: { CHAIN_ID: number; RHC_RPC_URL: string; SIGNER_
 }
 
 export function signerPage(token: string, cfg: PageCfg): string {
-  const boot = JSON.stringify({ ...cfg, token }).replace(/</g, "\\u003c");
+  const boot = configJson({ ...cfg, token });
   return `<!doctype html>
 <html lang="en"><head>
 <meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
@@ -79,15 +81,7 @@ export function signerPage(token: string, cfg: PageCfg): string {
 <p>For your passkey (Face ID or fingerprint) to work, open this page in your phone's browser. In Telegram, tap ••• and choose Open in browser (on iPhone: Open in Safari).</p>
 <button id="notice-ok">Got it</button>
 </div></div>
-<script>(function(){
-// passkeys do not work in Telegram's in-app browser, so phones get a hint to switch browsers
-var n=navigator,phone=/Android|iPhone|iPad|iPod|Mobile/i.test(n.userAgent)||(n.platform==="MacIntel"&&n.maxTouchPoints>1);
-if(!phone)return;
-var box=document.getElementById("notice"),ok=document.getElementById("notice-ok");
-box.hidden=false;ok.focus();
-ok.onclick=function(){box.hidden=true};
-})();</script>
-<script>window.COFER=${boot};</script>
+<script type="application/json" id="${CONFIG_ELEMENT_ID}">${boot}</script>
 <script type="module" src="/assets/signer.js"></script>
 </body></html>`;
 }

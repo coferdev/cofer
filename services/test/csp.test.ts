@@ -3,6 +3,7 @@ import { createHash } from "node:crypto";
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import { PUBLIC_RPC, signerPage, signerRpcUrl, SIGNER_CSP } from "../src/web/page";
+import { CONFIG_ELEMENT_ID, configJson } from "../src/web/pageConfig";
 
 describe("signer page content-security-policy", () => {
   const html = signerPage("tok", { chainId: 46630, rpcUrl: "https://rpc.example", bundlerUrl: "", paymasterUrl: "", passkeyServerUrl: "", usdg: "0x0000000000000000000000000000000000000001" });
@@ -25,9 +26,38 @@ describe("signer page content-security-policy", () => {
     expect(html).toMatch(/<input id="to"[^>]* hidden>/);
   });
 
-  test("the rest of the policy is unchanged", () => {
+  test("the rest of the policy: scripts only from the site itself, never inline (I-6)", () => {
     const rest = SIGNER_CSP.split(";").map((d) => d.trim()).filter((d) => !d.startsWith("style-src"));
-    expect(rest).toEqual(["default-src 'self'", "script-src 'self' 'unsafe-inline'", "connect-src *", "frame-ancestors 'none'"]);
+    expect(rest).toEqual(["default-src 'self'", "script-src 'self'", "connect-src *", "frame-ancestors 'none'"]);
+    expect(SIGNER_CSP).not.toContain("unsafe-inline");
+  });
+
+  test("the page has no inline script that runs: only the bundle and a JSON data block", () => {
+    const scripts = [...html.matchAll(/<script([^>]*)>([\s\S]*?)<\/script>/g)].map((m) => ({ attrs: m[1]!, body: m[2]! }));
+    expect(scripts).toHaveLength(2);
+    for (const s of scripts) {
+      const external = /\ssrc="\/assets\/signer\.js"/.test(s.attrs) && s.body === "";
+      const data = /\stype="application\/json"/.test(s.attrs) && new RegExp(`\\sid="${CONFIG_ELEMENT_ID}"`).test(s.attrs);
+      expect(external || data).toBe(true);
+    }
+    expect(html).not.toContain("window.COFER");
+    expect(html).not.toMatch(/\son[a-z]+=/i); // no inline event handlers either
+  });
+
+  test("the settings block parses back, and text in it cannot close the block", () => {
+    const evil = signerPage("</script><script>alert(1)</script>", { chainId: 46630, rpcUrl: "https://rpc.example", bundlerUrl: "", paymasterUrl: "", passkeyServerUrl: "", usdg: "0x0000000000000000000000000000000000000001", factory: "0x0000000000000000000000000000000000000002" });
+    const block = new RegExp(`<script type="application/json" id="${CONFIG_ELEMENT_ID}">([\\s\\S]*?)</script>`).exec(evil)![1]!;
+    expect(block).not.toContain("<");
+    const cfg = JSON.parse(block);
+    expect(cfg.token).toBe("</script><script>alert(1)</script>");
+    expect(cfg.factory).toBe("0x0000000000000000000000000000000000000002");
+  });
+
+  test("the phone notice now lives in the bundle, and the bundle reads the data block", () => {
+    const src = readFileSync(join(import.meta.dir, "..", "src", "web", "client.ts"), "utf8");
+    expect(src).toContain("JSON.parse(document.getElementById(CONFIG_ELEMENT_ID)!.textContent!)");
+    expect(src).toContain('document.getElementById("notice-ok")');
+    expect(configJson("<")).toBe('"\\u003c"');
   });
 });
 

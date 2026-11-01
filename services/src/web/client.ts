@@ -21,15 +21,30 @@ import { failureText, isHandOff, ServerSaid } from "../core/retryText";
 import { capRefusal, navReadFailureText, roomText } from "../core/betaCap";
 import { checkBeforeSign, pageSummary, tokensOf, VOTE_MISMATCH_TEXT, type ServerTypedData } from "../core/signCheck";
 import { typedData, type ProposalEnvelope, type TokenMeta } from "../core/proposal";
+import { CONFIG_ELEMENT_ID } from "./pageConfig";
 
 declare global {
   interface Window {
-    COFER: { chainId: number; rpcUrl: string; bundlerUrl: string; paymasterUrl: string; passkeyServerUrl: string; usdg: Address; factory?: Address; token: string };
     ethereum?: { request: (a: { method: string; params?: unknown[] }) => Promise<unknown> };
   }
 }
 
-const cfg = window.COFER;
+type PageConfig = { chainId: number; rpcUrl: string; bundlerUrl: string; paymasterUrl: string; passkeyServerUrl: string; usdg: Address; factory?: Address; token: string };
+
+// Settings come from a JSON data block (never executed), so the page needs no inline script (CSP script-src 'self').
+const cfg = JSON.parse(document.getElementById(CONFIG_ELEMENT_ID)!.textContent!) as PageConfig;
+
+// Passkeys do not work in Telegram's in-app browser, so phones get a hint to open the page in their browser.
+(() => {
+  const n = navigator;
+  const phone = /Android|iPhone|iPad|iPod|Mobile/i.test(n.userAgent) || (n.platform === "MacIntel" && n.maxTouchPoints > 1);
+  if (!phone) return;
+  const box = document.getElementById("notice")!;
+  const ok = document.getElementById("notice-ok")!;
+  box.hidden = false;
+  ok.focus();
+  ok.onclick = () => (box.hidden = true);
+})();
 const chain = {
   id: cfg.chainId,
   name: "Robinhood Chain",
@@ -119,16 +134,22 @@ async function getSigner(register = false): Promise<Signer> {
 }
 
 /** A stop the member should read as is (not wrapped in "Something went wrong"). */
-class Stop extends Error {}
+/** `detail` (optional) is the exact reason, recorded in this browser's console only; members read `message`. */
+class Stop extends Error {
+  constructor(message: string, readonly detail?: string) {
+    super(message);
+  }
+}
 
 /**
- * Shows a failure. Members only ever read a Stop or failureText's safe text; the full original
- * error goes to this browser's own console (Safari developer tools) and is not sent anywhere.
+ * Shows a failure. Members only ever read a Stop or failureText's safe text. The page's single
+ * console call records the full original error, or a Stop's detail when it has one (a plain Stop
+ * is not console noise). Nothing is sent anywhere.
  */
 function showFailure(e: unknown, handedOff: boolean) {
-  if (e instanceof Stop) return say(e.message);
-  console.error("[cofer signer]", e);
-  say(failureText(e, handedOff));
+  const logged = e instanceof Stop ? e.detail : e;
+  if (logged !== undefined) console.error("[cofer signer]", logged);
+  say(e instanceof Stop ? e.message : failureText(e, handedOff));
 }
 
 /** Signer for a member action: the picked key must be the one linked to this Telegram user. Nothing is signed or sent before this check. */
@@ -154,10 +175,10 @@ const TOKEN_META_ABI = [
 async function verifyVote(id: Hex): Promise<{ envelope: ProposalEnvelope; summary: string }> {
   const p = await trpc<{ typedData: ServerTypedData; action: unknown }>("proposal.get", { id });
   const check = checkBeforeSign({ typedData: p.typedData, serverAction: p.action, expectedDigest: id, chainId: cfg.chainId, nowSec: Math.floor(Date.now() / 1000) });
-  if (!check.ok) throw new Stop(VOTE_MISMATCH_TEXT); // fixed text; the page's only console call stays in showFailure
-  if (!cfg.factory) throw new Stop(VOTE_MISMATCH_TEXT);
+  if (!check.ok) throw new Stop(VOTE_MISMATCH_TEXT, `vote check failed: ${check.problem}`);
+  if (!cfg.factory) throw new Stop(VOTE_MISMATCH_TEXT, "vote check failed: the page has no factory address");
   const isPot = await publicClient.readContract({ address: cfg.factory, abi: IS_POT_ABI, functionName: "isPot", args: [check.envelope.pot] });
-  if (!isPot) throw new Stop(VOTE_MISMATCH_TEXT);
+  if (!isPot) throw new Stop(VOTE_MISMATCH_TEXT, `vote check failed: ${check.envelope.pot} is not a Cofer pot`);
   const meta = new Map<string, TokenMeta>();
   for (const t of tokensOf(check.action)) {
     const [symbol, decimals] = await Promise.all([

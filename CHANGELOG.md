@@ -12,6 +12,9 @@ Fixes from the 2026-11-01 review of `0.1.0` (commit `aba0779`). `contracts/src` 
 - Only the member who asked for a card quote can confirm that card order.
 - The group and the ops chat are told when a vote the bot did not create is queued or executed, with the time it can run and a reminder that `/exit` is open.
 - The signer page checks every vote before the passkey is asked for: domain and chain, digest against the vote link, the server's action against the signed bytes, deadline, and on-chain that the contract is a real pot. Members tap "Check this vote", read a summary built from the exact bytes with full addresses, then approve; the page signs only the typed data it built.
+- The signer page runs no inline script: its policy is `script-src 'self'`, settings travel in a JSON data block, and the phone notice moved into the page bundle. A vote-check refusal records its exact reason in the browser's console; members still see only the fixed text.
+- Onboarding links (which bind a key to a Telegram account) are sent only by private message, never into a group, and the signer API refuses any onboarding link not made for a private chat.
+- `/newpot` is limited to 2 new group accounts per Telegram user per 24 hours, checked before the relayer sends anything.
 
 ### Added
 - `LICENSE` (MIT) and `SECURITY.md`: how to report a problem, roles and who holds them, accepted risks with reasons, open issues.

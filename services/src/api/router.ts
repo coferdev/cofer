@@ -9,7 +9,7 @@ import { eq, isNull, or } from "drizzle-orm";
 import { getAddress, type Address, type Hex, type PublicClient } from "viem";
 import { schema, type DB } from "../db/client";
 import { potAbi } from "../chain/clients";
-import { signLink, verifyLink, newJti, type LinkClaims } from "../core/linkToken";
+import { signLink, verifyLink, newJti, onboardLinkProblem, type LinkClaims } from "../core/linkToken";
 import { addSignature, createProposal, getSignable, ProposalError, readRules, type ProposalDeps } from "../services/proposals";
 import { Kind } from "../core/proposal";
 import { previewExit } from "../core/shares";
@@ -72,11 +72,16 @@ const wrap = async <T>(f: () => Promise<T>) => {
 };
 
 const linkClaims = (token: string, secret: string): LinkClaims => {
+  let claims: LinkClaims;
   try {
-    return verifyLink(token, secret);
+    claims = verifyLink(token, secret);
   } catch {
     throw new TRPCError({ code: "UNAUTHORIZED", message: "link expired or invalid; tap the button in Telegram again" });
   }
+  // used by both preview and exchange: an onboarding link made outside a private chat is never usable
+  const problem = onboardLinkProblem(claims);
+  if (problem) throw new TRPCError({ code: "UNAUTHORIZED", message: problem });
+  return claims;
 };
 
 export const appRouter = t.router({

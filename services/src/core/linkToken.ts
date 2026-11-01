@@ -39,3 +39,15 @@ export function verifyLink(token: string, secret: string, now = Math.floor(Date.
 export function newJti(): string {
   return b64u(Buffer.from(crypto.getRandomValues(new Uint8Array(12))));
 }
+
+/** What the signer site says when an onboarding link was not made for a private chat. */
+export const ONBOARD_DM_ONLY = "This setup link only works from a private chat with the bot. Open a private chat with the bot and send /start.";
+
+/**
+ * Onboarding links bind a key to a Telegram account, so they are only ever made for the member's
+ * private chat with the bot (in Telegram, a private chat's id equals the user's id). A link made in
+ * a group could be seen by others, so it is refused even if one exists.
+ */
+export function onboardLinkProblem(claims: Pick<LinkClaims, "p" | "tg" | "chat">): string | null {
+  return claims.p === "onboard" && claims.chat !== claims.tg ? ONBOARD_DM_ONLY : null;
+}

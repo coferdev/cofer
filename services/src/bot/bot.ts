@@ -29,6 +29,7 @@ import { roomLeft, roomText } from "../core/betaCap";
 import { buyPause, potNote } from "../core/buyPause";
 import { continuityAlertKey } from "../core/continuity";
 import { CARDS_OFF_TEXT, helpText } from "./help";
+import { newPotRefusal } from "./newpotLimit";
 
 export const DEFAULT_CONFIG = { guardDelay: 6 * 3600, maxSlipBps: 300, entrySpreadBps: 50, depositsOpen: true } as const;
 export const DEFAULT_THRESHOLD_BPS = 6000; // 3 of 5, 2 of 3, 3 of 4 ...
@@ -103,13 +104,36 @@ async function ephemeral(ctx: Context, text: string, link?: { label: string; mak
   if (r === "none") await ctx.reply("Open a private chat with me first, then try again.");
 }
 
+/** Link context for an onboarding link: always the member's private chat (chat id = user id), never a group. */
+function onboardLinkCtx(ctx: Context) {
+  return { ...linkCtx(ctx), chatId: ctx.from!.id };
+}
+
+export const ONBOARD_TEXT = "First set up your key (a passkey on your phone). Takes 20 seconds.";
+export const ONBOARD_SENT_BY_DM = "I sent you a private message to set up your key.";
+export const ONBOARD_DM_FIRST = "Open a private chat with me and send /start first, then try again.";
+
+/**
+ * Onboarding links bind a key to a Telegram account, so they go ONLY by DM: never into a group,
+ * not even as an ephemeral message (one that Telegram showed to everyone could be tapped by someone
+ * else before it was cancelled). The signer API also refuses an onboarding link not made for a DM.
+ */
+async function sendOnboardingLink(ctx: Context) {
+  const kb = linkButton("Set up my key", signerUrl(onboardLinkCtx(ctx), "onboard"));
+  assertNoMiniApp(kb);
+  try {
+    await ctx.api.sendMessage(ctx.from!.id, ONBOARD_TEXT, { reply_markup: kb });
+  } catch {
+    await ctx.reply(ONBOARD_DM_FIRST); // no link in this reply
+    return;
+  }
+  if (ctx.chat!.type !== "private") await ephemeral(ctx, ONBOARD_SENT_BY_DM); // no link in this reply either
+}
+
 async function requireLinked(ctx: Context) {
   const u = await userOf(ctx.from!.id);
   if (u?.address) return u;
-  await ephemeral(ctx, "First set up your key (a passkey on your phone). Takes 20 seconds.", {
-    label: "Set up my key",
-    make: () => signerUrl(linkCtx(ctx), "onboard"),
-  });
+  await sendOnboardingLink(ctx);
   return null;
 }
 
@@ -200,6 +224,7 @@ export function createBot(opts: { cardsOn: boolean }) {
   const bot = new Bot(env().TELEGRAM_BOT_TOKEN);
   bot.api.config.use(noMiniApp); // every outgoing call, including the notifier's (it uses bot.api)
   bot.api.config.use(chatRateLimit(redisStore(redis() as unknown as Parameters<typeof redisStore>[0]))); // per-chat budgets, shared via Redis
+  const rateStore = redisStore(redis() as unknown as Parameters<typeof redisStore>[0]); // same Redis counters, for per-user limits (/newpot)
 
   // which member this update is for, so a reply that cannot go to a busy group can go to them by DM
   bot.use((ctx, next) => updateUser.run({ userId: ctx.from?.id }, next));
@@ -222,7 +247,7 @@ export function createBot(opts: { cardsOn: boolean }) {
       .insert(schema.users)
       .values({ tgId: ctx.from!.id, username: ctx.from!.username ?? null })
       .onConflictDoUpdate({ target: schema.users.tgId, set: { username: ctx.from!.username ?? null } });
-    const kb = linkButton("Set up my key", signerUrl(linkCtx(ctx), "onboard"));
+    const kb = linkButton("Set up my key", signerUrl(onboardLinkCtx(ctx), "onboard"));
     assertNoMiniApp(kb);
     await ctx.reply(
       "Cofer is a shared money account for your group chat, on Robinhood Chain.\n\nYou'll create a passkey on this phone. It's your key: votes and withdrawals need it, so nobody (including us) can move your share without you.",
@@ -248,6 +273,9 @@ export function createBot(opts: { cardsOn: boolean }) {
     const u = await requireLinked(ctx);
     if (!u) return;
     if (await potOf(ctx.chat.id)) return ctx.reply("This group already has an account. /pot to see it.");
+    // per-user limit, taken before the relayer pays for anything
+    const refusal = await newPotRefusal(rateStore, ctx.from!.id);
+    if (refusal) return ctx.reply(refusal);
     const salt = keccak256(toHex(`cofer:${ctx.chat.id}`));
     const wallet = relayerClient();
     const members = [getAddress(u.address!)];
