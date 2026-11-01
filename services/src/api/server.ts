@@ -4,7 +4,7 @@ import { webhookCallback, type Bot } from "grammy";
 import { appRouter, type ApiCtx } from "./router";
 import { verifyLink } from "../core/linkToken";
 import { signerPage, signerRpcUrl, SIGNER_CSP } from "../web/page";
-import { env } from "../env";
+import { env, type Env } from "../env";
 import { logError } from "../core/errors";
 import type { ProposalDeps } from "../services/proposals";
 import type { CardAdapter } from "../cards/CardAdapter";
@@ -15,8 +15,9 @@ export async function buildSignerBundle(): Promise<string> {
   return await out.outputs[0]!.text();
 }
 
-export function createServer(opts: { deps: ProposalDeps; cards: CardAdapter | null; bot?: Bot; signerJs: string }) {
-  const e = env();
+/** @param opts.env settings to use instead of the process environment (tests pass fixed values). */
+export function createServer(opts: { deps: ProposalDeps; cards: CardAdapter | null; bot?: Bot; signerJs: string; env?: Env }) {
+  const e = opts.env ?? env();
   const pageRpc = signerRpcUrl(e);
   const app = new Hono();
 
