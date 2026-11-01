@@ -8,7 +8,7 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - uses: foundry-rs/foundry-toolchain@v1
-      - run: forge build --sizes
+      - run: forge build --sizes --skip script
       - run: forge test -vv
 
   services:
