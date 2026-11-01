@@ -62,10 +62,10 @@ signer page (gas paid by the paymaster). No vote, no relayer. `exit` and `leave`
 | Function | Who can call | Delay | Effect |
 | --- | --- | --- | --- |
 | `setFactory` | Safe (owner) | once only | One-time wiring to the factory |
-| `setPlanPrice` | Safe | **immediate** (open issue L-1) | Monthly plan price, capped at 100 USDG |
+| `setPlanPrice` | Safe | immediate | Monthly plan price, capped at 100 USDG. A plan vote carries `maxCost`, so a later rise makes the vote fail rather than overcharge. |
 | `setSinks` | Safe | immediate | The four fee sinks and their split |
 | `transferOwnership` / `acceptOwnership` | Safe / the pending owner | 2-step | Move ownership (no events emitted) |
-| `payPlan` | a pot (after a `PAY_PLAN` vote) | n/a | Pulls price x months USDG from the pot |
+| `payPlan` | a pot (after a `PAY_PLAN` vote, and only if price x months is within the vote's `maxCost`) | n/a | Pulls price x months USDG from the pot |
 | `distribute` | anyone | n/a | Sends the router's balance of a token to the sinks |
 
 ### `CoferPot`

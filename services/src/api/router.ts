@@ -58,7 +58,7 @@ const zAction = z.discriminatedUnion("kind", [
     entrySpreadBps: z.number().int(),
     depositsOpen: z.boolean(),
   }),
-  z.object({ kind: z.literal(Kind.PAY_PLAN), months: z.number().int() }),
+  z.object({ kind: z.literal(Kind.PAY_PLAN), months: z.number().int(), maxCost: zBig }), // the pot refuses to pay more than maxCost
   // SWAP proposals are built server-side from pool + oracle quotes (bot /buy, /sell)
 ]);
 

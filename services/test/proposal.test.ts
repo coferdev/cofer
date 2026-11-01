@@ -27,7 +27,7 @@ const samples: Action[] = [
   { kind: Kind.SET_ALLOWANCE, member: ALICE, amount: 50_000_000n, period: 604800 },
   { kind: Kind.SET_THRESHOLD, threshold: 0, thresholdBps: 6000 },
   { kind: Kind.SET_CONFIG, guardDelay: 21600, maxSlipBps: 300, entrySpreadBps: 50, depositsOpen: true },
-  { kind: Kind.PAY_PLAN, months: 3 },
+  { kind: Kind.PAY_PLAN, months: 3, maxCost: 27_000_000n },
 ];
 
 /** Independent re-implementation of CoferPot.hashProposal (abi.encode + keccak), no typed-data lib. */
@@ -60,7 +60,8 @@ describe("proposal encoding", () => {
   test("rejects out-of-range params before anyone signs", () => {
     expect(() => encodeAction({ kind: Kind.SET_CONFIG, guardDelay: 4 * 86400, maxSlipBps: 300, entrySpreadBps: 0, depositsOpen: true })).toThrow();
     expect(() => encodeAction({ kind: Kind.SET_ALLOWANCE, member: ALICE, amount: 1n, period: 60 })).toThrow();
-    expect(() => encodeAction({ kind: Kind.PAY_PLAN, months: 13 })).toThrow();
+    expect(() => encodeAction({ kind: Kind.PAY_PLAN, months: 13, maxCost: 1n })).toThrow();
+    expect(() => encodeAction({ kind: Kind.PAY_PLAN, months: 3, maxCost: -1n })).toThrow();
     expect(() => encodeAction({ kind: Kind.TRANSFER, asset: USDG, to: ALICE, amount: 0n })).toThrow();
   });
 
@@ -77,6 +78,20 @@ describe("proposal encoding", () => {
     expect(describeAction(samples[0]!, meta, name)).toBe("Send 100 USDG to @alice");
     expect(describeAction(samples[1]!, meta, name)).toBe("Swap 250 USDG for at least 0.99 TSLA");
     expect(describeAction(samples[4]!, meta, name)).toBe("Give @alice an allowance of 50 USDG every week");
+    expect(describeAction(samples[7]!, meta, name)).toBe("Prepay the group plan for 3 months (at most 27 USDG)");
+  });
+
+  test("a plan vote carries its maximum cost in the signed bytes (audit L-1)", () => {
+    const { data } = encodeAction({ kind: Kind.PAY_PLAN, months: 3, maxCost: 27_000_000n });
+    expect(data).toBe(encodeAbiParameters([{ type: "uint8" }, { type: "uint256" }], [3, 27_000_000n]));
+  });
+
+  test("/plan reads today's price and puts months x price in the vote as its maximum", async () => {
+    const src = await Bun.file(new URL("../src/bot/bot.ts", import.meta.url)).text();
+    const cmd = src.slice(src.indexOf('bot.command("plan"'), src.indexOf('bot.command("pot"'));
+    expect(cmd).toContain('functionName: "planPricePerMonth"');
+    expect(cmd).toContain("* BigInt(months)");
+    expect(cmd.indexOf("planPricePerMonth")).toBeLessThan(cmd.indexOf("propose(ctx, { kind: Kind.PAY_PLAN, months, maxCost })"));
   });
 });
 

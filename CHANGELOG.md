@@ -5,7 +5,11 @@ Security issues still open are listed in [SECURITY.md](SECURITY.md).
 
 ## [Unreleased]
 
-Fixes from the 2026-11-01 review of `0.1.0` (commit `aba0779`). `contracts/src` is unchanged.
+Fixes from the 2026-11-01 review of `0.1.0` (commit `aba0779`). `contracts/src` has changed since the review (see "Contracts" below) and needs a re-audit and a new deploy before these changes are live.
+
+### Contracts
+- **L-1:** a `PAY_PLAN` vote now carries `maxCost` (`(uint8 months, uint256 maxCost)`); the pot refuses with `PlanCostAboveMax(cost, maxCost)` if months x the current plan price is higher. `/plan` sets it to today's price x months, and the summary shows it.
+- The upstream sources of the vendored `Clones` and `FullMath` libraries are named exactly in their comments; `bytecode_hash` (ipfs) and CBOR metadata are pinned in the build settings.
 
 ### Security
 - Cards are off by default (`CARD_ADAPTER=off`). The stub card adapter runs on testnet (46630) only, needs an explicit funding address and refuses burn addresses; `/card` is hidden when no adapter runs. Previously, card loads on mainnet were sent to a burn address.

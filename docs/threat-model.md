@@ -16,7 +16,7 @@ What Cofer protects, against whom, and what it does not protect. Roles and funct
 | An outsider | Call `execute` with valid signatures someone else made; call `claimOwed` (it always pays the owed account); send tokens to a pot. | Move funds: every move needs members' signatures (`CoferPot._countVotes`). Deposit: members only. |
 | A single member | Deposit, exit, spend their own allowance, propose and sign votes, revoke their vote. | Take more than their share (`_exit` pays pro rata); spend beyond their allowance; pass a vote alone unless the threshold is one. |
 | A colluding majority | Pass votes, including transfers to themselves. | Run a non-swap transfer before dissenters can exit: `guardDelay` holds it, and the group is told even if the vote was made outside the bot. **Except swaps: see open issue H-2.** |
-| The studio (owner Safe) | Pause new deposits and new pots; list or delist buyable assets; after 48h, change feeds, adapters and the swap fee; change the plan price immediately (open issue L-1); redirect fees. | Move, freeze or gate a pot's funds; block or pause an exit; vote. |
+| The studio (owner Safe) | Pause new deposits and new pots; list or delist buyable assets; after 48h, change feeds, adapters and the swap fee; change the plan price immediately (a plan vote still never pays more than the `maxCost` members signed); redirect fees. | Move, freeze or gate a pot's funds; block or pause an exit; vote. |
 | The guardian key, if leaked | Pause or unpause new deposits and new pots; take fees already sent to the sink wallet. | Touch any pot's funds or exits. The Safe can replace the guardian. |
 | A compromised server or database | Show misleading text in Telegram; send wrong proposal data to the signer page; refuse service. | Get a passkey to sign different bytes: the page rebuilds and checks every vote, confirms the pot on-chain, and signs only what it built (`services/src/core/signCheck.ts`). Move funds with sessions or links alone. |
 | A leaked `LINK_SECRET` | Make links and sessions for any Telegram user, including binding the attacker's own key to a Telegram account that has no key yet (that person's later `/join` would then propose the attacker's address). Rotate the secret at once if it leaks. | Sign or send anything with an existing member's key: every money action needs the member's own key. Bind a new key to an account that already has one. |
@@ -27,9 +27,7 @@ What Cofer protects, against whom, and what it does not protect. Roles and funct
 
 - **Open issues waiting for the owner** (each changes the audited contracts):
   - **H-2**: a colluding majority can run many swaps in one transaction through pools they control and drain the minority. Swaps skip the exit window.
-  - **M-1**: deposits are priced on stock feeds up to 4 days old, so a member can deposit at a stale price and exit at a profit.
-  - **L-1**: the plan price can change between a vote and its execution.
-- **A replaced signer-page script.** The page's checks run inside the page; whoever can change the script the site serves can skip them. Members who want independent checks can use their own browser wallet.
+  - **M-1**: deposits are priced on stock feeds up to 4 days old, so a member can deposit at a stale price and exit at a profit.- **A replaced signer-page script.** The page's checks run inside the page; whoever can change the script the site serves can skip them. Members who want independent checks can use their own browser wallet.
 - **Members' own devices and passkeys.** Anyone who controls a member's phone or passkey can act as that member.
 - **Telegram itself.** If Telegram or a member's Telegram account is taken over, the attacker can read the group and tap buttons, but still needs the member's key to move funds.
 - **Token issuers and Chainlink.** A paused token stays paused for everyone; a feed outage pauses deposits and swaps until it recovers.

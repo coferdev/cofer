@@ -59,7 +59,7 @@ export type Action =
       entrySpreadBps: number;
       depositsOpen: boolean;
     }
-  | { kind: Kind.PAY_PLAN; months: number };
+  | { kind: Kind.PAY_PLAN; months: number; maxCost: bigint }; // maxCost in USDG base units: the pot refuses to pay more
 
 export interface ProposalEnvelope {
   pot: Address;
@@ -85,7 +85,7 @@ const P = {
   allowance: [{ type: "address" }, { type: "uint128" }, { type: "uint32" }],
   threshold: [{ type: "uint8" }, { type: "uint16" }],
   config: [{ type: "uint32" }, { type: "uint16" }, { type: "uint16" }, { type: "bool" }],
-  plan: [{ type: "uint8" }],
+  plan: [{ type: "uint8" }, { type: "uint256" }],
 } as const;
 
 /** Mirrors the bounds CoferPot enforces, so bad proposals fail before anyone signs. */
@@ -135,7 +135,8 @@ export function encodeAction(a: Action): { kind: Kind; data: Hex } {
       };
     case Kind.PAY_PLAN:
       if (a.months < 1 || a.months > LIMITS.MAX_PLAN_MONTHS) throw new Error("months 1..12");
-      return { kind: a.kind, data: encodeAbiParameters(P.plan, [a.months]) };
+      if (a.maxCost < 0n) throw new Error("maxCost must not be negative");
+      return { kind: a.kind, data: encodeAbiParameters(P.plan, [a.months, a.maxCost]) };
   }
 }
 
@@ -167,8 +168,8 @@ export function decodeAction(kind: Kind, data: Hex): Action {
       return { kind, guardDelay, maxSlipBps, entrySpreadBps, depositsOpen };
     }
     case Kind.PAY_PLAN: {
-      const [months] = decodeAbiParameters(P.plan, data);
-      return { kind, months };
+      const [months, maxCost] = decodeAbiParameters(P.plan, data);
+      return { kind, months, maxCost };
     }
     default:
       throw new Error(`unknown kind ${kind}`);
@@ -226,7 +227,7 @@ export function describe(a: Action, tokens: (addr: Address) => TokenMeta, name: 
     case Kind.SET_CONFIG:
       return `Settings: exit window ${humanPeriod(a.guardDelay)}, max slippage ${a.maxSlipBps / 100}%, entry spread ${a.entrySpreadBps / 100}%, deposits ${a.depositsOpen ? "open" : "closed"}`;
     case Kind.PAY_PLAN:
-      return `Prepay the group plan for ${a.months} month${a.months === 1 ? "" : "s"}`;
+      return `Prepay the group plan for ${a.months} month${a.months === 1 ? "" : "s"} (at most ${formatUnits(a.maxCost, 6)} USDG)`;
   }
 }
 

@@ -418,9 +418,10 @@ contract CoferPot is ICoferPot, ReentrancyGuard {
             _setConfig(Config(d, slip, spread, open));
             _bumpEpoch();
         } else if (kind == Kind.PAY_PLAN) {
-            uint8 months = abi.decode(data, (uint8));
+            (uint8 months, uint256 maxCost) = abi.decode(data, (uint8, uint256));
             IFeeRouter router = IFeeRouter(factory.feeRouter());
             uint256 cost = router.planPricePerMonth() * months;
+            if (cost > maxCost) revert PlanCostAboveMax(cost, maxCost);
             if (cost > distributable(usdg)) revert InsufficientBalance();
             usdg.safeApprove(address(router), cost);
             router.payPlan(months);

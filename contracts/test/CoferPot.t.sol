@@ -473,8 +473,33 @@ contract CoferPotTest is CoferBase {
 
     function test_payPlan() public {
         _deposit(0, 100e6);
-        assertTrue(_exec(PAY_PLAN, abi.encode(uint8(3)), 1, _all()));
+        assertTrue(_exec(PAY_PLAN, abi.encode(uint8(3), uint256(30e6)), 1, _all()));
         assertEq(usdg.balanceOf(address(feeRouter)), 30e6);
         assertEq(feeRouter.planPaidUntil(address(pot)), block.timestamp + 90 days);
+    }
+
+    /// @dev Audit L-1: members sign 12 months at 10 USDG (max 120); the owner then raises the price.
+    function test_payPlanRefusesAboveMaxCost() public {
+        _deposit(0, 1_000e6);
+        bytes memory data = abi.encode(uint8(12), uint256(120e6));
+        uint64 ep = pot.epoch();
+        ICoferPot.Vote[] memory v = _votes(pot.hashProposal(PAY_PLAN, data, 77, ep, FAR_DEADLINE), _all());
+        vm.prank(owner);
+        feeRouter.setPlanPrice(100e6);
+        vm.expectRevert(abi.encodeWithSelector(ICoferPot.PlanCostAboveMax.selector, 1_200e6, 120e6));
+        pot.execute(PAY_PLAN, data, 77, ep, FAR_DEADLINE, v);
+        assertEq(usdg.balanceOf(address(pot)), 1_000e6, "nothing paid");
+    }
+
+    /// @dev A price cut after the vote: the pot pays the lower price.
+    function test_payPlanPaysLowerPriceUnderMaxCost() public {
+        _deposit(0, 1_000e6);
+        bytes memory data = abi.encode(uint8(12), uint256(120e6));
+        uint64 ep = pot.epoch();
+        ICoferPot.Vote[] memory v = _votes(pot.hashProposal(PAY_PLAN, data, 78, ep, FAR_DEADLINE), _all());
+        vm.prank(owner);
+        feeRouter.setPlanPrice(5e6);
+        assertTrue(pot.execute(PAY_PLAN, data, 78, ep, FAR_DEADLINE, v));
+        assertEq(usdg.balanceOf(address(feeRouter)), 60e6, "paid 12 x 5 USDG");
     }
 }

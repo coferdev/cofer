@@ -11,7 +11,7 @@ interface ICoferPot {
         SET_ALLOWANCE, // 4: (address member, uint128 amount, uint32 period)
         SET_THRESHOLD, // 5: (uint8 threshold, uint16 thresholdBps)
         SET_CONFIG, // 6: (uint32 guardDelay, uint16 maxSlipBps, uint16 entrySpreadBps, bool depositsOpen)
-        PAY_PLAN // 7: (uint8 months)
+        PAY_PLAN // 7: (uint8 months, uint256 maxCost): refused if months x the current price > maxCost
     }
 
     struct Config {
@@ -91,6 +91,7 @@ interface ICoferPot {
     error SlippageTooLoose(uint256 minOut, uint256 floor);
     error OutputTooLow(uint256 got, uint256 minOut);
     error NothingOwed();
+    error PlanCostAboveMax(uint256 cost, uint256 maxCost);
 
     // ---- member actions (no vote) ----
     function deposit(uint256 amount) external returns (uint256 shares);

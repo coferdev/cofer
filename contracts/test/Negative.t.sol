@@ -260,7 +260,7 @@ contract NegativeTest is CoferBase {
 
     function test_pot_payPlanRefusesWhenItCannotPay() public {
         // empty pot: the plan cost is more than it holds
-        _expectExecRevert(PAY_PLAN, abi.encode(uint8(1)), 21, ICoferPot.InsufficientBalance.selector);
+        _expectExecRevert(PAY_PLAN, abi.encode(uint8(1), uint256(10e6)), 21, ICoferPot.InsufficientBalance.selector);
     }
 
     /// @dev Signs first (view calls), so the expected revert applies to execute itself.

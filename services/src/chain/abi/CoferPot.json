@@ -158,6 +158,22 @@
       "type": "error"
     },
     {
+      "inputs": [
+        {
+          "internalType": "uint256",
+          "name": "cost",
+          "type": "uint256"
+        },
+        {
+          "internalType": "uint256",
+          "name": "maxCost",
+          "type": "uint256"
+        }
+      ],
+      "name": "PlanCostAboveMax",
+      "type": "error"
+    },
+    {
       "inputs": [],
       "name": "Reentrancy",
       "type": "error"

@@ -8,7 +8,7 @@ import { and, eq, ilike } from "drizzle-orm";
 import { encodeFunctionData, formatUnits, getAddress, keccak256, toHex, type Address, type Hex } from "viem";
 import { env } from "../env";
 import { db, schema } from "../db/client";
-import { factoryAbi, factoryAddress, potAbi, publicClient, relayerClient, erc20Abi } from "../chain/clients";
+import { factoryAbi, factoryAddress, feeRouterAbi, potAbi, publicClient, relayerClient, erc20Abi } from "../chain/clients";
 import { Kind, type Action, type TokenMeta } from "../core/proposal";
 import { createProposal, ProposalError, getSignable, type ProposalDeps } from "../services/proposals";
 import { computeMinOut, swapInAfterFee } from "../core/swap";
@@ -449,7 +449,15 @@ export function createBot(opts: { cardsOn: boolean }) {
     if (!(await requireLinked(ctx))) return;
     const months = Number((ctx.match ?? "").trim() || "1");
     if (!Number.isInteger(months) || months < 1 || months > 12) return ctx.reply("Usage: /plan MONTHS (1-12)");
-    await propose(ctx, { kind: Kind.PAY_PLAN, months });
+    // the vote carries today's cost as its maximum: if the price rises before it runs, the pot refuses to pay
+    let maxCost: bigint;
+    try {
+      const router = await publicClient().readContract({ address: factoryAddress(), abi: factoryAbi, functionName: "feeRouter" });
+      maxCost = (await publicClient().readContract({ address: router, abi: feeRouterAbi, functionName: "planPricePerMonth" })) * BigInt(months);
+    } catch (e) {
+      return replyError(ctx, errorKind(e) === "rpc" ? new ProposalError(RPC_ERROR_TEXT) : e);
+    }
+    await propose(ctx, { kind: Kind.PAY_PLAN, months, maxCost });
   });
 
   bot.command("pot", async (ctx) => {
