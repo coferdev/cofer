@@ -39,10 +39,15 @@ Notes on these choices:
   ask the passkey to sign another, for example an exit to a different address.
   *Reason:* every passkey wallet that runs in a web page has this property, and passkeys are what
   make the product usable without a seed phrase.
-  *What limits it:* the summary members read is rendered from the decoded proposal data, never
-  from free text. Members who prefer can use their own browser wallet, which shows the typed data
-  it signs. A check that the page decodes what it signs and compares it with the summary is
-  planned.
+  *What limits it:* before any passkey prompt, the signer page rebuilds the vote itself
+  (`services/src/core/signCheck.ts`). It checks the Cofer v1 domain and chain, that the digest
+  equals the vote in the member's link, that the server's decoded action matches the bytes, that
+  the deadline has not passed, and on-chain that the contract is a real pot (`isPot`). It then
+  shows a summary rendered from those exact bytes, with full addresses, and signs only the typed
+  data it built. This protects against tampered server data (database or API).
+  *Still open:* a replaced page script could skip these checks. Closing that needs the script
+  served from a fixed, versioned location with an integrity hash. Members who prefer can use
+  their own browser wallet, which shows the typed data it signs.
 - **Exits are in kind.** A member who exits receives their exact share of every asset the pot
   holds, as it is; nothing is converted for them.
   *Reason:* this keeps exits free of oracles, votes and pauses, so they cannot be blocked.

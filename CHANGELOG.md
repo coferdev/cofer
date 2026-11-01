@@ -11,6 +11,7 @@ Fixes from the 2026-11-01 review of `0.1.0` (commit `aba0779`). `contracts/src` 
 - Cards are off by default (`CARD_ADAPTER=off`). The stub card adapter runs on testnet (46630) only, needs an explicit funding address and refuses burn addresses; `/card` is hidden when no adapter runs. Previously, card loads on mainnet were sent to a burn address.
 - Only the member who asked for a card quote can confirm that card order.
 - The group and the ops chat are told when a vote the bot did not create is queued or executed, with the time it can run and a reminder that `/exit` is open.
+- The signer page checks every vote before the passkey is asked for: domain and chain, digest against the vote link, the server's action against the signed bytes, deadline, and on-chain that the contract is a real pot. Members tap "Check this vote", read a summary built from the exact bytes with full addresses, then approve; the page signs only the typed data it built.
 
 ### Added
 - `LICENSE` (MIT) and `SECURITY.md`: how to report a problem, roles and who holds them, accepted risks with reasons, open issues.

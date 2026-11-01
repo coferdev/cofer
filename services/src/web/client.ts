@@ -19,10 +19,12 @@ import { coferPotAbi } from "../chain/abi";
 import { signerProblem } from "../core/signerCheck";
 import { failureText, isHandOff, ServerSaid } from "../core/retryText";
 import { capRefusal, navReadFailureText, roomText } from "../core/betaCap";
+import { checkBeforeSign, pageSummary, tokensOf, VOTE_MISMATCH_TEXT, type ServerTypedData } from "../core/signCheck";
+import { typedData, type ProposalEnvelope, type TokenMeta } from "../core/proposal";
 
 declare global {
   interface Window {
-    COFER: { chainId: number; rpcUrl: string; bundlerUrl: string; paymasterUrl: string; passkeyServerUrl: string; usdg: Address; token: string };
+    COFER: { chainId: number; rpcUrl: string; bundlerUrl: string; paymasterUrl: string; passkeyServerUrl: string; usdg: Address; factory?: Address; token: string };
     ethereum?: { request: (a: { method: string; params?: unknown[] }) => Promise<unknown> };
   }
 }
@@ -138,8 +140,33 @@ async function memberSigner(): Promise<Signer> {
   return s;
 }
 
-function reviveTypedData(td: any) {
-  return { ...td, message: { ...td.message, nonce: BigInt(td.message.nonce), epoch: BigInt(td.message.epoch), deadline: BigInt(td.message.deadline) } };
+const IS_POT_ABI = [{ type: "function", name: "isPot", stateMutability: "view", inputs: [{ type: "address" }], outputs: [{ type: "bool" }] }] as const;
+const TOKEN_META_ABI = [
+  { type: "function", name: "symbol", stateMutability: "view", inputs: [], outputs: [{ type: "string" }] },
+  { type: "function", name: "decimals", stateMutability: "view", inputs: [], outputs: [{ type: "uint8" }] },
+] as const;
+
+/**
+ * Checks a vote before any passkey prompt (core/signCheck.ts), then confirms on-chain that the
+ * contract being signed for is a real Cofer pot. Returns the envelope to sign and the summary the
+ * page renders from those exact bytes. Any mismatch stops with VOTE_MISMATCH_TEXT; nothing is signed.
+ */
+async function verifyVote(id: Hex): Promise<{ envelope: ProposalEnvelope; summary: string }> {
+  const p = await trpc<{ typedData: ServerTypedData; action: unknown }>("proposal.get", { id });
+  const check = checkBeforeSign({ typedData: p.typedData, serverAction: p.action, expectedDigest: id, chainId: cfg.chainId, nowSec: Math.floor(Date.now() / 1000) });
+  if (!check.ok) throw new Stop(VOTE_MISMATCH_TEXT); // fixed text; the page's only console call stays in showFailure
+  if (!cfg.factory) throw new Stop(VOTE_MISMATCH_TEXT);
+  const isPot = await publicClient.readContract({ address: cfg.factory, abi: IS_POT_ABI, functionName: "isPot", args: [check.envelope.pot] });
+  if (!isPot) throw new Stop(VOTE_MISMATCH_TEXT);
+  const meta = new Map<string, TokenMeta>();
+  for (const t of tokensOf(check.action)) {
+    const [symbol, decimals] = await Promise.all([
+      publicClient.readContract({ address: t, abi: TOKEN_META_ABI, functionName: "symbol" }),
+      publicClient.readContract({ address: t, abi: TOKEN_META_ABI, functionName: "decimals" }),
+    ]);
+    meta.set(t.toLowerCase(), { symbol, decimals: Number(decimals) });
+  }
+  return { envelope: check.envelope, summary: pageSummary(check.action, (a) => meta.get(a.toLowerCase())!) };
 }
 
 // The one-time link is spent here, on the first tap only. A retry after an error reuses the session.
@@ -203,16 +230,27 @@ async function main() {
 
   if (ex.purpose === "sign" && ex.ref.startsWith("0x") && ex.proposal) {
     const pv = ex.proposal;
+    const tally = `Approvals: ${pv.approvals}/${pv.required}${pv.stale ? "\nSettings changed: this vote can no longer pass." : ""}`;
     $("title").textContent = "Vote";
-    $("body").textContent = `${pv.summary}\n\nApprovals: ${pv.approvals}/${pv.required}${pv.stale ? "\nSettings changed: this vote can no longer pass." : ""}`;
-    act.textContent = "Approve with my passkey";
+    $("body").textContent = `${pv.summary}\n\n${tally}`;
+    // Two taps: first the page checks the vote and shows its own summary of the exact bytes; only then the passkey.
+    const approve = (envelope: ProposalEnvelope) =>
+      guard(async () => {
+        say("Waiting for your passkey...");
+        const s = await memberSigner();
+        const signature = await s.signTypedData(typedData(envelope)); // built by this page, never the server's object
+        const r = await trpc<any>("proposal.sign", { id: ex.ref, signer: s.address, signature }, true);
+        say(r.ready ? (r.delaySeconds > 0 ? "Passed. It executes after the exit window." : "Passed. Executing now.") : `Signed. ${r.approvals}/${r.required}.`);
+      });
+    act.textContent = "Check this vote";
     act.onclick = guard(async () => {
-      const p = await trpc<any>("proposal.get", { id: ex.ref });
-      say("Waiting for your passkey...");
-      const s = await memberSigner();
-      const signature = await s.signTypedData(reviveTypedData(p.typedData));
-      const r = await trpc<any>("proposal.sign", { id: ex.ref, signer: s.address, signature }, true);
-      say(r.ready ? (r.delaySeconds > 0 ? "Passed. It executes after the exit window." : "Passed. Executing now.") : `Signed. ${r.approvals}/${r.required}.`);
+      say("Checking the vote...");
+      const v = await verifyVote(ex.ref as Hex);
+      $("body").textContent = `You are signing:\n${v.summary}\n\nThe bot showed: ${pv.summary}\n\n${tally}`;
+      say("Checked. Read it, then approve.");
+      act.textContent = "Approve with my passkey";
+      act.onclick = approve(v.envelope);
+      act.disabled = false;
     });
     return;
   }

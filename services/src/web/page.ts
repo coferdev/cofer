@@ -9,6 +9,8 @@ export interface PageCfg {
   paymasterUrl: string;
   passkeyServerUrl: string;
   usdg: string;
+  /** CoferFactory address: the page checks on-chain that a vote is for a real pot (isPot). Without it, votes are refused. */
+  factory?: string;
 }
 
 /** The page's only <style> block. The CSP allows exactly this text by its sha256 hash. */
