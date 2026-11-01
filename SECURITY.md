@@ -55,14 +55,26 @@ Notes on these choices:
 - **Exits are in kind.** A member who exits receives their exact share of every asset the pot
   holds, as it is; nothing is converted for them.
   *Reason:* this keeps exits free of oracles, votes and pauses, so they cannot be blocked.
+- **After-hours price moves within the 12-hour deposit limit** (what remains of audit finding M-1).
+  Deposits are priced at the oracle price. The stock feeds on Robinhood Chain update when the
+  price moves (with about a one-day heartbeat), and not while the US market is closed, but the
+  tokens trade at any time. A deposit is refused once a held stock's price is more than 12 hours
+  old, which closes every weekend and holiday and the later part of each night. Within those
+  12 hours, a large after-hours move (for example on earnings) can make the oracle price differ
+  from the market by more than the 0.5% entry spread; a member who deposits then and exits in kind
+  takes that difference from the other members.
+  *Reason:* the 14 days of feed history read on 2026-11-01 show that a tighter limit closes
+  deposits in normal trading: at 1 hour, groups holding AAPL could not deposit for 52% of market
+  hours and groups holding SPY for 91%. At 12 hours, groups holding AAPL, TSLA or NVDA are never
+  closed in market hours. Groups holding SPY, whose feed updates about every 10 hours even in
+  market hours, are closed for about 31% of market hours.
+  *What limits it:* the gain is bounded by how far the price moved after the close, less the
+  entry spread, and by the deposit size (the beta limit is 5,000 USDG per group, enforced by the
+  bot and signer page, not the contract). Raising a group's entry spread (up to 2%) narrows it further.
 
 ## Known open issues (not accepted, waiting for the owner)
 
-These change the audited contracts. Each needs the owner's decision and a re-audit before any fix ships.
-
-| ID | Issue | Severity |
-| --- | --- | --- |
-| M-1 | Deposits are priced on stock feeds up to 4 days old, so a member can deposit at a stale price and exit in kind at a profit. | Medium |
+None. The audit's contract findings are fixed in code (below) and wait for the owner's re-audit.
 
 ## Fixed in code, pending re-audit
 
@@ -71,6 +83,7 @@ These changes are in `contracts/src` after the reviewed version (`v0.1.0`, commi
 | ID | Issue | Fix | Checked by |
 | --- | --- | --- | --- |
 | H-2 | Swaps skipped the exit window, so a colluding majority could run many swaps in one transaction through pools they control and drain the minority. | Every non-unanimous vote, swaps included, now waits `guardDelay`; a queued swap's price checks run again when it executes. Unanimous swaps still run at once. | `contracts/test/CoferPot.t.sol` › `test_majoritySwapWaitsGuardDelay`, `test_dissenterExitsInFullBeforeQueuedSwap`, `test_queuedSwapRechecksPriceAtExecution`, `test_unanimousSwapRunsAtOnce` |
+| M-1 | Deposits were priced on stock feeds up to 4 days old, so a member could deposit at a stale price (for example over a weekend) and exit in kind at a profit. | A deposit is refused with `DepositPriceTooOld` while any held non-USDG asset's feed is more than 12 hours old (`MAX_DEPOSIT_PRICE_AGE`). The USDG feed keeps its normal limit; exits never check prices. What remains is listed under accepted risks. | `contracts/test/CoferPot.t.sol` › `test_depositRefusedWhenHeldStockPriceOlderThanLimit`, `test_depositOkWithFreshStockPriceAndDayOldUsdgPrice`, `test_usdgOnlyPotDepositsIgnoreFeedAges`, `test_exitWorksWhileDepositsAreClosedByPriceAge` |
 | L-1 | The group-plan price was not part of the signed vote and had no timelock, so the owner could raise it between a vote and its execution. | A plan vote now carries `maxCost`; the pot refuses with `PlanCostAboveMax` if months x the current price is higher. A lower price is paid as is. | `contracts/test/CoferPot.t.sol` › `test_payPlanRefusesAboveMaxCost`, `test_payPlanPaysLowerPriceUnderMaxCost` |
 
 ## Audit history

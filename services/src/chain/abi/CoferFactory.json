@@ -910,6 +910,25 @@
       "inputs": [
         {
           "internalType": "address",
+          "name": "asset",
+          "type": "address"
+        }
+      ],
+      "name": "priceUpdatedAt",
+      "outputs": [
+        {
+          "internalType": "uint256",
+          "name": "updatedAt",
+          "type": "uint256"
+        }
+      ],
+      "stateMutability": "view",
+      "type": "function"
+    },
+    {
+      "inputs": [
+        {
+          "internalType": "address",
           "name": "adapter",
           "type": "address"
         }

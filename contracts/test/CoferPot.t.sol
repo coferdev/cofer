@@ -518,6 +518,49 @@ contract CoferPotTest is CoferBase {
         assertEq(tsla.balanceOf(address(pot)), 0, "nothing swapped");
     }
 
+    // ------------------------------------------------------------ deposits need a fresh stock price (audit M-1)
+
+    function test_depositRefusedWhenHeldStockPriceOlderThanLimit() public {
+        _deposit(0, 1_000e6);
+        _buyTsla(500e6);
+        uint256 t0 = tslaFeed.updatedAt();
+        vm.warp(t0 + 12 hours); // exactly at the limit: still allowed
+        usdgFeed.set(1e8); // the USDG feed keeps updating
+        _deposit(1, 100e6);
+        vm.warp(t0 + 12 hours + 1); // one second more (a quiet night or a weekend): refused
+        vm.prank(m[2]);
+        vm.expectRevert(abi.encodeWithSelector(ICoferPot.DepositPriceTooOld.selector, address(tsla), 12 hours + 1));
+        pot.deposit(100e6);
+    }
+
+    function test_depositOkWithFreshStockPriceAndDayOldUsdgPrice() public {
+        _deposit(0, 1_000e6);
+        _buyTsla(500e6);
+        vm.warp(block.timestamp + 22 hours); // USDG's normal rhythm: about one update a day
+        tslaFeed.set(250e8); // the stock feed updated recently
+        assertTrue(_deposit(1, 100e6) > 0, "the USDG feed is not held to the 12h limit");
+    }
+
+    function test_usdgOnlyPotDepositsIgnoreFeedAges() public {
+        _deposit(0, 1_000e6);
+        vm.warp(block.timestamp + 3 days); // every feed is old, but the pot holds only USDG
+        assertTrue(_deposit(1, 100e6) > 0);
+    }
+
+    function test_exitWorksWhileDepositsAreClosedByPriceAge() public {
+        _deposit(0, 1_000e6);
+        _deposit(1, 1_000e6);
+        _buyTsla(1_000e6);
+        vm.warp(block.timestamp + 2 days);
+        vm.prank(m[2]);
+        vm.expectRevert(); // DepositPriceTooOld (or StalePrice): deposits closed
+        pot.deposit(100e6);
+        uint256 before = usdg.balanceOf(m[1]);
+        vm.prank(m[1]);
+        pot.leave(); // exits never check prices
+        assertTrue(usdg.balanceOf(m[1]) > before && tsla.balanceOf(m[1]) > 0, "exit paid USDG and TSLA in kind");
+    }
+
     function test_payPlan() public {
         _deposit(0, 100e6);
         assertTrue(_exec(PAY_PLAN, abi.encode(uint8(3), uint256(30e6)), 1, _all()));

@@ -26,6 +26,7 @@ import { verifyLink } from "../core/linkToken";
 import { alertDeps } from "../keeper/alerts";
 import { allowanceLeft } from "../core/shares";
 import { roomLeft, roomText } from "../core/betaCap";
+import { DEPOSITS_CLOSED_TEXT, readDepositGate } from "../core/depositGate";
 import { buyPause, potNote } from "../core/buyPause";
 import { continuityAlertKey } from "../core/continuity";
 import { CARDS_OFF_TEXT, helpText } from "./help";
@@ -319,6 +320,12 @@ export function createBot(opts: { cardsOn: boolean }) {
     if (!(await requireLinked(ctx))) return;
     const pot = await potOf(ctx.chat.id);
     if (!pot) return ctx.reply("No group account here yet.");
+    // deposits need a fresh price for every held stock (audit M-1); a failed read is left to the signer page and the contract
+    try {
+      if (await readDepositGate(publicClient() as never, getAddress(pot.address), factoryAddress())) return ephemeral(ctx, DEPOSITS_CLOSED_TEXT);
+    } catch {
+      /* checked again on the signer page; the contract refuses anyway */
+    }
     // beta limit: shown when the value can be read; the signer page checks it again before anything is signed
     let room: string | null = null;
     try {

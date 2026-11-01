@@ -19,6 +19,7 @@ import { coferPotAbi } from "../chain/abi";
 import { signerProblem } from "../core/signerCheck";
 import { failureText, isHandOff, ServerSaid } from "../core/retryText";
 import { capRefusal, navReadFailureText, roomText } from "../core/betaCap";
+import { DEPOSITS_CLOSED_TEXT, readDepositGate } from "../core/depositGate";
 import { checkBeforeSign, pageSummary, tokensOf, VOTE_MISMATCH_TEXT, type ServerTypedData } from "../core/signCheck";
 import { typedData, type ProposalEnvelope, type TokenMeta } from "../core/proposal";
 import { CONFIG_ELEMENT_ID } from "./pageConfig";
@@ -299,6 +300,11 @@ async function main() {
       // before the passkey is asked for: nothing is signed or sent if the deposit would pass the beta limit
       const refusal = capRefusal(amount, await readNav());
       if (refusal) throw new Stop(refusal);
+      // deposits need a fresh price for every held stock (audit M-1): refused here, before the passkey
+      if (cfg.factory) {
+        const stale = await readDepositGate(publicClient as never, pot, cfg.factory);
+        if (stale) throw new Stop(DEPOSITS_CLOSED_TEXT, `deposit refused: ${stale.asset} price is ${stale.ageSec}s old`);
+      }
       const s = await memberSigner();
       const approve = encodeFunctionData({ abi: [{ type: "function", name: "approve", stateMutability: "nonpayable", inputs: [{ type: "address" }, { type: "uint256" }], outputs: [{ type: "bool" }] }], args: [pot, amount] });
       const deposit = encodeFunctionData({ abi: coferPotAbi, functionName: "deposit", args: [amount] });

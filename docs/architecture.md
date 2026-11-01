@@ -56,7 +56,7 @@ signer page (gas paid by the paymaster). No vote, no relayer. `exit` and `leave`
 | `setCreationPaused` | Safe or Guardian | immediate | Pause or unpause new pots |
 | `setGuardian` | Safe | immediate | Replace the guardian |
 | `transferOwnership` / `acceptOwnership` | Safe / the pending owner | 2-step | Move ownership |
-| `quote`, `valueInUsdg`, views | anyone | n/a | Read-only |
+| `quote`, `valueInUsdg`, `priceUpdatedAt`, views | anyone | n/a | Read-only |
 
 ### `FeeRouter`
 
@@ -73,7 +73,7 @@ signer page (gas paid by the paymaster). No vote, no relayer. `exit` and `leave`
 
 | Action | Who | Vote needed | Notes |
 | --- | --- | --- | --- |
-| `deposit`, `depositWithPermit` | a member | no | Closed by the group setting or the factory pause |
+| `deposit`, `depositWithPermit` | a member | no | Closed by the group setting, the factory pause, or a held stock's price older than 12 hours (`MAX_DEPOSIT_PRICE_AGE`) |
 | `exit` | anyone holding shares | no | Never paused, no oracle; a refused token transfer is set aside (`claimOwed`) |
 | `leave` | a member | no | Exits everything and gives up the seat |
 | `spend` | a member with an allowance | no | Capped per member per period, USDG only |
@@ -100,7 +100,7 @@ and settings changes bump the epoch, which cancels every vote signed before them
 
 | Dependency | Trusted for | If it fails or misbehaves |
 | --- | --- | --- |
-| Chainlink feeds on RHC | Prices for deposits (NAV) and the swap floor | Stale or bad prices revert deposits and swaps; exits never use them. See open issue M-1 for stale-but-allowed prices. |
+| Chainlink feeds on RHC | Prices for deposits (NAV) and the swap floor | Stale or bad prices revert deposits and swaps; exits never use them. Deposits also need every held stock's price to be at most 12 hours old. |
 | Uniswap SwapRouter02 and pools | Executing swaps | `minOut` and the oracle floor bound each swap; a non-unanimous swap waits the exit window first. |
 | USDG and Stock Token issuers | The tokens themselves | An issuer can pause a token; exits set that token aside and pay the rest. |
 | ZeroDev (bundler, paymaster, passkey server) | Sending member userOps; passkey set-up | Members can still use a browser wallet; votes can be submitted by anyone. |

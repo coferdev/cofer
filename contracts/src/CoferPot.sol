@@ -38,6 +38,7 @@ contract CoferPot is ICoferPot, ReentrancyGuard {
     uint16 public constant MAX_ENTRY_SPREAD_BPS = 200;
     uint32 public constant MIN_ALLOWANCE_PERIOD = 1 hours;
     uint32 public constant MAX_ALLOWANCE_PERIOD = 90 days;
+    uint32 public constant MAX_DEPOSIT_PRICE_AGE = 12 hours;
     uint256 private constant BPS = 10_000;
 
     bytes32 public constant DOMAIN_TYPEHASH =
@@ -311,6 +312,7 @@ contract CoferPot is ICoferPot, ReentrancyGuard {
         if (amount == 0) revert ZeroAmount();
         if (!config.depositsOpen || factory.depositsPaused()) revert DepositsClosed();
         (uint256 nav, uint256 nonUsdgValue) = navUsdg();
+        _requireFreshPrices();
         uint256 effective = amount;
         if (nonUsdgValue > 0 && config.entrySpreadBps > 0) {
             effective = (amount * (BPS - config.entrySpreadBps)) / BPS;
@@ -322,6 +324,18 @@ contract CoferPot is ICoferPot, ReentrancyGuard {
         _members[msg.sender].shares += shares;
         totalShares += shares;
         emit Deposited(msg.sender, amount, shares, nav);
+    }
+
+    /// @dev Deposits are priced at NAV, so every held non-USDG asset's own feed must have updated within
+    ///      MAX_DEPOSIT_PRICE_AGE (audit M-1). The USDG feed keeps its normal limit. Exits never check this.
+    function _requireFreshPrices() internal view {
+        uint256 n = _held.length;
+        for (uint256 i = 1; i < n; ++i) {
+            address a = _held[i];
+            if (distributable(a) == 0) continue;
+            uint256 age = block.timestamp - factory.priceUpdatedAt(a);
+            if (age > MAX_DEPOSIT_PRICE_AGE) revert DepositPriceTooOld(a, age);
+        }
     }
 
     function _exit(address account, uint256 shares, address to) internal {

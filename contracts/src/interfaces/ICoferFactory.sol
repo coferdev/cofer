@@ -51,6 +51,7 @@ interface ICoferFactory {
     function assetInfo(address asset) external view returns (Asset memory);
     function quote(address tokenIn, address tokenOut, uint256 amountIn) external view returns (uint256);
     function valueInUsdg(address asset, uint256 amount) external view returns (uint256);
+    function priceUpdatedAt(address asset) external view returns (uint256);
 
     function createPot(
         address[] calldata members,

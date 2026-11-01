@@ -136,6 +136,15 @@ contract CoferFactoryTest is CoferBase {
         factory.valueInUsdg(address(tsla), 1e18);
     }
 
+    function test_priceUpdatedAtReportsTheFeedTime() public {
+        tslaFeed.set(250e8);
+        assertEq(factory.priceUpdatedAt(address(tsla)), block.timestamp);
+        vm.warp(block.timestamp + 5 hours);
+        assertEq(factory.priceUpdatedAt(address(tsla)), block.timestamp - 5 hours);
+        vm.expectRevert(ICoferFactory.NotListed.selector);
+        factory.priceUpdatedAt(address(0xBEEF));
+    }
+
     function test_ownershipTwoStep() public {
         vm.prank(owner);
         factory.transferOwnership(address(0x1234));

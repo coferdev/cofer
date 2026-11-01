@@ -92,6 +92,7 @@ interface ICoferPot {
     error OutputTooLow(uint256 got, uint256 minOut);
     error NothingOwed();
     error PlanCostAboveMax(uint256 cost, uint256 maxCost);
+    error DepositPriceTooOld(address asset, uint256 age);
 
     // ---- member actions (no vote) ----
     function deposit(uint256 amount) external returns (uint256 shares);

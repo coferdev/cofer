@@ -127,6 +127,13 @@ contract CoferFactory is ICoferFactory {
         return quote(asset, usdg, amount);
     }
 
+    /// @notice When an asset's feed last updated (used by the pot's deposit price-age check).
+    function priceUpdatedAt(address asset) external view returns (uint256 updatedAt) {
+        Asset storage a = _assets[asset];
+        if (!a.listed) revert NotListed();
+        (,,, updatedAt,) = IAggregatorV3(a.feed).latestRoundData();
+    }
+
     function isBuyable(address asset) external view returns (bool) {
         return _assets[asset].buyable;
     }
