@@ -3,8 +3,10 @@
  * head - CONFIRMATIONS in chunks and keep everything idempotent on (txHash, logIndex).
  * Projections keep pots/members/proposals in sync; the chain is always the source of truth.
  */
-import { eq, sql } from "drizzle-orm";
+import { and, eq, sql } from "drizzle-orm";
 import { decodeEventLog, getAddress, type Address, type Log } from "viem";
+import { onVoteEvent, type UnknownVoteDeps, type VoteEvent } from "./unknownVotes";
+import { alertDeps } from "../keeper/alerts";
 import { db, schema } from "../db/client";
 import { factoryAbi, factoryAddress, potAbi, publicClient } from "../chain/clients";
 import { env } from "../env";
@@ -41,8 +43,9 @@ export async function indexOnce(): Promise<bigint> {
   return to;
 }
 
-async function record(log: Log, name: string, args: unknown) {
-  await db()
+/** Records the log once. Returns true only the first time (false on a re-run of the same block range). */
+async function record(log: Log, name: string, args: unknown): Promise<boolean> {
+  const rows = await db()
     .insert(schema.chainEvents)
     .values({
       txHash: log.transactionHash!,
@@ -52,7 +55,32 @@ async function record(log: Log, name: string, args: unknown) {
       name,
       args: JSON.parse(JSON.stringify(args, (_k, v) => (typeof v === "bigint" ? v.toString() : v))),
     })
-    .onConflictDoNothing();
+    .onConflictDoNothing()
+    .returning({ txHash: schema.chainEvents.txHash });
+  return rows.length > 0;
+}
+
+/** Forgets a recorded log, so the next run handles it again (used when its alert could not be sent). */
+async function unrecord(log: Log) {
+  await db()
+    .delete(schema.chainEvents)
+    .where(and(eq(schema.chainEvents.txHash, log.transactionHash!), eq(schema.chainEvents.logIndex, log.logIndex!)));
+}
+
+const unknownVoteDeps: UnknownVoteDeps = {
+  chatOf: async (pot) => (await db().query.pots.findFirst({ where: eq(schema.pots.address, pot) }))?.chatId ?? null,
+  sendGroup: (chatId, text) => enqueueChatMessage(chatId, text),
+  sendOps: (text) => alertDeps().send(text),
+};
+
+/** Alerts about a queued/executed vote the bot did not create; on a failed send the log is handled again next run. */
+async function alertIfUnknown(log: Log, pot: Address, event: VoteEvent, isNew: boolean, known: boolean) {
+  try {
+    await onVoteEvent(unknownVoteDeps, { pot, event, isNew, known });
+  } catch (e) {
+    await unrecord(log);
+    throw e;
+  }
 }
 
 async function handleFactoryLog(log: Log) {
@@ -76,7 +104,7 @@ export async function handlePotLog(log: Log) {
   } catch {
     return;
   }
-  await record(log, ev.eventName, ev.args);
+  const isNew = await record(log, ev.eventName, ev.args);
   const pot = getAddress(log.address);
   const d = db();
   switch (ev.eventName) {
@@ -125,14 +153,28 @@ export async function handlePotLog(log: Log) {
         .where(sql`${schema.signatures.proposalId} = ${ev.args.digest} and ${schema.signatures.signer} = ${getAddress(ev.args.member)}`);
       await enqueueNotify(ev.args.digest);
       break;
-    case "ProposalQueued":
-      await d.update(schema.proposals).set({ status: "queued", queuedEta: Number(ev.args.eta) }).where(eq(schema.proposals.id, ev.args.digest));
-      await enqueueNotify(ev.args.digest);
+    case "ProposalQueued": {
+      const hit = await d
+        .update(schema.proposals)
+        .set({ status: "queued", queuedEta: Number(ev.args.eta) })
+        .where(eq(schema.proposals.id, ev.args.digest))
+        .returning({ id: schema.proposals.id });
+      if (hit.length > 0) await enqueueNotify(ev.args.digest);
+      const event: VoteEvent = { name: "ProposalQueued", digest: ev.args.digest, kind: Number(ev.args.kind), eta: BigInt(ev.args.eta) };
+      await alertIfUnknown(log, pot, event, isNew, hit.length > 0);
       break;
-    case "ProposalExecuted":
-      await d.update(schema.proposals).set({ status: "executed", txHash: log.transactionHash! }).where(eq(schema.proposals.id, ev.args.digest));
-      await enqueueNotify(ev.args.digest);
+    }
+    case "ProposalExecuted": {
+      const hit = await d
+        .update(schema.proposals)
+        .set({ status: "executed", txHash: log.transactionHash! })
+        .where(eq(schema.proposals.id, ev.args.digest))
+        .returning({ id: schema.proposals.id });
+      if (hit.length > 0) await enqueueNotify(ev.args.digest);
+      const event: VoteEvent = { name: "ProposalExecuted", digest: ev.args.digest, kind: Number(ev.args.kind) };
+      await alertIfUnknown(log, pot, event, isNew, hit.length > 0);
       break;
+    }
     case "ExitOwed": {
       const p = await d.query.pots.findFirst({ where: eq(schema.pots.address, pot) });
       if (p) await enqueueChatMessage(p.chatId, "One token could not be sent during an exit (it may be paused by its issuer). It is set aside for the member and can be claimed any time with /claim.");
