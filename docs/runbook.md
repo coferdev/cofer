@@ -50,10 +50,12 @@ Only after the cause is understood and fixed: call the same functions with `fals
 
 ## After any admin change
 
-Every admin change (pause, guardian, ownership, listing, feed, adapter, fee, sinks, plan price) is
-announced in the ops chat by the indexer; queued feed, adapter and fee changes are also announced in
-every group. The keeper alerts within 5 minutes if the owner or guardian differ from `EXPECTED_OWNER`
-/ `EXPECTED_GUARDIAN`, or an ownership transfer is pending. After the change, update
+The indexer posts each admin change to the staff group as one `admin-change` line (listing and
+buyable changes are logged only); queued feed, adapter and fee changes are also announced in every
+group. A role or setting moved to an unexpected address is a `role-changed` emergency, posted again
+every 30 minutes until it clears. The keeper also checks every 5 minutes that the owner and guardian
+match `EXPECTED_OWNER` / `EXPECTED_GUARDIAN` and that no ownership transfer is pending to anyone else.
+What each alert means and who acts: [alerts.md](alerts.md). After the change, update
 `contracts/deployments/4663.json` if the expected values changed, and run the full check:
 
 ```bash

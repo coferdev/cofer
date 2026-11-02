@@ -3,7 +3,7 @@ import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import { ContractFunctionRevertedError, encodeErrorResult, HttpRequestError } from "viem";
 import { coferPotAbi } from "../src/chain/abi";
-import { failureReason, RevertedOnChain, voteAlertClears, voteAlertKey, voteFailedText } from "../src/relayer/voteAlerts";
+import { failureReason, RevertedOnChain, voteAlertClears, voteAlertKey, voteFailedText, voteStuckAlert } from "../src/relayer/voteAlerts";
 import { isFinalFailure } from "../src/queues";
 import { clearVoteAlerts } from "../src/keeper/keeper";
 import type { AlertDeps } from "../src/keeper/alerts";
@@ -17,12 +17,16 @@ const revert = (errorName: "SlippageTooLoose" | "InsufficientBalance") =>
 describe("vote failure alert texts", () => {
   test("a permanent revert", () => {
     expect(voteFailedText(P, "SlippageTooLoose", { permanent: true })).toBe(
-      "Vote 0xabcdef01… in pot 0x00000000… (Buy TSLA with 100 USDG) failed to execute: SlippageTooLoose. It is marked failed and will not run.",
+      "Vote 0xabcd…6789 in pot 0x0000…0FFE (Buy TSLA with 100 USDG) failed to execute: SlippageTooLoose. It is marked failed and will not run.",
     );
   });
 
   test("still failing after the last retry", () => {
-    expect(voteFailedText(P, "InsufficientBalance", { tries: 5 })).toBe("Vote 0xabcdef01… in pot 0x00000000… (Buy TSLA with 100 USDG) is still failing to execute after 5 tries: InsufficientBalance.");
+    expect(voteFailedText(P, "InsufficientBalance", { tries: 5 })).toBe("Vote 0xabcd…6789 in pot 0x0000…0FFE (Buy TSLA with 100 USDG) is still failing to execute after 5 tries: InsufficientBalance.");
+  });
+
+  test("posted as vote-stuck, for the dev", () => {
+    expect(voteStuckAlert(P, "SlippageTooLoose", { permanent: true })).toMatchObject({ name: "vote-stuck", who: "Dev checks." });
   });
 
   test("the reason is the contract's error name or a fixed phrase, never raw error text", () => {
@@ -59,7 +63,7 @@ describe("when a vote alert clears", () => {
       "0xa2": { status: "queued", deadline: NOW + 1 },
       "0xa3": { status: "failed", deadline: NOW - 1 },
     };
-    const open = new Map(Object.keys(rows).map((id) => [voteAlertKey(id), `vote ${id} failed`]));
+    const open = new Map(Object.keys(rows).map((id) => [voteAlertKey(id), `[cofer alert] vote-stuck\nVote ${id} failed.\nWho acts: Dev checks.`]));
     const sent: string[] = [];
     const alerts: AlertDeps = {
       async open(k, t) {
@@ -78,7 +82,7 @@ describe("when a vote alert clears", () => {
     };
     const n = await clearVoteAlerts({ open: async () => [...open.keys()], proposal: async (id) => rows[id], alerts, now: () => NOW });
     expect(n).toBe(2);
-    expect(sent).toEqual(["Cleared (it executed): vote 0xa1 failed", "Cleared (its deadline has passed): vote 0xa3 failed"]);
+    expect(sent).toEqual(["[cofer alert] vote-stuck: Cleared (it executed).", "[cofer alert] vote-stuck: Cleared (its deadline has passed)."]);
     expect([...open.keys()]).toEqual([voteAlertKey("0xa2")]);
   });
 });
@@ -98,7 +102,7 @@ describe("wiring", () => {
   const keeper = readFileSync(join(import.meta.dir, "..", "src", "keeper", "keeper.ts"), "utf8");
 
   test("a permanent revert alerts only when the vote is marked failed (not stale or expired)", () => {
-    expect(relayer).toContain('if (status === "failed") await checkAlert(voteAlertKey(proposalId), voteFailedText(row, name, { permanent: true }));');
+    expect(relayer).toContain('if (status === "failed") await checkAlert(voteAlertKey(proposalId), voteStuckAlert(row, name, { permanent: true }));');
   });
 
   test("a retryable failure records its reason, and the last one alerts", () => {

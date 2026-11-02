@@ -33,5 +33,16 @@ export const FEEDS: Record<string, Address> = {
   SPY: getAddress("0x78BCB218fA04B9b3a278eBc865Ed320BF8DEFBAc"),
 };
 
+/** Block explorers, for transaction links in staff alerts ("<base>/tx/<hash>"). */
+export const EXPLORERS: Record<number, string> = {
+  4663: "https://robinhoodchain.blockscout.com",
+  46630: "https://explorer.testnet.chain.robinhood.com",
+};
+
+/** EXPLORER_URL if set, else the known explorer for the chain, else none (alerts then show a short hash). */
+export function explorerFor(chainId: number, override?: string): string | undefined {
+  return override ?? EXPLORERS[chainId];
+}
+
 /** Issuer's public Stock Token API (no auth, 60 req/s). Canonical addresses come ONLY from here. */
 export const STOCK_API = "https://api.robinhood.com/rhj";

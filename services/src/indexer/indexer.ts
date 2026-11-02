@@ -6,8 +6,9 @@
 import { and, eq, sql } from "drizzle-orm";
 import { decodeEventLog, getAddress, type Address, type Log } from "viem";
 import { onVoteEvent, type UnknownVoteDeps, type VoteEvent } from "./unknownVotes";
-import { onAdminEvent, type AdminEvent, type AdminEventDeps } from "./adminEvents";
-import { alertDeps } from "../keeper/alerts";
+import { HISTORY_AGE_SEC, onAdminEvent, type AdminEvent, type AdminEventDeps } from "./adminEvents";
+import { checkAlert, openAlertOrThrow, postAlert } from "../keeper/alerts";
+import { logAlert } from "../core/errors";
 import { db, schema } from "../db/client";
 import { factoryAbi, factoryAddress, feeRouterAbi, potAbi, publicClient } from "../chain/clients";
 import { env } from "../env";
@@ -25,13 +26,14 @@ export async function indexOnce(): Promise<bigint> {
   if (from > head) return head;
   const to = from + CHUNK - 1n > head ? head : from + CHUNK - 1n;
 
+  const firstRun = !cur; // nothing indexed yet: everything in this range is history
   const factoryLogs = await client.getLogs({ address: factoryAddress(), fromBlock: from, toBlock: to });
-  for (const log of factoryLogs) await handleFactoryLog(log);
+  for (const log of factoryLogs) await handleFactoryLog(log, firstRun);
 
   // FeeRouter admin changes (sinks, plan price); its address is immutable in the factory, read once
   feeRouter ??= (await client.readContract({ address: factoryAddress(), abi: factoryAbi, functionName: "feeRouter" })) as Address;
   const routerLogs = await client.getLogs({ address: feeRouter, fromBlock: from, toBlock: to });
-  for (const log of routerLogs) await handleFeeRouterLog(log);
+  for (const log of routerLogs) await handleFeeRouterLog(log, firstRun);
 
   const pots = (await db().select({ a: schema.pots.address }).from(schema.pots)).map((r) => r.a as Address);
   if (pots.length) {
@@ -76,7 +78,7 @@ async function unrecord(log: Log) {
 const unknownVoteDeps: UnknownVoteDeps = {
   chatOf: async (pot) => (await db().query.pots.findFirst({ where: eq(schema.pots.address, pot) }))?.chatId ?? null,
   sendGroup: (chatId, text) => enqueueChatMessage(chatId, text),
-  sendOps: (text) => alertDeps().send(text),
+  sendOps: (m) => postAlert(m),
 };
 
 /** Alerts about a queued/executed vote the bot did not create; on a failed send the log is handled again next run. */
@@ -89,7 +91,7 @@ async function alertIfUnknown(log: Log, pot: Address, event: VoteEvent, isNew: b
   }
 }
 
-async function handleFactoryLog(log: Log) {
+async function handleFactoryLog(log: Log, firstRun = false) {
   let ev;
   try {
     ev = decodeEventLog({ abi: factoryAbi, data: log.data, topics: log.topics });
@@ -102,12 +104,12 @@ async function handleFactoryLog(log: Log) {
     await db().update(schema.pots).set({ createdBlock: log.blockNumber! }).where(eq(schema.pots.address, getAddress(ev.args.pot)));
     return;
   }
-  await alertAdmin(log, { source: "factory", name: ev.eventName, args: ev.args as Record<string, unknown>, txHash: log.transactionHash! }, isNew);
+  await alertAdmin(log, { source: "factory", name: ev.eventName, args: ev.args as Record<string, unknown>, txHash: log.transactionHash! }, isNew, firstRun);
 }
 
 let feeRouter: Address | undefined;
 
-async function handleFeeRouterLog(log: Log) {
+async function handleFeeRouterLog(log: Log, firstRun = false) {
   let ev;
   try {
     ev = decodeEventLog({ abi: feeRouterAbi, data: log.data, topics: log.topics });
@@ -115,20 +117,29 @@ async function handleFeeRouterLog(log: Log) {
     return;
   }
   const isNew = await record(log, ev.eventName, ev.args);
-  await alertAdmin(log, { source: "feeRouter", name: ev.eventName, args: ev.args as Record<string, unknown>, txHash: log.transactionHash! }, isNew);
+  await alertAdmin(log, { source: "feeRouter", name: ev.eventName, args: ev.args as Record<string, unknown>, txHash: log.transactionHash! }, isNew, firstRun);
 }
 
-const adminDeps: AdminEventDeps = {
-  sendOps: (text) => alertDeps().send(text),
+const adminDeps = (): AdminEventDeps => ({
+  expected: { owner: env().EXPECTED_OWNER, guardian: env().EXPECTED_GUARDIAN, feeWallet: env().EXPECTED_FEE_WALLET, adapter: env().ADAPTER_ADDRESS, factory: env().FACTORY_ADDRESS },
+  now: () => Math.floor(Date.now() / 1000),
+  post: (m) => postAlert(m),
+  openAlert: (key, m) => openAlertOrThrow(key, m),
+  clearAlert: async (key, note) => void (await checkAlert(key, null, undefined, note)),
+  log: (text) => logAlert(text),
   groupChats: async () => (await db().select({ c: schema.pots.chatId }).from(schema.pots)).map((r) => r.c),
   sendGroup: (chatId, text) => enqueueChatMessage(chatId, text),
   symbolOf: async (asset) => (await db().query.assets.findFirst({ where: eq(schema.assets.address, getAddress(asset)) }))?.symbol ?? null,
-};
+});
 
-/** Admin-change alerts (ops, plus groups for queued changes); on a failed send the log is handled again next run. */
-async function alertAdmin(log: Log, ev: AdminEvent, isNew: boolean) {
+/**
+ * Admin-change alerts (staff, plus groups for queued changes); on a failed send the log is handled
+ * again next run. History (first run, or a block older than HISTORY_AGE_SEC) is logged only.
+ */
+async function alertAdmin(log: Log, ev: AdminEvent, isNew: boolean, firstRun: boolean) {
   try {
-    await onAdminEvent(adminDeps, ev, isNew);
+    const history = isNew && (firstRun || Math.floor(Date.now() / 1000) - Number(await blockTime(log)) > HISTORY_AGE_SEC);
+    await onAdminEvent(adminDeps(), ev, isNew, history);
   } catch (e) {
     await unrecord(log);
     throw e;

@@ -6,6 +6,7 @@
  * "Settings changed" (stale) and "deadline passed" (expired) are normal outcomes, never alerted.
  */
 import { errorKind, revertName } from "../core/errors";
+import { shortHex, WHO, type AlertMessage } from "../core/alertFormat";
 
 export const voteAlertKey = (proposalId: string) => `vote-failed:${proposalId.toLowerCase()}`;
 
@@ -25,13 +26,16 @@ export function failureReason(e: unknown): string {
   return errorKind(e) === "rpc" ? "chain error (could not reach the chain or the relayer's transaction failed to send)" : "the contract refused it";
 }
 
-const short = (hex: string) => `${hex.slice(0, 10)}…`;
-
 export function voteFailedText(p: { id: string; pot: string; summary: string }, reason: string, how: { permanent: true } | { tries: number }): string {
-  const what = `Vote ${short(p.id)} in pot ${short(p.pot)} (${p.summary})`;
+  const what = `Vote ${shortHex(p.id)} in pot ${shortHex(p.pot)} (${p.summary})`;
   return "permanent" in how
     ? `${what} failed to execute: ${reason}. It is marked failed and will not run.`
     : `${what} is still failing to execute after ${how.tries} tries: ${reason}.`;
+}
+
+/** The vote-stuck alert. */
+export function voteStuckAlert(p: { id: string; pot: string; summary: string }, reason: string, how: { permanent: true } | { tries: number }): AlertMessage {
+  return { name: "vote-stuck", what: voteFailedText(p, reason, how), who: WHO.dev };
 }
 
 /** Why an open vote alert can clear now, or null to keep it open. */

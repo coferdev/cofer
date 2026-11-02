@@ -2,7 +2,8 @@ import { describe, expect, test } from "bun:test";
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import { HttpRequestError, type Address } from "viem";
-import { ageText, FEED_WARN_BEFORE_LIMIT_SEC, feedProblems, type FeedNow } from "../src/core/feedHealth";
+import { ageText, FEED_WARN_BEFORE_LIMIT_SEC, feedProblems, feedWarning, type FeedNow } from "../src/core/feedHealth";
+import { explorerFor } from "../src/chain/addresses";
 import { feedHealth, type FeedHealthDeps } from "../src/keeper/keeper";
 import type { AlertDeps } from "../src/keeper/alerts";
 
@@ -26,18 +27,22 @@ describe("feed health: when each alert holds", () => {
     for (const age of [0, 21 * H, 22 * H, 22 * H + 59 * 60]) expect(open(age)).toEqual([]);
   });
 
-  test("within the last hour before the limit: an early warning only", () => {
-    expect(open(23 * H)).toEqual(["feed-near"]);
-    expect(open(DAY)).toEqual(["feed-near"]); // exactly at the limit the contract still accepts it
+  test("within the last hour before the limit: no alert, a log line only", () => {
+    expect(open(23 * H)).toEqual([]);
+    expect(open(DAY)).toEqual([]); // exactly at the limit the contract still accepts it
+    expect(feedWarning("USDG", feed(23 * H), NOW)).toBe("USDG price feed is close to its limit (23h old, limit 24h).");
+    expect(feedWarning("USDG", feed(22 * H), NOW)).toBeNull();
+    expect(feedWarning("USDG", feed(DAY + 1), NOW)).toBeNull(); // past it: the alert instead
   });
 
-  test("past the limit: always the stale alert (the warning stays open, so it never reads as cleared)", () => {
-    expect(open(DAY + 1)).toEqual(["feed-stale", "feed-near"]);
-    expect(open(3 * DAY)).toEqual(["feed-stale", "feed-near"]);
+  test("past the limit: the same one alert (one alert per problem)", () => {
+    expect(open(DAY + 1)).toEqual(["feed-stale"]);
+    expect(open(3 * DAY)).toEqual(["feed-stale"]);
   });
 
-  test("a stock feed over a market weekend (4-day limit) raises nothing", () => {
+  test("a stock feed over a market weekend (96h limit) raises nothing, even a weekend plus a holiday", () => {
     expect(open(66 * H, 4 * DAY)).toEqual([]);
+    expect(open(2.4 * DAY, 4 * DAY)).toEqual([]); // the longest gap seen in 14 days of feed history
   });
 
   test("a price the contract rejects: zero, negative, or a time in the future", () => {
@@ -47,10 +52,10 @@ describe("feed health: when each alert holds", () => {
   });
 
   test("the texts: symbol, age and limit, and exits are never affected", () => {
-    const [, stale, near] = feedProblems("USDG", USDG, feed(25 * H + 10 * 60), NOW);
+    const [bad, stale] = feedProblems("USDG", USDG, feed(25 * H + 10 * 60), NOW);
     expect(stale!.problem).toBe("USDG price feed is past its limit (25h 10m old, limit 24h). Deposits and swaps that need it are refused until it updates. Exits are not affected.");
-    expect(near!.problem).toBe("USDG price feed is close to its limit (25h 10m old, limit 24h).");
     expect(stale!.key).toBe(`feed-stale:${USDG.toLowerCase()}`);
+    expect([bad!.name, stale!.name]).toEqual(["price-bad-USDG", "price-stale-USDG"]);
   });
 
   test("ageText", () => {
@@ -102,8 +107,7 @@ describe("feed health: the keeper job", () => {
       { asset: "TSLA", ageSec: H },
     ]);
     expect(r1.sent).toEqual([
-      "USDG price feed is past its limit (25h old, limit 24h). Deposits and swaps that need it are refused until it updates. Exits are not affected.",
-      "USDG price feed is close to its limit (25h old, limit 24h).",
+      "[cofer alert] price-stale-USDG\nUSDG price feed is past its limit (25h old, limit 24h). Deposits and swaps that need it are refused until it updates. Exits are not affected.\nWho acts: Dev checks.",
     ]);
 
     const r2 = run({ [USDG]: () => feed(25 * H + 15 * 60), [TSLA]: () => feed(H, 4 * DAY) }, opened);
@@ -112,9 +116,25 @@ describe("feed health: the keeper job", () => {
 
     const r3 = run({ [USDG]: () => feed(10 * 60), [TSLA]: () => feed(H, 4 * DAY) }, opened);
     await r3.done;
-    expect(r3.sent.every((t) => t.startsWith("Cleared: USDG"))).toBe(true);
-    expect(r3.sent.length).toBe(2);
+    expect(r3.sent).toEqual(["[cofer alert] price-stale-USDG: Cleared."]);
     expect(opened.size).toBe(0);
+  });
+
+  test("close to the limit: written to the log, never posted", async () => {
+    const logged: string[] = [];
+    const sent: string[] = [];
+    const alerts = { open: async () => true, close: async () => null, send: async (t: string) => void sent.push(t) };
+    await feedHealth({ targets: async () => [{ symbol: "USDG", asset: USDG }], read: async () => feed(23 * H + 30 * 60), alerts, now: () => NOW, log: (t) => void logged.push(t) });
+    expect(sent).toEqual([]);
+    expect(logged).toEqual(["USDG price feed is close to its limit (23h 30m old, limit 24h)."]);
+  });
+
+  test("an old separate 'close to its limit' warning left open is dropped without a post", async () => {
+    const opened = new Map<string, string>([[`feed-near:${USDG.toLowerCase()}`, "USDG price feed is close to its limit."]]);
+    const r = run({ [USDG]: () => feed(H), [TSLA]: () => feed(H, 4 * DAY) }, opened);
+    await r.done;
+    expect(opened.size).toBe(0);
+    expect(r.sent).toEqual([]);
   });
 
   test("a chain hiccup neither raises nor clears an alert, and the other feeds are still checked", async () => {
@@ -136,7 +156,7 @@ describe("feed health: the keeper job", () => {
       console.error = origError;
     }
     expect(opened.has(`feed-stale:${USDG.toLowerCase()}`)).toBe(true); // not cleared by the failed read
-    expect(r.sent.some((t) => t.startsWith("TSLA price feed is past its limit"))).toBe(true);
+    expect(r.sent.some((t) => t.startsWith("[cofer alert] price-stale-TSLA\nTSLA price feed is past its limit"))).toBe(true);
     expect(r.sent.join(" ")).not.toContain("SECRETKEY123");
   });
 
@@ -144,6 +164,13 @@ describe("feed health: the keeper job", () => {
     const r = run({ [USDG]: () => feed(H), [TSLA]: () => null }, new Map());
     expect(await r.done).toEqual([{ asset: "USDG", ageSec: H }]);
     expect(r.sent).toEqual([]);
+  });
+
+  test("explorer links: the known explorer for each chain, unless overridden", () => {
+    expect(explorerFor(4663)).toBe("https://robinhoodchain.blockscout.com");
+    expect(explorerFor(46630)).toBe("https://explorer.testnet.chain.robinhood.com");
+    expect(explorerFor(1)).toBeUndefined();
+    expect(explorerFor(4663, "https://other.example")).toBe("https://other.example");
   });
 
   test("the real job checks USDG plus every listed stock, reading each feed's limit from the factory", () => {

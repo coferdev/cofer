@@ -16,10 +16,13 @@ import { startKeeper, scheduleKeeper } from "./keeper/keeper";
 import { startRelayer } from "./relayer/relayer";
 import { startNotifier } from "./notifier/notifier";
 import { selectCardAdapter } from "./cards/select";
-import { logError } from "./core/errors";
+import { countErrorsWith, logError } from "./core/errors";
+import { recordError } from "./keeper/serverHealth";
 
 async function main() {
   const e = env();
+  // every logged error, in every role, counts toward the errors-spike alert (Redis down: not counted)
+  countErrorsWith(() => void recordError().catch(() => {}));
   const role = e.ROLE;
   // checked first, in every role: a card setting that must never run (e.g. the stub off testnet) stops start-up
   const cards = selectCardAdapter(e);

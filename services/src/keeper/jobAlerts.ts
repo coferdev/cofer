@@ -8,6 +8,7 @@ import type { Job, Worker } from "bullmq";
 import { logError, redact } from "../core/errors";
 import { isFinalFailure } from "../queues";
 import { alertDeps, checkAlert, type AlertDeps } from "./alerts";
+import { WHO } from "../core/alertFormat";
 
 // The owner's setting.
 export const JOB_FAIL_ALERT_AFTER = 3;
@@ -34,7 +35,7 @@ export function watchJobFailures(w: Events, deps: AlertDeps = alertDeps(), thres
     if (!job || !isFinalFailure(job, err)) return; // a retry is still coming
     const n = (failures.get(job.name) ?? 0) + 1;
     failures.set(job.name, n);
-    if (n >= threshold) report(checkAlert(jobAlertKey(w.name, job.name), jobFailingText(w.name, job.name, n, err), deps));
+    if (n >= threshold) report(checkAlert(jobAlertKey(w.name, job.name), { name: "job-failing", what: jobFailingText(w.name, job.name, n, err), who: WHO.dev, rpcRelated: true }, deps));
   });
   w.on("completed", (job) => {
     const had = failures.get(job.name) ?? 0;

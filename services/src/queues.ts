@@ -5,6 +5,11 @@ import { logError, safeJob } from "./core/errors";
 
 let _conn: IORedis | undefined;
 export function redis(): ConnectionOptions {
+  return redisClient();
+}
+
+/** The same Redis connection, for plain keys (server health state, error counts). */
+export function redisClient(): IORedis {
   _conn ??= new IORedis(env().REDIS_URL, { maxRetriesPerRequest: null });
   return _conn;
 }

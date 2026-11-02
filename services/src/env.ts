@@ -29,6 +29,8 @@ const schema = z.object({
     .transform((v) => parseEther(v)), // alert when the relayer's ETH balance is below this
   EXPECTED_OWNER: addr.optional(), // the owner Safe of CoferFactory and FeeRouter; the keeper alerts if either owner differs
   EXPECTED_GUARDIAN: addr.optional(), // the factory guardian; the keeper alerts if it differs
+  EXPECTED_FEE_WALLET: addr.optional(), // the wallet behind all four fee sinks; alerts call it "fee wallet"
+  EXPLORER_URL: z.string().url().optional(), // block explorer override (no key); default: the known explorer for CHAIN_ID (chain/addresses.ts)
   BUNDLER_URL: z.string().url().optional(), // ZeroDev or Alchemy (member userOps from the signer site)
   PAYMASTER_URL: z.string().url().optional(),
   PASSKEY_SERVER_URL: z.string().url().optional(), // ZeroDev passkey server (signer site)

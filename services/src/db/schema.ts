@@ -182,6 +182,7 @@ export const alerts = pgTable("alerts", {
   key: text("key").primaryKey(), // e.g. "feed-stale:0x…"
   text: text("text").notNull(),
   openedAt: timestamp("opened_at", { withTimezone: true }).notNull().defaultNow(),
+  lastSentAt: timestamp("last_sent_at", { withTimezone: true }).notNull().defaultNow(), // emergencies: when last posted (reminders)
 });
 
 /** Last trusted feed reading per Stock Token, for the multiplier continuity check (keeper). */

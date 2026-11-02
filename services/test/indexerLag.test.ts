@@ -79,8 +79,9 @@ describe("indexer lag: the ops job", () => {
     s.cursor = s.head - 20n; // caught up
     expect(await run(s, alerts)).toBe(0);
     expect(sent.length).toBe(2);
-    expect(sent[0]).toStartWith("The indexer is 10m behind the chain");
-    expect(sent[1]).toStartWith("Cleared: The indexer is 10m behind");
+    expect(sent[0]).toStartWith("[cofer alert] indexer-behind\nThe indexer is 10m behind the chain");
+    expect(sent[0]).toEndWith("Who acts: Dev checks.");
+    expect(sent[1]).toBe("[cofer alert] indexer-behind: Cleared.");
   });
 
   test("the usual 20-block wait is not counted as lag", async () => {

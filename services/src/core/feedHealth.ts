@@ -5,7 +5,9 @@
  * limit), so the early warning only fires close to the limit, not at a fraction of it.
  */
 
-// The owner's setting: warn this long before a feed reaches its limit.
+import { alertName } from "./alertFormat";
+
+// The owner's setting: log a warning this long before a feed reaches its limit (log only, never posted).
 export const FEED_WARN_BEFORE_LIMIT_SEC = 3600; // 1 hour
 
 export interface FeedNow {
@@ -29,25 +31,38 @@ export function ageText(sec: number): string {
 }
 
 /**
- * Each alert for one feed, with its text while the problem holds and null when it does not:
- *  - feed-bad:   a price the contract rejects (answer <= 0, or a time in the future)
- *  - feed-stale: past its limit (always alerts)
- *  - feed-near:  within FEED_WARN_BEFORE_LIMIT_SEC of its limit (stays open while stale, so it
- *                never reads as "cleared" when the feed got worse)
+ * Each alert for one feed, with its name, and its text while the problem holds (null when it does not):
+ *  - price-bad:   a price the contract rejects (answer <= 0, or a time in the future)
+ *  - price-stale: past its limit (deposits and swaps that need it are refused)
+ * The early "close to its limit" warning is not an alert (USDG would warn daily): see feedWarning.
  */
-export function feedProblems(symbol: string, asset: string, f: FeedNow, now: number, warnBeforeSec = FEED_WARN_BEFORE_LIMIT_SEC) {
+export function feedProblems(symbol: string, asset: string, f: FeedNow, now: number) {
   const key = asset.toLowerCase();
   const age = now - f.updatedAt;
-  const limit = `limit ${ageText(f.maxStaleness)}`;
   const bad = f.answer <= 0n || f.updatedAt > now;
   const stale = !bad && age > f.maxStaleness;
-  const near = !bad && age >= f.maxStaleness - warnBeforeSec;
   return [
-    { key: `feed-bad:${key}`, problem: bad ? `${symbol} price feed reports a price the contract rejects. Deposits and swaps that need it are refused until it is fixed. Exits are not affected.` : null },
+    {
+      key: `feed-bad:${key}`,
+      name: alertName("price-bad", symbol),
+      problem: bad ? `${symbol} price feed reports a price the contract rejects. Deposits and swaps that need it are refused until it is fixed. Exits are not affected.` : null,
+    },
     {
       key: `feed-stale:${key}`,
-      problem: stale ? `${symbol} price feed is past its limit (${ageText(age)} old, ${limit}). Deposits and swaps that need it are refused until it updates. Exits are not affected.` : null,
+      name: alertName("price-stale", symbol),
+      problem: stale
+        ? `${symbol} price feed is past its limit (${ageText(age)} old, limit ${ageText(f.maxStaleness)}). Deposits and swaps that need it are refused until it updates. Exits are not affected.`
+        : null,
     },
-    { key: `feed-near:${key}`, problem: near ? `${symbol} price feed is close to its limit (${ageText(age)} old, ${limit}).` : null },
   ];
 }
+
+/** The early warning, for the log only: within FEED_WARN_BEFORE_LIMIT_SEC of the limit and not yet past it. */
+export function feedWarning(symbol: string, f: FeedNow, now: number, warnBeforeSec = FEED_WARN_BEFORE_LIMIT_SEC): string | null {
+  const age = now - f.updatedAt;
+  if (f.answer <= 0n || f.updatedAt > now || age > f.maxStaleness || age < f.maxStaleness - warnBeforeSec) return null;
+  return `${symbol} price feed is close to its limit (${ageText(age)} old, limit ${ageText(f.maxStaleness)}).`;
+}
+
+/** The key of the older separate "close to its limit" warning; the keeper removes one left open, without posting. */
+export const oldFeedNearKey = (asset: string) => `feed-near:${asset.toLowerCase()}`;

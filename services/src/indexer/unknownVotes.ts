@@ -7,6 +7,7 @@
  */
 import type { Address, Hex } from "viem";
 import { Kind } from "../core/proposal";
+import { shortHex, type AlertMessage } from "../core/alertFormat";
 
 export type VoteEvent =
   | { name: "ProposalQueued"; digest: Hex; kind: number; eta: bigint }
@@ -16,8 +17,8 @@ export interface UnknownVoteDeps {
   /** The pot's group chat, or null if the bot has no group for it. */
   chatOf(pot: Address): Promise<number | null>;
   sendGroup(chatId: number, text: string): Promise<void>;
-  /** The ops alert path (log + ops chat). */
-  sendOps(text: string): Promise<void>;
+  /** The staff alert path (log + staff chat). */
+  sendOps(m: AlertMessage): Promise<void>;
 }
 
 const KIND_TEXT: Record<number, string> = {
@@ -53,10 +54,14 @@ export function groupText(ev: VoteEvent): string {
   return `A vote that was not made through this bot just executed: ${kindText(ev.kind)}. Check /pot.`;
 }
 
-/** What the ops chat reads. */
-export function opsText(pot: Address, ev: VoteEvent): string {
-  const what = ev.name === "ProposalQueued" ? `queued (can run after ${utcText(ev.eta)})` : "executed";
-  return `vote not made through the bot ${what} in pot ${pot}: ${kindText(ev.kind)}, vote ${ev.digest}`;
+/** What the staff chat reads (vote-unknown). */
+export function opsText(pot: Address, ev: VoteEvent): AlertMessage {
+  const what = ev.name === "ProposalQueued" ? `was queued and can run after ${utcText(ev.eta)}` : "executed";
+  return {
+    name: "vote-unknown",
+    what: `A vote not made through the bot ${what} in pot ${shortHex(pot)}: ${kindText(ev.kind)} (vote ${shortHex(ev.digest)}). The group was told.`,
+    who: "Dev checks. If nobody in that group made this vote, tell the owner and the dev at once.",
+  };
 }
 
 /**

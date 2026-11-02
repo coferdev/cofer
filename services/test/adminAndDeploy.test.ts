@@ -2,7 +2,8 @@ import { describe, expect, test } from "bun:test";
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import { zeroAddress, type Abi, type Address, type Hex } from "viem";
-import { adminGroupText, adminOpsText, onAdminEvent, type AdminEvent, type AdminEventDeps } from "../src/indexer/adminEvents";
+import { adapterAlertKey, adminDecision, adminGroupText, HISTORY_AGE_SEC, onAdminEvent, ROUTER_FACTORY_ALERT, SINKS_ALERT, type AdminEvent, type AdminEventDeps } from "../src/indexer/adminEvents";
+import { addressBook, alertText, type AlertMessage } from "../src/core/alertFormat";
 import { roleProblem, ROLES_ALERT, type RoleState } from "../src/core/roles";
 import { checkRoles } from "../src/keeper/keeper";
 import { codeMatches, manifestProblems, maskImmutables, runDeployChecks, type Artifact, type ChainReader, type Manifest } from "../src/core/deployCheck";
@@ -14,35 +15,61 @@ const ETA = 1_793_628_300n; // 2 Nov 2026 14:05 UTC
 
 // ================================================================ admin-change alerts
 
+const SAFE_X = A(0x5afe);
+const GUARD_X = A(0x9a);
+const FEE_WALLET = A(0xfee);
+const ADAPTER = A(0xad);
+const FACTORY = A(0xf0);
+const NOW = 1_793_600_000; // before ETA
+
 function fakeAdminDeps(chats = [-1, -2]) {
-  const ops: string[] = [];
+  const posts: AlertMessage[] = [];
+  const opened: [string, AlertMessage][] = [];
+  const cleared: [string, string][] = [];
+  const logs: string[] = [];
   const groups: [number, string][] = [];
   const deps: AdminEventDeps = {
-    sendOps: async (t) => void ops.push(t),
+    expected: { owner: SAFE_X, guardian: GUARD_X, feeWallet: FEE_WALLET, adapter: ADAPTER, factory: FACTORY },
+    now: () => NOW,
+    post: async (m) => void posts.push(m),
+    openAlert: async (k, m) => void opened.push([k, m]),
+    clearAlert: async (k, n) => void cleared.push([k, n]),
+    log: (t) => void logs.push(t),
     groupChats: async () => chats,
     sendGroup: async (c, t) => void groups.push([c, t]),
     symbolOf: async (a) => (a === A(0x75) ? "TSLA" : null),
   };
-  return { deps, ops, groups };
+  return { deps, posts, opened, cleared, logs, groups };
 }
 const ev = (name: string, args: Record<string, unknown>, source: AdminEvent["source"] = "factory"): AdminEvent => ({ source, name, args, txHash: TX });
 
 describe("admin-change alerts", () => {
-  test("a pause goes to ops only, says exits are not affected, with the tx", async () => {
+  test("a pause: one info line, says exits are not affected and who acts, with the transaction", async () => {
     const f = fakeAdminDeps();
     expect(await onAdminEvent(f.deps, ev("DepositsPaused", { paused: true }), true)).toBe("alerted");
-    expect(f.ops).toEqual([`Deposits PAUSED in every pot. Exits are not affected. (tx ${TX})`]);
+    expect(f.posts).toEqual([{ name: "admin-change", what: "Deposits are paused in every pot. Exits are not affected.", who: "Tell the groups. If nobody planned this pause, tell the owner and the dev at once.", tx: TX }]);
     expect(f.groups).toHaveLength(0);
+    const text = alertText(f.posts[0]!, { explorer: "https://robinhoodchain.blockscout.com" });
+    expect(text).toStartWith("[cofer alert] admin-change\n");
+    expect(text).toEndWith(`https://robinhoodchain.blockscout.com/tx/${TX}`);
   });
 
-  test("a queued feed change goes to ops AND every group, with the asset symbol and when it can apply", async () => {
+  test("listing and buyable flags are routine setup: logged, never posted", async () => {
+    const f = fakeAdminDeps();
+    expect(await onAdminEvent(f.deps, ev("AssetListed", { asset: A(0x75), feed: A(0xfe), maxStaleness: 345600, isStock: true }), true)).toBe("logged");
+    expect(await onAdminEvent(f.deps, ev("AssetBuyable", { asset: A(0x75), buyable: true }), true)).toBe("logged");
+    expect(f.posts).toHaveLength(0);
+    expect(f.logs).toHaveLength(2);
+  });
+
+  test("a queued feed change: one info line, and every group is told with the symbol and when it can apply", async () => {
     const f = fakeAdminDeps();
     await onAdminEvent(f.deps, ev("FeedQueued", { asset: A(0x75), feed: A(0xfe), maxStaleness: 345600, eta: ETA }), true);
     expect(f.groups.map(([c]) => c)).toEqual([-1, -2]);
     expect(f.groups[0]![1]).toContain(`new price feed for TSLA (${A(0x75)})`);
     expect(f.groups[0]![1]).toContain("after 14:05 UTC on 2 Nov 2026");
     expect(f.groups[0]![1]).toContain("/exit");
-    expect(f.ops[0]).toContain("QUEUED");
+    expect(f.posts[0]!.what).toBe("A new price feed for TSLA was queued (staleness limit 96h). It can apply after 14:05 UTC on 2 Nov 2026. The groups were told.");
   });
 
   test("queued adapter and swap fee changes reach the groups too; applied changes do not", async () => {
@@ -53,30 +80,93 @@ describe("admin-change alerts", () => {
     }
   });
 
-  test("every factory and fee-router admin event has an ops text; non-admin events have none", () => {
+  test("expected roles and settings: info lines only", () => {
+    const x = fakeAdminDeps().deps.expected;
+    const level = (e: AdminEvent) => adminDecision(e, x)?.level;
+    expect(level(ev("OwnershipTransferStarted", { from: A(1), to: SAFE_X }))).toBe("info");
+    expect(level(ev("OwnershipTransferred", { from: A(1), to: SAFE_X }))).toBe("info");
+    expect(level(ev("GuardianSet", { guardian: GUARD_X }))).toBe("info");
+    expect(level(ev("AdapterQueued", { adapter: ADAPTER, eta: ETA }))).toBe("info");
+    expect(level(ev("AdapterSet", { adapter: ADAPTER, allowed: true }))).toBe("info");
+    expect(level(ev("SinksSet", { sinks: [FEE_WALLET, FEE_WALLET, FEE_WALLET, FEE_WALLET], bps: [8000, 1000, 500, 500] }, "feeRouter"))).toBe("info");
+    expect(level(ev("FactorySet", { factory: FACTORY }, "feeRouter"))).toBe("log");
+    expect(adminDecision(ev("PlanPriceSet", { pricePerMonth: 9_000_000n }, "feeRouter"), x)!.what).toContain("9 USDG a month");
+  });
+
+  test("a role moved to an unexpected address: role-changed, as an emergency", async () => {
+    const f = fakeAdminDeps();
+    await onAdminEvent(f.deps, ev("GuardianSet", { guardian: A(0xbad) }), true);
+    await onAdminEvent(f.deps, ev("OwnershipTransferStarted", { from: SAFE_X, to: A(0xbad) }), true);
+    await onAdminEvent(f.deps, ev("AdapterQueued", { adapter: A(0xbad), eta: ETA }), true);
+    await onAdminEvent(f.deps, ev("SinksSet", { sinks: [FEE_WALLET, A(0xbad), FEE_WALLET, FEE_WALLET], bps: [8000, 1000, 500, 500] }, "feeRouter"), true);
+    await onAdminEvent(f.deps, ev("FactorySet", { factory: A(0xbad) }, "feeRouter"), true);
+    expect(f.opened.map(([k]) => k)).toEqual([ROLES_ALERT, ROLES_ALERT, adapterAlertKey(A(0xbad)), SINKS_ALERT, ROUTER_FACTORY_ALERT]);
+    for (const [, m] of f.opened) expect(m).toMatchObject({ name: "role-changed", emergency: true, who: "Emergency: tell the owner and the dev at once.", tx: TX });
+    expect(f.posts).toHaveLength(0);
+    const text = alertText(f.opened[0]![1], { book: addressBook({ guardian: GUARD_X }) });
+    expect(text).toStartWith("[cofer alert] role-changed (EMERGENCY)\nThe guardian was changed to 0x0000…0bad, which is not the expected guardian.");
+    expect(text).not.toMatch(/0x[0-9a-fA-F]{40}/);
+  });
+
+  test("putting the expected value back clears the emergency", async () => {
+    const f = fakeAdminDeps();
+    await onAdminEvent(f.deps, ev("AdapterSet", { adapter: A(0xbad), allowed: false }), true);
+    await onAdminEvent(f.deps, ev("SinksSet", { sinks: [FEE_WALLET, FEE_WALLET, FEE_WALLET, FEE_WALLET], bps: [8000, 1000, 500, 500] }, "feeRouter"), true);
+    expect(f.cleared).toEqual([
+      [adapterAlertKey(A(0xbad)), "that adapter was removed"],
+      [SINKS_ALERT, "the fee sinks are the fee wallet again"],
+    ]);
+  });
+
+  test("without expected owner, guardian or fee wallet, those are not judged (info, not emergency)", () => {
+    const x = { adapter: ADAPTER, factory: FACTORY };
+    expect(adminDecision(ev("GuardianSet", { guardian: A(0xbad) }), x)!.level).toBe("info");
+    expect(adminDecision(ev("SinksSet", { sinks: [A(1), A(1), A(1), A(1)], bps: [8000, 1000, 500, 500] }, "feeRouter"), x)!.level).toBe("info");
+  });
+
+  test("history (first start, or catching up on old blocks): logged, never posted", async () => {
+    const f = fakeAdminDeps();
+    expect(await onAdminEvent(f.deps, ev("GuardianSet", { guardian: A(0xbad) }), true, true)).toBe("logged");
+    expect(await onAdminEvent(f.deps, ev("DepositsPaused", { paused: true }), true, true)).toBe("logged");
+    expect(f.posts).toHaveLength(0);
+    expect(f.opened).toHaveLength(0);
+    expect(f.logs[0]).toStartWith("admin event (history): The guardian was changed to");
+  });
+
+  test("history: a queued change still ahead is told to the groups; one already past is not", async () => {
+    const f = fakeAdminDeps();
+    await onAdminEvent(f.deps, ev("SwapFeeQueued", { bps: 40, eta: BigInt(NOW + 3600) }), true, true);
+    await onAdminEvent(f.deps, ev("SwapFeeQueued", { bps: 40, eta: BigInt(NOW - 3600) }), true, true);
+    expect(f.groups).toHaveLength(2); // the first event, to both groups
+    expect(f.posts).toHaveLength(0);
+  });
+
+  test("every admin event has a decision; non-admin events have none", () => {
+    const x = fakeAdminDeps().deps.expected;
     const factoryAdmin = ["OwnershipTransferStarted", "OwnershipTransferred", "GuardianSet", "DepositsPaused", "CreationPaused", "AssetListed", "AssetBuyable", "FeedQueued", "FeedApplied", "AdapterQueued", "AdapterSet", "SwapFeeQueued", "SwapFeeSet"];
     const args = { from: A(1), to: A(2), guardian: A(3), paused: false, asset: A(4), feed: A(5), maxStaleness: 3600, isStock: true, buyable: true, eta: ETA, adapter: A(6), allowed: false, bps: 30 };
-    for (const n of factoryAdmin) expect(adminOpsText(ev(n, args))).not.toBeNull();
-    expect(adminOpsText(ev("SinksSet", { sinks: [A(1), A(1), A(1), A(1)], bps: [8000, 1000, 500, 500] }, "feeRouter"))).toContain("80%");
-    expect(adminOpsText(ev("PlanPriceSet", { pricePerMonth: 9_000_000n }, "feeRouter"))).toContain("9 USDG a month");
-    expect(adminOpsText(ev("FactorySet", { factory: A(7) }, "feeRouter"))).toContain(A(7));
-    expect(adminOpsText(ev("PotCreated", {}))).toBeNull();
-    expect(adminOpsText(ev("PlanPaid", {}, "feeRouter"))).toBeNull();
-    expect(adminOpsText(ev("Distributed", {}, "feeRouter"))).toBeNull();
+    for (const n of factoryAdmin) expect(adminDecision(ev(n, args), x)).not.toBeNull();
+    expect(adminDecision(ev("PotCreated", {}), x)).toBeNull();
+    expect(adminDecision(ev("PlanPaid", {}, "feeRouter"), x)).toBeNull();
+    expect(adminDecision(ev("Distributed", {}, "feeRouter"), x)).toBeNull();
   });
 
   test("an event seen again (indexer re-run) sends nothing; a non-admin event sends nothing", async () => {
     const f = fakeAdminDeps();
     expect(await onAdminEvent(f.deps, ev("GuardianSet", { guardian: A(3) }), false)).toBe("skipped");
     expect(await onAdminEvent(f.deps, ev("PotCreated", {}), true)).toBe("skipped");
-    expect(f.ops).toHaveLength(0);
+    expect(f.posts).toHaveLength(0);
+    expect(f.opened).toHaveLength(0);
   });
 
-  test("the indexer reads fee-router logs and alerts on factory admin events, retrying a failed send", () => {
+  test("the indexer reads fee-router logs, treats a first run or an old block as history, and retries a failed send", () => {
     const src = readFileSync(join(import.meta.dir, "..", "src", "indexer", "indexer.ts"), "utf8");
-    expect(src).toContain("for (const log of routerLogs) await handleFeeRouterLog(log);");
+    expect(src).toContain("for (const log of routerLogs) await handleFeeRouterLog(log, firstRun);");
     expect(src.match(/await alertAdmin\(log, \{ source: "(factory|feeRouter)"/g)).toHaveLength(2);
+    expect(src).toContain("const firstRun = !cur;");
+    expect(src).toContain("> HISTORY_AGE_SEC");
     expect(src).toMatch(/async function alertAdmin[\s\S]*?catch \(e\) \{\s*await unrecord\(log\);\s*throw e;/);
+    expect(HISTORY_AGE_SEC).toBe(600);
   });
 });
 
@@ -103,6 +193,13 @@ describe("role drift check", () => {
   test("without expected values, a pending ownership transfer still alerts", () => {
     expect(roleProblem(good, {})).toBeNull();
     expect(roleProblem({ ...good, factoryPendingOwner: A(1) }, {})).toContain("factory ownership transfer");
+  });
+
+  test("a transfer pending to the owner Safe is the planned hand-off, not a problem", () => {
+    expect(roleProblem({ ...good, factoryOwner: A(0xde), routerOwner: SAFE, factoryPendingOwner: SAFE }, { owner: SAFE })).toBe(
+      `Roles changed: factory owner is ${A(0xde)}, expected ${SAFE}. Check the owner Safe; see docs/runbook.md.`,
+    );
+    expect(roleProblem({ ...good, routerPendingOwner: SAFE }, { owner: SAFE })).toBeNull();
   });
 
   test("the keeper opens the alert on drift, clears it when fixed, and a failed read changes nothing", async () => {

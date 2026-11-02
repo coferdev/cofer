@@ -22,7 +22,9 @@ export function roleProblem(s: RoleState, expected: { owner?: string; guardian?:
   if (expected.owner && !same(s.factoryOwner, expected.owner)) p.push(`factory owner is ${s.factoryOwner}, expected ${expected.owner}`);
   if (expected.owner && !same(s.routerOwner, expected.owner)) p.push(`fee router owner is ${s.routerOwner}, expected ${expected.owner}`);
   if (expected.guardian && !same(s.guardian, expected.guardian)) p.push(`guardian is ${s.guardian}, expected ${expected.guardian}`);
-  if (!same(s.factoryPendingOwner, zeroAddress)) p.push(`a factory ownership transfer to ${s.factoryPendingOwner} is pending`);
-  if (!same(s.routerPendingOwner, zeroAddress)) p.push(`a fee router ownership transfer to ${s.routerPendingOwner} is pending`);
+  // a transfer pending to the expected owner is the planned hand-off; any other is a problem
+  const odd = (pending: string) => !same(pending, zeroAddress) && !(expected.owner && same(pending, expected.owner));
+  if (odd(s.factoryPendingOwner)) p.push(`a factory ownership transfer to ${s.factoryPendingOwner} is pending`);
+  if (odd(s.routerPendingOwner)) p.push(`a fee router ownership transfer to ${s.routerPendingOwner} is pending`);
   return p.length ? `Roles changed: ${p.join("; ")}. Check the owner Safe; see docs/runbook.md.` : null;
 }

@@ -1,6 +1,10 @@
 import { describe, expect, spyOn, test } from "bun:test";
 import { alertBotSender, checkAlert, deliver, type AlertDeps } from "../src/keeper/alerts";
 import { parseEnv } from "../src/env";
+import { alertText, WHO, type AlertMessage } from "../src/core/alertFormat";
+
+const STALE: AlertMessage = { name: "price-stale-USDG", what: "USDG feed stale.", who: WHO.dev };
+const PROBLEM: AlertMessage = { name: "job-failing", what: "problem", who: WHO.dev };
 
 const TOKEN = "7000000001:AAFakeAlertBotTokenSECRETxyz";
 const CHAT = 123456789;
@@ -41,14 +45,14 @@ describe("where an alert goes", () => {
     const bot: string[] = [];
     const queue: string[] = [];
     await logs(() => deliver("USDG feed stale", { chat: CHAT, botSend: async (_c, t) => void bot.push(t), enqueue: async (_c, t) => void queue.push(t) }));
-    expect(bot).toEqual(["Cofer alert: USDG feed stale"]);
+    expect(bot).toEqual(["USDG feed stale"]); // already a finished message: sent as it is
     expect(queue).toEqual([]);
   });
 
   test("without an alerts bot: today's behaviour, the notifier queue", async () => {
     const queue: [number, string][] = [];
     await logs(() => deliver("USDG feed stale", { chat: CHAT, enqueue: async (c, t) => void queue.push([c, t]) }));
-    expect(queue).toEqual([[CHAT, "Cofer alert: USDG feed stale"]]);
+    expect(queue).toEqual([[CHAT, "USDG feed stale"]]);
   });
 });
 
@@ -114,7 +118,7 @@ describe("the alerts bot", () => {
     };
     let first: unknown;
     const out = await logs(async () => {
-      first = await checkAlert("feed-stale:usdg", "USDG feed stale", deps);
+      first = await checkAlert("feed-stale:usdg", STALE, deps);
     });
     expect(first).toBeNull(); // not delivered...
     expect(open.size).toBe(0); // ...so not recorded as sent
@@ -123,8 +127,8 @@ describe("the alerts bot", () => {
     expect(out).not.toContain("7000000001");
 
     up = true;
-    await logs(async () => expect(await checkAlert("feed-stale:usdg", "USDG feed stale", deps)).toBe("opened"));
-    expect(tg.calls.at(-1)!.body).toMatchObject({ text: "Cofer alert: USDG feed stale" });
+    await logs(async () => expect(await checkAlert("feed-stale:usdg", STALE, deps)).toBe("opened"));
+    expect(tg.calls.at(-1)!.body).toMatchObject({ text: alertText(STALE) });
   });
 });
 
@@ -154,20 +158,20 @@ describe("a failed delivery is tried again", () => {
 
   test("an alert that could not be sent is sent on the next run", async () => {
     const { d, sent } = deps(1);
-    await logs(async () => expect(await checkAlert("k", "problem", d)).toBeNull());
-    expect(await checkAlert("k", "problem", d)).toBe("opened");
-    expect(sent).toEqual(["problem"]);
+    await logs(async () => expect(await checkAlert("k", PROBLEM, d)).toBeNull());
+    expect(await checkAlert("k", PROBLEM, d)).toBe("opened");
+    expect(sent).toEqual([alertText(PROBLEM)]);
   });
 
   test("a 'cleared' that could not be sent stays open and is sent on the next run", async () => {
     const { d, open, sent } = deps(0);
-    await checkAlert("k", "problem", d);
+    await checkAlert("k", PROBLEM, d);
     let fail = true;
     const flaky: AlertDeps = { ...d, send: async (t) => (fail ? ((fail = false), Promise.reject(new Error("down"))) : d.send(t)) };
     await logs(async () => expect(await checkAlert("k", null, flaky)).toBeNull());
-    expect(open.get("k")).toBe("problem");
+    expect(open.get("k")).toBe(alertText(PROBLEM));
     expect(await checkAlert("k", null, flaky)).toBe("cleared");
-    expect(sent).toEqual(["problem", "Cleared: problem"]);
+    expect(sent).toEqual([alertText(PROBLEM), "[cofer alert] job-failing: Cleared."]);
   });
 });
 

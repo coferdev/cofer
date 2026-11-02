@@ -14,7 +14,7 @@ import { buildExecuteArgs } from "../services/proposals";
 import { Q, enqueueRelay, enqueueNotify, isFinalFailure, startWorker } from "../queues";
 import { logError } from "../core/errors";
 import { checkAlert } from "../keeper/alerts";
-import { failureReason, RevertedOnChain, voteAlertKey, voteFailedText } from "./voteAlerts";
+import { failureReason, RevertedOnChain, voteAlertKey, voteStuckAlert } from "./voteAlerts";
 import { env } from "../env";
 
 const PERMANENT = new Set(["NonceUsed", "StaleEpoch", "Expired", "UnknownKind", "AssetNotBuyable", "AdapterNotAllowed", "SlippageTooLoose"]);
@@ -63,7 +63,7 @@ export async function relayOnce(proposalId: Hex): Promise<"queued" | "executed" 
       await db().update(schema.proposals).set({ status, error: name }).where(eq(schema.proposals.id, proposalId));
       await enqueueNotify(proposalId);
       // stale and expired are normal outcomes members see on the card; only a failed vote is an ops problem
-      if (status === "failed") await checkAlert(voteAlertKey(proposalId), voteFailedText(row, name, { permanent: true }));
+      if (status === "failed") await checkAlert(voteAlertKey(proposalId), voteStuckAlert(row, name, { permanent: true }));
       return "skipped";
     }
     // kept for the alert if this was the last try; the status is unchanged
@@ -84,7 +84,7 @@ export function revertName(e: unknown): string | undefined {
 export async function alertStillFailing(proposalId: string, tries: number) {
   const row = await db().query.proposals.findFirst({ where: eq(schema.proposals.id, proposalId) });
   if (!row || !["ready", "queued"].includes(row.status)) return;
-  await checkAlert(voteAlertKey(proposalId), voteFailedText(row, row.error ?? "unknown error", { tries }));
+  await checkAlert(voteAlertKey(proposalId), voteStuckAlert(row, row.error ?? "unknown error", { tries }));
 }
 
 export function startRelayer() {

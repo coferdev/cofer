@@ -68,7 +68,7 @@ describe("where the pause applies", () => {
 
   test("the bot reads the same alert the keeper opens", () => {
     const keeper = readFileSync(join(import.meta.dir, "..", "src", "keeper", "keeper.ts"), "utf8");
-    expect(keeper).toContain("await checkAlert(continuityAlertKey(t.asset), r.problem, deps.alerts);");
+    expect(keeper).toContain("await checkAlert(continuityAlertKey(t.asset), problem, deps.alerts,");
     expect(bot).toContain("where: eq(schema.alerts.key, continuityAlertKey(asset))");
     expect(continuityAlertKey("0x322F0929c4625eD5bAd873c95208D54E1c003b2d")).toBe("continuity:0x322f0929c4625ed5bad873c95208d54e1c003b2d");
   });

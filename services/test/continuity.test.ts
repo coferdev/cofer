@@ -16,6 +16,9 @@ import {
 import { multiplierContinuity, type ContinuityDeps } from "../src/keeper/keeper";
 import type { AlertDeps } from "../src/keeper/alerts";
 
+/** The "what happened" line of a posted alert. */
+const body = (t: string) => t.split("\n")[1];
+
 const ONE = 10n ** 18n;
 const H = 3600;
 const T0 = 1_800_000_000;
@@ -92,15 +95,17 @@ describe("multiplier continuity alert (M8 gate)", () => {
 
   test("FIRES: the multiplier doubles but the feed price does not move", async () => {
     const r = await replay([{ multiplier: 2n * ONE }, { answer: 252_00000000n }]);
-    expect(r.sent).toEqual([
+    expect(r.sent.map(body)).toEqual([
       "TSLA: the multiplier changed 1 → 2 (expected about 2.00×) but the price feed moved 1.01×. Values for TSLA may be wrong (a split counted twice or not at all). Check before trusting them.",
     ]);
+    expect(r.sent[0]).toStartWith("[cofer alert] split-mismatch-TSLA\n");
+    expect(r.sent[0]).toContain("Who acts: Dev checks.");
     expect(r.open.has(KEY)).toBe(true);
   });
 
   test("FIRES: the feed doubles with no multiplier change and nothing announced", async () => {
     const r = await replay([{ answer: 500_00000000n }]);
-    expect(r.sent).toEqual([
+    expect(r.sent.map(body)).toEqual([
       "TSLA: the price feed moved 2.00× but the token's multiplier did not change. Values for TSLA may be wrong (a split counted twice or not at all). Check before trusting them.",
     ]);
   });
@@ -139,17 +144,17 @@ describe("multiplier continuity alert (M8 gate)", () => {
   test("an open alert is not repeated, and clears once the multiplier catches up", async () => {
     const r = await replay([{ answer: 500_00000000n }, { answer: 501_00000000n }, {}, { multiplier: 2n * ONE }, { answer: 503_00000000n }]);
     expect(r.sent.length).toBe(2);
-    expect(r.sent[1]).toStartWith("Cleared: TSLA: the price feed moved 2.00×");
+    expect(r.sent[1]).toBe("[cofer alert] split-mismatch-TSLA: Cleared (price and multiplier agree again).");
     expect(r.open.size).toBe(0);
   });
 
-  test("an unexplained level that holds 24h is accepted as the new normal, with a note and a clear", async () => {
+  test("an unexplained level that holds 24h is accepted as the new normal: one clear that says so", async () => {
     const ticks = CONTINUITY_ACCEPT_AFTER_SEC / TICK;
     const steps = [{ answer: 140_00000000n }, ...Array.from({ length: ticks }, (_, i) => ({ answer: 140_00000000n + BigInt(i + 1) }))];
     const r = await replay(steps);
-    expect(r.sent.length).toBe(3);
-    expect(r.sent[1]).toBe("TSLA: the new price level has held for 24h, so it is now treated as normal. If TSLA had no corporate action, this was a large market move.");
-    expect(r.sent[2]).toStartWith("Cleared: TSLA: the price feed moved 0.56×");
+    expect(r.sent.length).toBe(2);
+    expect(body(r.sent[0]!)).toStartWith("TSLA: the price feed moved 0.56×");
+    expect(r.sent[1]).toBe("[cofer alert] split-mismatch-TSLA: Cleared (the new price has held for 24h, so it is now treated as normal).");
     expect(r.stored!.mismatchSince).toBeNull();
   });
 

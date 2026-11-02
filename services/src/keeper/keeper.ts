@@ -10,12 +10,14 @@ import { aggregatorAbi, erc20Abi, factoryAbi, factoryAddress, feeRouterAbi, potA
 import { Q, queues, enqueueNotify, ensureRelay, startWorker } from "../queues";
 import { fetchCanonicalStocks, type CanonicalStock } from "../stocks/canonical";
 import { env } from "../env";
-import { errorKind, logError } from "../core/errors";
-import { feedProblems, type FeedNow } from "../core/feedHealth";
+import { errorKind, logAlert, logError } from "../core/errors";
+import { feedProblems, feedWarning, oldFeedNearKey, type FeedNow } from "../core/feedHealth";
 import { continuityAlertKey, continuityStep, pendingFrom, type Pending, type Reading } from "../core/continuity";
 import { alertDeps, checkAlert, type AlertDeps } from "./alerts";
+import { alertName, EMERGENCY_REMIND_EVERY_SEC, isEmergencyText, reminderText, WHO } from "../core/alertFormat";
 import { watchJobFailures } from "./jobAlerts";
 import { HEALTH_EVERY_MS, healthPing } from "./health";
+import { serverChecks } from "./serverHealth";
 import { voteAlertClears } from "../relayer/voteAlerts";
 import { relayerFundsProblem } from "../core/relayerFunds";
 import { INDEXER_LAG_ALERT, indexerLagProblem } from "../core/indexerLag";
@@ -168,6 +170,8 @@ export interface FeedHealthDeps {
   read(asset: Address): Promise<FeedNow | null>;
   alerts: AlertDeps;
   now(): number;
+  /** Where the early warning goes (default: the log). */
+  log?(text: string): void;
 }
 
 function feedHealthDeps(): FeedHealthDeps {
@@ -205,11 +209,16 @@ export async function feedHealth(deps: FeedHealthDeps = feedHealthDeps()): Promi
     }
     if (!f) continue;
     const now = deps.now();
-    for (const p of feedProblems(t.symbol, t.asset, f, now)) await checkAlert(p.key, p.problem, deps.alerts);
+    for (const p of feedProblems(t.symbol, t.asset, f, now)) await checkAlert(p.key, p.problem === null ? null : { name: p.name, what: p.problem, who: WHO.dev }, deps.alerts);
+    await deps.alerts.close(oldFeedNearKey(t.asset)); // the old posted early warning: dropped without a post
+    const warning = feedWarning(t.symbol, f, now);
+    if (warning) (deps.log ?? logAlert)(warning); // log only
     out.push({ asset: t.symbol, ageSec: now - f.updatedAt });
   }
   return out;
 }
+
+const SPLIT_WHO = "Dev checks. New buys of this stock are paused by the bot until it clears; if values look wrong, pause deposits (docs/runbook.md).";
 
 export interface ContinuityTarget {
   symbol: string;
@@ -282,8 +291,8 @@ export async function multiplierContinuity(deps: ContinuityDeps = continuityDeps
     const prev = await deps.load(t.asset);
     const r = continuityStep({ symbol: t.symbol, base: prev?.base ?? null, mismatchSince: prev?.mismatchSince ?? null, now, pending: t.pending, nowSec: deps.now() });
     await deps.save(t.asset, r.base, r.mismatchSince);
-    if (r.accepted) await deps.alerts.send(r.accepted).catch((e) => logError("alerts", e));
-    await checkAlert(continuityAlertKey(t.asset), r.problem, deps.alerts);
+    const problem = r.problem === null ? null : { name: alertName("split-mismatch", t.symbol), what: r.problem, who: SPLIT_WHO };
+    await checkAlert(continuityAlertKey(t.asset), problem, deps.alerts, r.accepted ? "the new price has held for 24h, so it is now treated as normal" : "price and multiplier agree again");
     out.push({ asset: t.symbol, problem: r.problem !== null });
   }
   return out;
@@ -326,7 +335,8 @@ export async function checkRelayerFunds(
     logError("cofer-keeper relayer funds", e);
     return null;
   }
-  await checkAlert(RELAYER_FUNDS_ALERT, relayerFundsProblem(address, balance, deps.min), deps.alerts);
+  const low = relayerFundsProblem(address, balance, deps.min);
+  await checkAlert(RELAYER_FUNDS_ALERT, low === null ? null : { name: "relayer-low", what: low, who: WHO.topUp, keep: address }, deps.alerts);
   return balance;
 }
 
@@ -358,7 +368,7 @@ export async function checkRoles(
     return null;
   }
   const problem = roleProblem(s, deps.expected);
-  await checkAlert(ROLES_ALERT, problem, deps.alerts);
+  await checkAlert(ROLES_ALERT, problem === null ? null : { name: "role-changed", what: problem, who: WHO.emergency, emergency: true }, deps.alerts);
   return problem === null;
 }
 
@@ -387,8 +397,48 @@ export async function checkIndexerLag(
     logError("cofer-keeper indexer lag", e);
     return null;
   }
-  await checkAlert(INDEXER_LAG_ALERT, indexerLagProblem({ cursor, target, cursorTime, targetTime }), deps.alerts);
+  const lag = indexerLagProblem({ cursor, target, cursorTime, targetTime });
+  await checkAlert(INDEXER_LAG_ALERT, lag === null ? null : { name: INDEXER_LAG_ALERT, what: lag, who: WHO.dev, rpcRelated: true }, deps.alerts);
   return cursorTime === null ? null : targetTime - cursorTime;
+}
+
+export interface ReminderDeps {
+  /** Open alerts last posted at or before `cutoff`. */
+  due(cutoff: Date): Promise<{ key: string; text: string; openedAt: Date }[]>;
+  /** Records that the alert was just posted again. */
+  touch(key: string, at: Date): Promise<void>;
+  send(text: string): Promise<void>;
+  now(): number; // unix seconds
+}
+
+/**
+ * Posts each open emergency again once EMERGENCY_REMIND_EVERY_SEC has passed since it was last
+ * posted (checked every 5 minutes). Other alerts are never repeated. A failed send is logged and
+ * tried on the next run.
+ */
+export async function remindEmergencies(
+  deps: ReminderDeps = {
+    due: (cutoff) =>
+      db().select({ key: schema.alerts.key, text: schema.alerts.text, openedAt: schema.alerts.openedAt }).from(schema.alerts).where(lte(schema.alerts.lastSentAt, cutoff)),
+    touch: async (key, at) => void (await db().update(schema.alerts).set({ lastSentAt: at }).where(eq(schema.alerts.key, key))),
+    send: (text) => alertDeps().send(text),
+    now: () => Math.floor(Date.now() / 1000),
+  },
+): Promise<number> {
+  const now = deps.now();
+  let sent = 0;
+  for (const a of await deps.due(new Date((now - EMERGENCY_REMIND_EVERY_SEC) * 1000))) {
+    if (!isEmergencyText(a.text)) continue;
+    try {
+      await deps.send(reminderText(a.text, now - Math.floor(a.openedAt.getTime() / 1000)));
+    } catch (e) {
+      logError("alerts", e);
+      continue;
+    }
+    await deps.touch(a.key, new Date(now * 1000));
+    sent++;
+  }
+  return sent;
 }
 
 /**
@@ -400,6 +450,7 @@ export async function opsChecks(checks: Record<string, () => Promise<unknown>> =
   relayerWei: async () => (await checkRelayerFunds())?.toString() ?? null,
   indexerLagSec: () => checkIndexerLag(),
   rolesAsExpected: () => checkRoles(),
+  emergencyReminders: () => remindEmergencies(),
 }) {
   const out: Record<string, unknown> = {};
   let first: unknown;
@@ -424,6 +475,7 @@ export async function scheduleKeeper() {
   await q.upsertJobScheduler("feeds", { every: 900_000 }, { name: "feeds" });
   await q.upsertJobScheduler("ops", { every: 300_000 }, { name: "ops" });
   await q.upsertJobScheduler("health", { every: HEALTH_EVERY_MS }, { name: "health" });
+  await q.upsertJobScheduler("server", { every: 60_000 }, { name: "server" });
 }
 
 export function startKeeper() {
@@ -443,6 +495,8 @@ export function startKeeper() {
           return opsChecks();
         case "health":
           return healthPing();
+        case "server":
+          return serverChecks();
         case "feeds":
           return { feeds: await feedHealth(), continuity: await multiplierContinuity() };
       }

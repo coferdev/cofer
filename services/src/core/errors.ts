@@ -100,6 +100,13 @@ export function safeJob<A extends unknown[], R>(fn: (...args: A) => Promise<R>):
   };
 }
 
+let _countError: (() => void) | undefined;
+
+/** Sets what counts each logged error (for the errors-spike alert). It must never throw or log. */
+export function countErrorsWith(fn: (() => void) | undefined): void {
+  _countError = fn;
+}
+
 /** Logs the error and up to MAX_CAUSES underlying causes (e.g. the Postgres reason under Drizzle's "Failed query"), without URLs. */
 export function logError(scope: string, e: unknown): void {
   const lines = [e instanceof Error ? (e.stack ?? `${e.name}: ${e.message}`) : causeLine(e)];
@@ -109,6 +116,11 @@ export function logError(scope: string, e: unknown): void {
     c = c instanceof Error ? c.cause : undefined;
   }
   console.error(`[${scope}]`, redact(lines.join("\n")));
+  try {
+    _countError?.();
+  } catch {
+    /* counting must never break logging */
+  }
 }
 
 /** Logs a keeper alert (an operational problem, not a thrown error), without URLs. */
