@@ -47,4 +47,4 @@ test/            bun tests, incl. EIP-712 parity against compiled CoferPot bytec
 - Never use viem's default RPC list for RHC: it includes a third-party endpoint. Set `RHC_RPC_URL`.
 - The relayer key only pays gas for `execute()`. If the relayer is down, any member can submit the same calldata.
 - `/exit` in a private chat with the bot finds the member's pots from their key (active memberships in the database, written by the indexer from chain events), never from Telegram groups, so it works even if a group was deleted. One exit button per pot, each with its own one-time link (`src/bot/exitList.ts`).
-- Member actions (deposit, spend, exit, leave, revokeVote) are userOps from the member's own smart account, with gas paid by the ZeroDev/Alchemy paymaster.
+- Member actions on the signer site (deposit, spend, exit, claim) are userOps from the member's own smart account, with gas paid by the ZeroDev/Alchemy paymaster. `leave` and `revokeVote` exist on the contract but the product does not offer them; a member can call them directly from their wallet.

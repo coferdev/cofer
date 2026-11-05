@@ -3,8 +3,9 @@
  * ETH gas per call and holds no user funds; if it is down, ANY member (or anyone) can submit the
  * same calldata from the signer page or a block explorer.
  *
- * Member-initiated actions (deposit, spend, exit, leave, revokeVote) are userOps from each
- * member's own smart account on the signer site, gas-sponsored by the ZeroDev/Alchemy paymaster.
+ * Member actions on the signer site (deposit, spend, exit, claim) are userOps from each member's own
+ * smart account, gas-sponsored by the ZeroDev/Alchemy paymaster. `leave` and `revokeVote` exist on the
+ * contract but the product does not offer them; a member can call them directly from their wallet.
  */
 import { eq } from "drizzle-orm";
 import { BaseError, ContractFunctionRevertedError, decodeEventLog, type Hex } from "viem";

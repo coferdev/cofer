@@ -33,6 +33,9 @@ service tests with `cd services && bun test`.
 | C17 | The implementation and every pot can be initialised only once; pot addresses are bound to their creator. | `contracts/test/CoferPot.t.sol` › `test_implementationLocked`, `test_cannotReinitialize`; `contracts/test/CoferFactory.t.sol` › `test_saltBoundToCreator` |
 | C18 | The swap adapter only follows a path from `tokenIn` to `tokenOut`, pays the caller, enforces `minOut` and leaves no approval. | `contracts/test/FeeRouterAndAdapter.t.sol` › `test_adapterRejectsMismatchedPath`, `test_adapterSwapsToCallerAndResetsApproval`, `test_adapterEnforcesMinOut` |
 | C19 | Only pots can pay for a plan; fee sinks always sum to 100%. | `contracts/test/FeeRouterAndAdapter.t.sol` › `test_payPlanOnlyFromPots`, `test_sinksMustSumTo10000` |
+| C19a | Fees are conserved: every unit of every token that reaches `FeeRouter` is either still in it or at a sink, over any sequence of fees, plan payments, distributions and owner changes. | `contracts/test/invariant/FeeRouterInvariants.t.sol` › `invariant_feeRouterConservesAndSplitsExactly` (stateful: 1,000 runs x 100 calls) |
+| C19b | `distribute` always empties the router's balance of that token and pays each sink exactly its share, with rounding dust to the last sink; the split always sums to 100%. | `contracts/test/invariant/FeeRouterInvariants.t.sol` › `invariant_feeRouterConservesAndSplitsExactly` |
+| C19c | Only pots ever hold a plan; a plan costs exactly price x months; a pot's paid-until date never moves back. | `contracts/test/invariant/FeeRouterInvariants.t.sol` › `invariant_feeRouterConservesAndSplitsExactly`; the actions really run: `test_feeRouterHandlerActionsTakeEffect` |
 | C20 | The digest members sign is byte-identical in the services and the contract. | `contracts/test/Parity.t.sol` › `test_hashProposalMatchesViem`; `services/test/proposal.test.ts` › `viem digest == compiled CoferPot.hashProposal() executed in an EVM` |
 
 ## Services
