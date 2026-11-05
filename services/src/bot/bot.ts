@@ -4,7 +4,7 @@
  * their own passkey. A tap in Telegram is never authorization.
  */
 import { Bot, type Context } from "grammy";
-import { and, eq, ilike } from "drizzle-orm";
+import { and, eq, ilike, sql } from "drizzle-orm";
 import { encodeFunctionData, formatUnits, getAddress, keccak256, toHex, type Address, type Hex } from "viem";
 import { env } from "../env";
 import { db, schema } from "../db/client";
@@ -31,6 +31,7 @@ import { buyPause, potNote } from "../core/buyPause";
 import { continuityAlertKey } from "../core/continuity";
 import { CARDS_OFF_TEXT, helpText } from "./help";
 import { newPotRefusal } from "./newpotLimit";
+import { EXIT_IN_PRIVATE_NOTE, EXIT_TEXT, exitMenu, type ExitPot } from "./exitList";
 import { isUsdgUpdating, PRICE_UPDATING_TEXT } from "../core/priceUpdating";
 
 export const DEFAULT_CONFIG = { guardDelay: 6 * 3600, maxSlipBps: 300, entrySpreadBps: 50, depositsOpen: true } as const;
@@ -76,6 +77,15 @@ async function userOf(tgId: number) {
 
 async function potOf(chatId: number) {
   return db().query.pots.findFirst({ where: eq(schema.pots.chatId, chatId) });
+}
+
+/** The pots where this key is an active member (from the indexer's projection, not from Telegram). */
+async function exitPotsOf(address: string): Promise<ExitPot[]> {
+  return db()
+    .select({ address: schema.pots.address, title: schema.pots.title })
+    .from(schema.members)
+    .innerJoin(schema.pots, eq(schema.members.pot, schema.pots.address))
+    .where(and(sql`lower(${schema.members.address}) = ${address.toLowerCase()}`, eq(schema.members.active, true)));
 }
 
 /** Cancels a one-time signer link (marks it used), e.g. one that was shown to a whole group. */
@@ -356,10 +366,16 @@ export function createBot(opts: { cardsOn: boolean }) {
   });
 
   bot.command("exit", async (ctx) => {
-    if (!(await requireLinked(ctx))) return;
+    const u = await requireLinked(ctx);
+    if (!u) return;
+    // in the private chat: every pot this member is in, found from their key (works even if the group was deleted)
+    if (ctx.chat.type === "private") {
+      const m = exitMenu(await exitPotsOf(u.address!), (pot) => signerUrl(linkCtx(ctx), "exit", pot));
+      return ctx.reply(m.text, m.keyboard ? { reply_markup: m.keyboard } : {});
+    }
     const pot = await potOf(ctx.chat.id);
-    if (!pot) return ctx.reply("No group account here yet.");
-    await ephemeral(ctx, "Take your exact share of everything the group holds (USDG and any stocks, as they are). No vote needed. Never paused.", {
+    if (!pot) return ctx.reply(`No group account here yet. ${EXIT_IN_PRIVATE_NOTE}`);
+    await ephemeral(ctx, `${EXIT_TEXT}\n\n${EXIT_IN_PRIVATE_NOTE}`, {
       label: "Exit with my share",
       make: () => signerUrl(linkCtx(ctx), "exit", pot.address),
     });
