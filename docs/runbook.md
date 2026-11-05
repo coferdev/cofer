@@ -25,8 +25,11 @@ When in doubt, pause deposits first: it only stops new money coming in.
 The USDG price limit is 24 hours, and the real USDG feed updates every 24 hours plus up to about
 30 seconds. So for up to about 30 seconds a day, buys, sells and deposits into groups that hold a
 stock are refused; exits are not affected. This is expected (see the accepted risks in
-[SECURITY.md](../SECURITY.md)). If a member reports a refusal at that moment, ask them to try again
-in a minute. A USDG price that stays past its limit for minutes is a real feed problem: treat it like
+[SECURITY.md](../SECURITY.md)). While USDG is less than 5 minutes past its limit, the bot and the
+signer page tell members "The price is updating, try again in a minute" instead of a market-closed
+message. If a member reports a refusal at that moment, ask them to try again in a minute. A passed vote the relayer tries to execute in that window is tried again
+automatically, normally within seconds; if all 5 quick tries fall inside the window, it runs about
+5 minutes later and a `vote-stuck` alert may appear for it, which clears by itself once it runs. A USDG price that stays past its limit for minutes is a real feed problem: treat it like
 any other feed alert.
 
 ## How to pause

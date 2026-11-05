@@ -76,8 +76,10 @@ Notes on these choices:
   real USDG feed on Robinhood Chain updates once a day, every 24 hours plus up to about 30 seconds
   (the last 30 updates read on 2026-11-05 were 86,401 to 86,430 seconds apart). So for up to about
   30 seconds a day the factory refuses the USDG price. In that window, buys, sells and deposits
-  into groups that hold a stock are refused, and a vote that executes in it fails and has to be
-  submitted again. Deposits into groups that hold only USDG are not affected, and exits never are.
+  into groups that hold a stock are refused. A passed vote that the relayer tries to execute in
+  that window is tried again automatically (each try is simulated first, so nothing is sent while
+  the price is stale): it normally runs within seconds after the window, and at the latest about
+  5 minutes later. Deposits into groups that hold only USDG are not affected, and exits never are.
   *Reason:* the owner keeps the spec's 24-hour limit.
   *What limits it:* the window is seconds long and closes by itself at the feed's next update;
   nothing is lost, the action is only refused.

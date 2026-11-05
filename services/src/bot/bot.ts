@@ -31,6 +31,7 @@ import { buyPause, potNote } from "../core/buyPause";
 import { continuityAlertKey } from "../core/continuity";
 import { CARDS_OFF_TEXT, helpText } from "./help";
 import { newPotRefusal } from "./newpotLimit";
+import { isUsdgUpdating, PRICE_UPDATING_TEXT } from "../core/priceUpdating";
 
 export const DEFAULT_CONFIG = { guardDelay: 6 * 3600, maxSlipBps: 300, entrySpreadBps: 50, depositsOpen: true } as const;
 export const DEFAULT_THRESHOLD_BPS = 6000; // 3 of 5, 2 of 3, 3 of 4 ...
@@ -175,6 +176,8 @@ async function oracleQuote(tokenIn: Address, tokenOut: Address, amountIn: bigint
   } catch (e) {
     if (errorKind(e) === "rpc") throw new ProposalError(RPC_ERROR_TEXT);
     const name = revertName(e);
+    // the daily USDG update window (a few seconds past the 24h limit) is not a closed market
+    if (name === "StalePrice" && (await isUsdgUpdating(e, publicClient() as never, factoryAddress(), usdg()))) throw new ProposalError(PRICE_UPDATING_TEXT);
     if (name === "StalePrice" || name === "BadPrice") {
       throw new ProposalError("price feed is paused (market closed or corporate action). Try again when the market reopens.");
     }

@@ -6,6 +6,7 @@
  * The group's value is the pot's navUsdg(), the same number the contract prices deposits with.
  */
 import { errorKind, revertName } from "./errors";
+import { PRICE_UPDATING_TEXT } from "./priceUpdating";
 
 // The owner's setting: 5,000 USDG (6 decimals). Set to null to turn the limit off.
 export const BETA_DEPOSIT_CAP_USDG: bigint | null = 5_000_000_000n;
@@ -38,8 +39,12 @@ export function capRefusal(amount: bigint, nav: bigint, cap = BETA_DEPOSIT_CAP_U
   return room === 0n ? roomText(nav, cap)! : `That's more than the beta limit allows. ${roomText(nav, cap)}`;
 }
 
-/** What the page says when the group's value cannot be read: refuse, never guess. */
-export function navReadFailureText(e: unknown): string {
+/**
+ * What the page says when the group's value cannot be read: refuse, never guess.
+ * @param usdgUpdating true when the refusal is the daily USDG update window (priceUpdating.ts)
+ */
+export function navReadFailureText(e: unknown, usdgUpdating = false): string {
+  if (usdgUpdating) return `${PRICE_UPDATING_TEXT} Nothing was sent.`;
   if (errorKind(e) === "revert" && (revertName(e) === "StalePrice" || revertName(e) === "BadPrice")) {
     return "A price feed is paused, so the group's value can't be checked right now. Nothing was sent. Try again when the market reopens.";
   }

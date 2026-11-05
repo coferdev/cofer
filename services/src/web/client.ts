@@ -20,6 +20,7 @@ import { signerProblem } from "../core/signerCheck";
 import { failureText, isHandOff, ServerSaid } from "../core/retryText";
 import { capRefusal, navReadFailureText, roomText } from "../core/betaCap";
 import { DEPOSITS_CLOSED_TEXT, readDepositGate } from "../core/depositGate";
+import { isUsdgUpdating } from "../core/priceUpdating";
 import { checkBeforeSign, pageSummary, tokensOf, VOTE_MISMATCH_TEXT, type ServerTypedData } from "../core/signCheck";
 import { typedData, type ProposalEnvelope, type TokenMeta } from "../core/proposal";
 import { CONFIG_ELEMENT_ID } from "./pageConfig";
@@ -285,7 +286,9 @@ async function main() {
         const [nav] = (await publicClient.readContract({ address: pot, abi: coferPotAbi, functionName: "navUsdg" })) as readonly [bigint, bigint];
         return nav;
       } catch (err) {
-        throw new Stop(navReadFailureText(err));
+        // the daily USDG update window says "updating", not "market closed"
+        const updating = cfg.factory ? await isUsdgUpdating(err, publicClient as never, cfg.factory, cfg.usdg) : false;
+        throw new Stop(navReadFailureText(err, updating));
       }
     };
     $("title").textContent = "Deposit USDG";
