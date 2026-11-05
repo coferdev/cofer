@@ -2,7 +2,7 @@
 
 Pre-audit reviews of this repository, kept with the code so anyone can see what was checked, what was found, what was fixed, and how the grade moved. Each review is tied to one commit.
 
-**Latest: 9.0 / 10 on commit `18f8b7a` (2026-11-05).** Read [REPORT.md](REPORT.md).
+**Latest: 9.0 / 10 on commit `18f8b7a`.** Read [REPORT.md](REPORT.md).
 
 This is an automated pre-audit grade, not a substitute for a human audit.
 

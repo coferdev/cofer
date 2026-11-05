@@ -1,4 +1,4 @@
-# Cofer (working name)
+# Cofer
 
 A shared group money account on Robinhood Chain (4663), run from a Telegram group chat.
 
