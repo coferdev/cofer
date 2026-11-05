@@ -1,11 +1,18 @@
 /**
  * Price-feed health rules (keeper, every 15 minutes). A feed's limit is the factory's maxStaleness
  * for that asset: past it, the contract refuses deposits and swaps that need the price (exits
- * never read feeds). Feeds update on their own rhythm (USDG about every 21-22h against a 1-day
- * limit), so the early warning only fires close to the limit, not at a fraction of it.
+ * never read feeds). Feeds update on their own rhythm, so the early warning only fires close to the
+ * limit, not at a fraction of it. USDG updates every 24h plus up to about 30 seconds against its
+ * 24h limit (SECURITY.md, accepted risks), so it is past its limit for a few seconds every day: its
+ * stale alert waits USDG_STALE_ALERT_GRACE_SEC so that daily window is never posted.
  */
 
 import { alertName } from "./alertFormat";
+import { PRICE_UPDATING_GRACE_SEC } from "./priceUpdating";
+
+// The owner's setting: price-stale-USDG is posted only once USDG is more than 5 minutes past its limit
+// (the same 5 minutes the bot and signer page call "updating").
+export const USDG_STALE_ALERT_GRACE_SEC = PRICE_UPDATING_GRACE_SEC;
 
 // The owner's setting: log a warning this long before a feed reaches its limit (log only, never posted).
 export const FEED_WARN_BEFORE_LIMIT_SEC = 3600; // 1 hour
@@ -33,14 +40,15 @@ export function ageText(sec: number): string {
 /**
  * Each alert for one feed, with its name, and its text while the problem holds (null when it does not):
  *  - price-bad:   a price the contract rejects (answer <= 0, or a time in the future)
- *  - price-stale: past its limit (deposits and swaps that need it are refused)
+ *  - price-stale: past its limit by more than staleGraceSec (deposits and swaps that need it are refused)
  * The early "close to its limit" warning is not an alert (USDG would warn daily): see feedWarning.
+ * @param staleGraceSec how long past the limit before price-stale holds (USDG: USDG_STALE_ALERT_GRACE_SEC; stocks: 0)
  */
-export function feedProblems(symbol: string, asset: string, f: FeedNow, now: number) {
+export function feedProblems(symbol: string, asset: string, f: FeedNow, now: number, staleGraceSec = 0) {
   const key = asset.toLowerCase();
   const age = now - f.updatedAt;
   const bad = f.answer <= 0n || f.updatedAt > now;
-  const stale = !bad && age > f.maxStaleness;
+  const stale = !bad && age > f.maxStaleness + staleGraceSec;
   return [
     {
       key: `feed-bad:${key}`,

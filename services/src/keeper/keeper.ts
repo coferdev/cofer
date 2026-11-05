@@ -11,7 +11,7 @@ import { Q, queues, enqueueNotify, ensureRelay, startWorker } from "../queues";
 import { fetchCanonicalStocks, type CanonicalStock } from "../stocks/canonical";
 import { env } from "../env";
 import { errorKind, logAlert, logError } from "../core/errors";
-import { feedProblems, feedWarning, oldFeedNearKey, type FeedNow } from "../core/feedHealth";
+import { feedProblems, feedWarning, oldFeedNearKey, USDG_STALE_ALERT_GRACE_SEC, type FeedNow } from "../core/feedHealth";
 import { continuityAlertKey, continuityStep, pendingFrom, type Pending, type Reading } from "../core/continuity";
 import { alertDeps, checkAlert, type AlertDeps } from "./alerts";
 import { alertName, EMERGENCY_REMIND_EVERY_SEC, isEmergencyText, reminderText, WHO } from "../core/alertFormat";
@@ -209,7 +209,8 @@ export async function feedHealth(deps: FeedHealthDeps = feedHealthDeps()): Promi
     }
     if (!f) continue;
     const now = deps.now();
-    for (const p of feedProblems(t.symbol, t.asset, f, now)) await checkAlert(p.key, p.problem === null ? null : { name: p.name, what: p.problem, who: WHO.dev }, deps.alerts);
+    const grace = t.symbol === "USDG" ? USDG_STALE_ALERT_GRACE_SEC : 0; // the daily USDG update window is not posted
+    for (const p of feedProblems(t.symbol, t.asset, f, now, grace)) await checkAlert(p.key, p.problem === null ? null : { name: p.name, what: p.problem, who: WHO.dev }, deps.alerts);
     await deps.alerts.close(oldFeedNearKey(t.asset)); // the old posted early warning: dropped without a post
     const warning = feedWarning(t.symbol, f, now);
     if (warning) (deps.log ?? logAlert)(warning); // log only

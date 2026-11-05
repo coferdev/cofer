@@ -2,7 +2,7 @@ import { describe, expect, test } from "bun:test";
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import { HttpRequestError, type Address } from "viem";
-import { ageText, FEED_WARN_BEFORE_LIMIT_SEC, feedProblems, feedWarning, type FeedNow } from "../src/core/feedHealth";
+import { ageText, FEED_WARN_BEFORE_LIMIT_SEC, feedProblems, feedWarning, USDG_STALE_ALERT_GRACE_SEC, type FeedNow } from "../src/core/feedHealth";
 import { explorerFor } from "../src/chain/addresses";
 import { feedHealth, type FeedHealthDeps } from "../src/keeper/keeper";
 import type { AlertDeps } from "../src/keeper/alerts";
@@ -23,7 +23,7 @@ describe("feed health: when each alert holds", () => {
     expect(FEED_WARN_BEFORE_LIMIT_SEC).toBe(H);
   });
 
-  test("USDG's normal rhythm (21-22h old, 1-day limit) raises nothing", () => {
+  test("a feed well inside its 1-day limit raises nothing", () => {
     for (const age of [0, 21 * H, 22 * H, 22 * H + 59 * 60]) expect(open(age)).toEqual([]);
   });
 
@@ -38,6 +38,16 @@ describe("feed health: when each alert holds", () => {
   test("past the limit: the same one alert (one alert per problem)", () => {
     expect(open(DAY + 1)).toEqual(["feed-stale"]);
     expect(open(3 * DAY)).toEqual(["feed-stale"]);
+  });
+
+  test("with a grace (USDG: 5 minutes), price-stale holds only once the feed is past its limit by more than the grace", () => {
+    expect(USDG_STALE_ALERT_GRACE_SEC).toBe(300);
+    const stale = (age: number) => feedProblems("USDG", USDG, feed(age), NOW, USDG_STALE_ALERT_GRACE_SEC).find((p) => p.key.startsWith("feed-stale"))!.problem;
+    expect(stale(DAY + 30)).toBeNull(); // the real daily window: 24h plus up to about 30s
+    expect(stale(DAY + 300)).toBeNull();
+    expect(stale(DAY + 301)).toContain("past its limit");
+    // a bad price is never held back by the grace
+    expect(feedProblems("USDG", USDG, feed(H, DAY, 0n), NOW, USDG_STALE_ALERT_GRACE_SEC).find((p) => p.key.startsWith("feed-bad"))!.problem).not.toBeNull();
   });
 
   test("a stock feed over a market weekend (96h limit) raises nothing, even a weekend plus a holiday", () => {
@@ -118,6 +128,28 @@ describe("feed health: the keeper job", () => {
     await r3.done;
     expect(r3.sent).toEqual(["[cofer alert] price-stale-USDG: Cleared."]);
     expect(opened.size).toBe(0);
+  });
+
+  test("USDG in its daily update window is not posted; more than 5 minutes past its limit is", async () => {
+    const opened = new Map<string, string>();
+    const r1 = run({ [USDG]: () => feed(DAY + 30), [TSLA]: () => feed(H, 4 * DAY) }, opened);
+    await r1.done;
+    expect(r1.sent).toEqual([]);
+    expect(opened.size).toBe(0);
+
+    const r2 = run({ [USDG]: () => feed(DAY + 5 * 60 + 1), [TSLA]: () => feed(H, 4 * DAY) }, opened);
+    await r2.done;
+    expect(r2.sent).toEqual([
+      "[cofer alert] price-stale-USDG\nUSDG price feed is past its limit (24h 5m old, limit 24h). Deposits and swaps that need it are refused until it updates. Exits are not affected.\nWho acts: Dev checks.",
+    ]);
+  });
+
+  test("a stock gets no grace: past its limit by 30 seconds is posted", async () => {
+    const opened = new Map<string, string>();
+    const r = run({ [USDG]: () => feed(H), [TSLA]: () => feed(4 * DAY + 30, 4 * DAY) }, opened);
+    await r.done;
+    expect(r.sent).toHaveLength(1);
+    expect(r.sent[0]).toStartWith("[cofer alert] price-stale-TSLA\n");
   });
 
   test("close to the limit: written to the log, never posted", async () => {
