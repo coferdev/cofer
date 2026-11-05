@@ -88,6 +88,7 @@ unset DEPLOYER_KEY
 1. Call `acceptOwnership()` on **both** `CoferFactory` and `FeeRouter`. Until then the deployer key is still the owner.
 2. At least 48h after the deploy, call `applyAdapter(<adapter address>)` on `CoferFactory`.
 3. List stocks: `cd services && bun run assets TSLA NVDA SPY AAPL` prints the `listAsset` calls (canonical addresses from the issuer, feeds and pool depth checked). Submit them as one Safe batch.
+4. Fees are not sent on by themselves. Swap fees and plan payments collect in `FeeRouter` until someone calls `distribute(<token>)` on it, which sends that token's whole balance to the four fee sinks (all the guardian wallet). A buy pays its fee in USDG and a sell pays it in the stock sold, so call it once per token that has a balance. Anyone may call it; how to check and collect: [runbook](docs/runbook.md#collecting-fees).
 
 ### 5. Check what is live (read-only)
 

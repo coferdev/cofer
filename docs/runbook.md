@@ -79,6 +79,30 @@ An alert you cannot explain is an incident: pause deposits first, then investiga
 If the guardian key may be compromised, the Safe calls `setGuardian(<new wallet>)` first, then
 checks `cast call $FACTORY "guardian()(address)" --rpc-url $RHC_RPC`.
 
+## Collecting fees
+
+Swap fees and plan payments stay in `FeeRouter` until someone calls `distribute(<token>)` on it.
+Nothing calls it automatically. It sends the router's whole balance of that token to the four fee
+sinks (all the guardian wallet, 80/10/5/5). A buy pays its fee in USDG; a sell pays it in the stock
+sold, so the router can hold USDG and several stocks. Anyone may call it, and it can only pay the
+sinks, so collecting is safe to do at any time; once a month is enough.
+
+1. Check what is waiting (read-only; paste each line on its own):
+
+   ```bash
+   export FEE_ROUTER=0x...               # FeeRouter address
+   cast call 0x5fc5360D0400a0Fd4f2af552ADD042D716F1d168 "balanceOf(address)(uint256)" $FEE_ROUTER --rpc-url $RHC_RPC
+   ```
+
+   The first line is USDG (6 decimals: 1000000 is 1 USDG). Repeat it with each listed stock's
+   address in place of the USDG address (Stock Tokens use 18 decimals: 1000000000000000000 is 1 token).
+
+2. For each token with a balance above zero, call `FeeRouter.distribute(<token address>)` from the
+   **guardian wallet** (any wallet works; it only pays gas) on the explorer's "Write contract" page,
+   or as a Safe transaction. Do not paste a private key into a terminal.
+
+3. Check again: the router's balance of that token is now 0.
+
 ## Telling members
 
 Post in each affected group (the bot's ops chat lists them), and keep it factual:
