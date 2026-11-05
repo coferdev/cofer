@@ -1,0 +1,178 @@
+[
+  {
+    "id": "f4fa8a9508266882d318309814fb95c5dac9ca849e26102de826a894d82809de",
+    "check": "incorrect-exp",
+    "impact": "High",
+    "reason": "False positive. (3 * denominator) ^ 2 is the deliberate XOR seed of the Newton-Raphson inverse in the 512-bit mulDiv, identical to OpenZeppelin's and Uniswap's FullMath (vendored, source named in the file).",
+    "reviewed": "2026-11-05, Slither 0.11.6",
+    "description": "FullMath.mulDiv(uint256,uint256,uint256) (src/lib/FullMath.sol#14-48) has bitwise-xor operator ^ instead of the exponentiation operator **: \n\t - inverse = (3 * denominator) ^ 2 (src/lib/FullMath.sol#39)\n"
+  },
+  {
+    "id": "0b51308408812f31abdb3b1fe0837ee8deba1c3c0bbe0d1094e9cbb1d1f3efdb",
+    "check": "divide-before-multiply",
+    "impact": "Medium",
+    "reason": "False positive. In FullMath this is the 512-bit mulDiv algorithm itself (vendored, unchanged); in CoferPot._rollWindow the division deliberately rounds down to whole allowance periods.",
+    "reviewed": "2026-11-05, Slither 0.11.6",
+    "description": "FullMath.mulDiv(uint256,uint256,uint256) (src/lib/FullMath.sol#14-48) performs a multiplication on the result of a division:\n\t- denominator = denominator / twos (src/lib/FullMath.sol#34)\n\t- inverse *= 2 - denominator * inverse (src/lib/FullMath.sol#45)\n"
+  },
+  {
+    "id": "37451b15641b7dfa8a604a17aa7ee59fd2eec96d02ba5bc2926fe37c8a595687",
+    "check": "divide-before-multiply",
+    "impact": "Medium",
+    "reason": "False positive. In FullMath this is the 512-bit mulDiv algorithm itself (vendored, unchanged); in CoferPot._rollWindow the division deliberately rounds down to whole allowance periods.",
+    "reviewed": "2026-11-05, Slither 0.11.6",
+    "description": "FullMath.mulDiv(uint256,uint256,uint256) (src/lib/FullMath.sol#14-48) performs a multiplication on the result of a division:\n\t- denominator = denominator / twos (src/lib/FullMath.sol#34)\n\t- inverse *= 2 - denominator * inverse (src/lib/FullMath.sol#41)\n"
+  },
+  {
+    "id": "70c52254d000616546d0c1480767630fb6f870db44602328eea9a16141f830c9",
+    "check": "divide-before-multiply",
+    "impact": "Medium",
+    "reason": "False positive. In FullMath this is the 512-bit mulDiv algorithm itself (vendored, unchanged); in CoferPot._rollWindow the division deliberately rounds down to whole allowance periods.",
+    "reviewed": "2026-11-05, Slither 0.11.6",
+    "description": "FullMath.mulDiv(uint256,uint256,uint256) (src/lib/FullMath.sol#14-48) performs a multiplication on the result of a division:\n\t- denominator = denominator / twos (src/lib/FullMath.sol#34)\n\t- inverse *= 2 - denominator * inverse (src/lib/FullMath.sol#43)\n"
+  },
+  {
+    "id": "94bd3021ddc45567a5bff0563260c143c32f1fcad226569aa755a5716acac233",
+    "check": "divide-before-multiply",
+    "impact": "Medium",
+    "reason": "False positive. In FullMath this is the 512-bit mulDiv algorithm itself (vendored, unchanged); in CoferPot._rollWindow the division deliberately rounds down to whole allowance periods.",
+    "reviewed": "2026-11-05, Slither 0.11.6",
+    "description": "CoferPot._rollWindow(CoferPot.Member) (src/CoferPot.sol#367-374) performs a multiplication on the result of a division:\n\t- periods = (block.timestamp - start) / m.period (src/CoferPot.sol#370)\n\t- m.periodStart = uint64(start + periods * m.period) (src/CoferPot.sol#371)\n"
+  },
+  {
+    "id": "c7eddbc15b642d398923feb99942fd9cbe8ed1c6421dfe07864bfe7ff5773f44",
+    "check": "divide-before-multiply",
+    "impact": "Medium",
+    "reason": "False positive. In FullMath this is the 512-bit mulDiv algorithm itself (vendored, unchanged); in CoferPot._rollWindow the division deliberately rounds down to whole allowance periods.",
+    "reviewed": "2026-11-05, Slither 0.11.6",
+    "description": "FullMath.mulDiv(uint256,uint256,uint256) (src/lib/FullMath.sol#14-48) performs a multiplication on the result of a division:\n\t- denominator = denominator / twos (src/lib/FullMath.sol#34)\n\t- inverse *= 2 - denominator * inverse (src/lib/FullMath.sol#42)\n"
+  },
+  {
+    "id": "cd6a556f6814f9d2c338322dc42bbaa2f6672bb23d0208b70f7ce65619c9b9bd",
+    "check": "divide-before-multiply",
+    "impact": "Medium",
+    "reason": "False positive. In FullMath this is the 512-bit mulDiv algorithm itself (vendored, unchanged); in CoferPot._rollWindow the division deliberately rounds down to whole allowance periods.",
+    "reviewed": "2026-11-05, Slither 0.11.6",
+    "description": "FullMath.mulDiv(uint256,uint256,uint256) (src/lib/FullMath.sol#14-48) performs a multiplication on the result of a division:\n\t- denominator = denominator / twos (src/lib/FullMath.sol#34)\n\t- inverse = (3 * denominator) ^ 2 (src/lib/FullMath.sol#39)\n"
+  },
+  {
+    "id": "dd38ec0dacf53778643534936119cc8b99949ea03493d0646ed33c6a803644ce",
+    "check": "divide-before-multiply",
+    "impact": "Medium",
+    "reason": "False positive. In FullMath this is the 512-bit mulDiv algorithm itself (vendored, unchanged); in CoferPot._rollWindow the division deliberately rounds down to whole allowance periods.",
+    "reviewed": "2026-11-05, Slither 0.11.6",
+    "description": "FullMath.mulDiv(uint256,uint256,uint256) (src/lib/FullMath.sol#14-48) performs a multiplication on the result of a division:\n\t- prod0 = prod0 / twos (src/lib/FullMath.sol#35)\n\t- result = prod0 * inverse (src/lib/FullMath.sol#46)\n"
+  },
+  {
+    "id": "f9971ce579970648743579a8542c1840a0e10cfb95408799cc0459226cea6936",
+    "check": "divide-before-multiply",
+    "impact": "Medium",
+    "reason": "False positive. In FullMath this is the 512-bit mulDiv algorithm itself (vendored, unchanged); in CoferPot._rollWindow the division deliberately rounds down to whole allowance periods.",
+    "reviewed": "2026-11-05, Slither 0.11.6",
+    "description": "FullMath.mulDiv(uint256,uint256,uint256) (src/lib/FullMath.sol#14-48) performs a multiplication on the result of a division:\n\t- denominator = denominator / twos (src/lib/FullMath.sol#34)\n\t- inverse *= 2 - denominator * inverse (src/lib/FullMath.sol#44)\n"
+  },
+  {
+    "id": "fc58a97531e2e94ca920bd59467d8bdc80c375701444a3930822c2b2481ebbde",
+    "check": "divide-before-multiply",
+    "impact": "Medium",
+    "reason": "False positive. In FullMath this is the 512-bit mulDiv algorithm itself (vendored, unchanged); in CoferPot._rollWindow the division deliberately rounds down to whole allowance periods.",
+    "reviewed": "2026-11-05, Slither 0.11.6",
+    "description": "FullMath.mulDiv(uint256,uint256,uint256) (src/lib/FullMath.sol#14-48) performs a multiplication on the result of a division:\n\t- denominator = denominator / twos (src/lib/FullMath.sol#34)\n\t- inverse *= 2 - denominator * inverse (src/lib/FullMath.sol#40)\n"
+  },
+  {
+    "id": "5bea368a729380c554c7e70337482576e019be573590c313e575bf0456add539",
+    "check": "incorrect-equality",
+    "impact": "Medium",
+    "reason": "False positive. `if (amt == 0) continue;` in _exit only skips assets with nothing to pay out.",
+    "reviewed": "2026-11-05, Slither 0.11.6",
+    "description": "CoferPot._exit(address,uint256,address) (src/CoferPot.sol#341-365) uses a dangerous strict equality:\n\t- amt == 0 (src/CoferPot.sol#355)\n"
+  },
+  {
+    "id": "06199e57e368f524ba558e32013fdf6db7842b33f6f8cc4e15366ad31f5d6723",
+    "check": "reentrancy-no-eth",
+    "impact": "Medium",
+    "reason": "False positive. Every entry point that moves value (deposit, depositWithPermit, exit, leave, spend, execute, claimOwed) is nonReentrant; the external calls go to USDG, the factory (views) and the factory-allowlisted adapter.",
+    "reviewed": "2026-11-05, Slither 0.11.6",
+    "description": "Reentrancy in CoferPot._deposit(uint256) (src/CoferPot.sol#311-327):\n\tExternal calls:\n\t- usdg.safeTransferFrom(msg.sender,address(this),amount) (src/CoferPot.sol#323)\n\tState variables written after the call(s):\n\t- totalShares += shares (src/CoferPot.sol#325)\n\tCoferPot.totalShares (src/CoferPot.sol#67) can be used in cross function reentrancies:\n\t- CoferPot.previewExit(uint256) (src/CoferPot.sol#283-292)\n\t- CoferPot.totalShares (src/CoferPot.sol#67)\n"
+  },
+  {
+    "id": "4bfa115608f46f93b166181c369403b9e7c58f9fc2234f2c5738bf75d38449fa",
+    "check": "reentrancy-no-eth",
+    "impact": "Medium",
+    "reason": "False positive. Every entry point that moves value (deposit, depositWithPermit, exit, leave, spend, execute, claimOwed) is nonReentrant; the external calls go to USDG, the factory (views) and the factory-allowlisted adapter.",
+    "reviewed": "2026-11-05, Slither 0.11.6",
+    "description": "Reentrancy in CoferPot._swap(bytes) (src/CoferPot.sol#449-482):\n\tExternal calls:\n\t- tokenIn.safeApprove(adapter,swapIn) (src/CoferPot.sol#475)\n\t- ISwapAdapter(adapter).swap(tokenIn,tokenOut,swapIn,minOut,route) (src/CoferPot.sol#476)\n\t- tokenIn.safeApprove(adapter,0) (src/CoferPot.sol#477)\n\tState variables written after the call(s):\n\t- _prune() (src/CoferPot.sol#481)\n\t\t- _held[i] = _held[_held.length - 1] (src/CoferPot.sol#547)\n\t\t- _held.pop() (src/CoferPot.sol#548)\n\tCoferPot._held (src/CoferPot.sol#74) can be used in cross function reentrancies:\n\t- CoferPot.heldAssets() (src/CoferPot.sol#266-268)\n\t- CoferPot.initialize(address,address[],uint8,uint16,ICoferPot.Config) (src/CoferPot.sol#93-113)\n\t- CoferPot.navUsdg() (src/CoferPot.sol#296-305)\n\t- CoferPot.previewExit(uint256) (src/CoferPot.sol#283-292)\n\t- _prune() (src/CoferPot.sol#481)\n\t\t- isHeld[a] = false (src/CoferPot.sol#549)\n\tCoferPot.isHeld (src/CoferPot.sol#75) can be used in cross function reentrancies:\n\t- CoferPot.initialize(address,address[],uint8,uint16,ICoferPot.Config) (src/CoferPot.sol#93-113)\n\t- CoferPot.isHeld (src/CoferPot.sol#75)\n"
+  },
+  {
+    "id": "81d1a2b02807c9c8436aa188d86115fc7e70f18dc357dc8848a63c2e7140e6f9",
+    "check": "reentrancy-no-eth",
+    "impact": "Medium",
+    "reason": "False positive. Every entry point that moves value (deposit, depositWithPermit, exit, leave, spend, execute, claimOwed) is nonReentrant; the external calls go to USDG, the factory (views) and the factory-allowlisted adapter.",
+    "reviewed": "2026-11-05, Slither 0.11.6",
+    "description": "Reentrancy in CoferPot.depositWithPermit(uint256,uint256,uint8,bytes32,bytes32) (src/CoferPot.sol#127-135):\n\tExternal calls:\n\t- IERC20Permit(usdg).permit(msg.sender,address(this),amount,deadline,v,r,s) (src/CoferPot.sol#133)\n\t- shares = _deposit(amount) (src/CoferPot.sol#134)\n\t\t- (ok,ret) = token.call(abi.encodeWithSelector(0x23b872dd,from,to,amount)) (src/lib/SafeTransferLib.sol#33)\n\t\t- usdg.safeTransferFrom(msg.sender,address(this),amount) (src/CoferPot.sol#323)\n\tState variables written after the call(s):\n\t- shares = _deposit(amount) (src/CoferPot.sol#134)\n\t\t- _members[msg.sender].shares += shares (src/CoferPot.sol#324)\n\tCoferPot._members (src/CoferPot.sol#70) can be used in cross function reentrancies:\n\t- CoferPot._addMember(address) (src/CoferPot.sol#488-496)\n\t- CoferPot.allowanceLeft(address) (src/CoferPot.sol#276-281)\n\t- CoferPot.memberInfo(address) (src/CoferPot.sol#261-264)\n\t- CoferPot.onlyMember() (src/CoferPot.sol#84-87)\n"
+  },
+  {
+    "id": "1d2ecb99d8739ff278eeccaa36f455d719c57ae036d38c3c11dad53a6a90018d",
+    "check": "uninitialized-local",
+    "impact": "Medium",
+    "reason": "False positive. The variable is meant to start at zero (last signer address, running sum, amount sent so far).",
+    "reviewed": "2026-11-05, Slither 0.11.6",
+    "description": "CoferPot._countVotes(bytes32,ICoferPot.Vote[]).last (src/CoferPot.sol#381) is a local variable never initialized\n"
+  },
+  {
+    "id": "647d996360ca9cc91f028d34d2010d23ccfd0e0f6766e8b8fea012a6d1ad15e6",
+    "check": "uninitialized-local",
+    "impact": "Medium",
+    "reason": "False positive. The variable is meant to start at zero (last signer address, running sum, amount sent so far).",
+    "reviewed": "2026-11-05, Slither 0.11.6",
+    "description": "FeeRouter._setSinks(address[4],uint16[4]).sum (src/FeeRouter.sol#110) is a local variable never initialized\n"
+  },
+  {
+    "id": "ac304d05df874aab13de01cdcb34d12c35e047974c28518ee464dd5d403a4319",
+    "check": "uninitialized-local",
+    "impact": "Medium",
+    "reason": "False positive. The variable is meant to start at zero (last signer address, running sum, amount sent so far).",
+    "reviewed": "2026-11-05, Slither 0.11.6",
+    "description": "FeeRouter.distribute(address).sent (src/FeeRouter.sol#79) is a local variable never initialized\n"
+  },
+  {
+    "id": "32442be01919b5b70faf0bf3cf08be22e3cceb95e18df0cba49894797586b880",
+    "check": "unused-return",
+    "impact": "Medium",
+    "reason": "False positive. Swap and plan results are checked by the pot's own balance change (stricter than the return value); the unused feed fields (roundId, startedAt, answeredInRound) are not needed.",
+    "reviewed": "2026-11-05, Slither 0.11.6",
+    "description": "CoferFactory.priceUpdatedAt(address) (src/CoferFactory.sol#131-135) ignores return value by (None,None,None,updatedAt,None) = IAggregatorV3(a.feed).latestRoundData() (src/CoferFactory.sol#134)\n"
+  },
+  {
+    "id": "62dc14b25785c1e55290d9e33a06704d009afed8a860183b3f603dfbc8bdeae6",
+    "check": "unused-return",
+    "impact": "Medium",
+    "reason": "False positive. Swap and plan results are checked by the pot's own balance change (stricter than the return value); the unused feed fields (roundId, startedAt, answeredInRound) are not needed.",
+    "reviewed": "2026-11-05, Slither 0.11.6",
+    "description": "CoferPot._swap(bytes) (src/CoferPot.sol#449-482) ignores return value by ISwapAdapter(adapter).swap(tokenIn,tokenOut,swapIn,minOut,route) (src/CoferPot.sol#476)\n"
+  },
+  {
+    "id": "87435757abe0c838f6b04e8998a9f9f11c9e8a6a7d72654afc9e3d7ee743b2f9",
+    "check": "unused-return",
+    "impact": "Medium",
+    "reason": "False positive. Swap and plan results are checked by the pot's own balance change (stricter than the return value); the unused feed fields (roundId, startedAt, answeredInRound) are not needed.",
+    "reviewed": "2026-11-05, Slither 0.11.6",
+    "description": "CoferPot._dispatch(ICoferPot.Kind,bytes) (src/CoferPot.sol#395-447) ignores return value by router.payPlan(months) (src/CoferPot.sol#441)\n"
+  },
+  {
+    "id": "a2ee9128487fa962b5747377263aa1fcea4642b39689cd6e92c463e1ba3704b7",
+    "check": "unused-return",
+    "impact": "Medium",
+    "reason": "False positive. Swap and plan results are checked by the pot's own balance change (stricter than the return value); the unused feed fields (roundId, startedAt, answeredInRound) are not needed.",
+    "reviewed": "2026-11-05, Slither 0.11.6",
+    "description": "CoferFactory._price18(address) (src/CoferFactory.sol#106-114) ignores return value by (None,answer,None,updatedAt,None) = IAggregatorV3(a.feed).latestRoundData() (src/CoferFactory.sol#109)\n"
+  },
+  {
+    "id": "e7ed1b35f74d65e67369235514c9228fde7f57d13eec83b5da87a5277b9118e3",
+    "check": "unused-return",
+    "impact": "Medium",
+    "reason": "False positive. Swap and plan results are checked by the pot's own balance change (stricter than the return value); the unused feed fields (roundId, startedAt, answeredInRound) are not needed.",
+    "reviewed": "2026-11-05, Slither 0.11.6",
+    "description": "UniV3SwapAdapter.swap(address,address,uint256,uint256,bytes) (src/SwapAdapter.sol#29-44) ignores return value by IV3SwapRouter(router).exactInput(IV3SwapRouter.ExactInputParams({path:route,recipient:msg.sender,amountIn:amountIn,amountOutMinimum:minOut})) (src/SwapAdapter.sol#38-40)\n"
+  }
+]

@@ -23,6 +23,10 @@ cd services && bun install && bun run typecheck && bun test
 bun tools/banned-words.ts .
 ```
 
+CI also runs static analysis (`.github/workflows/analysis.yml`); results appear in the repository's Security tab.
+- **Slither** (0.11.6) on `contracts/src` fails the build on any new Medium or High finding. Findings already reviewed as false positives are listed, each with its reason, in `contracts/slither.db.json`; that file sits outside `contracts/src`, so it never changes the deployed bytecode. To run it locally (it runs `forge clean` first): `cd contracts && slither . --config-file slither.config.json --fail-medium`.
+- **CodeQL** (security queries) on the services' TypeScript.
+
 ## Rules the code enforces
 
 1. **Exit is never gated.** `exit`/`leave` have no pause, vote or oracle. Each member receives `floor(balance x shares / totalShares)` of every held asset. A token that refuses the transfer is set aside for the member (`claimOwed`). Members do not need the group to exit: `/exit` in a private chat with the bot lists every group account they are in, with an exit link for each, even if the group was deleted.
