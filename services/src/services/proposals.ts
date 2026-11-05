@@ -55,6 +55,19 @@ export async function readRules(client: PublicClient, pot: Address): Promise<Pot
 /** Fixed text written for members (a UserError), so it is safe to show in the chat. */
 export class ProposalError extends UserError {}
 
+export const VOTE_WITHDRAWN_TEXT = "You withdrew this vote on the contract, so it can't count again. Ask for a new proposal.";
+
+/**
+ * A vote withdrawn on-chain (CoferPot.revokeVote) never counts again for that proposal: the contract
+ * skips it at execution. Refuse it here too, so the tally never shows a vote the pot will ignore
+ * (audit v2 L-1). Read live, so it also covers a withdrawal made before the first signature, which
+ * no database row recorded. A failed read throws, like every other chain read here: never counted blindly.
+ */
+export async function refuseWithdrawnVote(client: Pick<PublicClient, "readContract">, pot: Address, digest: Hex, signer: Address): Promise<void> {
+  const withdrawn = await client.readContract({ address: pot, abi: potAbi, functionName: "revoked", args: [digest, signer] });
+  if (withdrawn) throw new ProposalError(VOTE_WITHDRAWN_TEXT);
+}
+
 export async function createProposal(
   deps: ProposalDeps,
   args: { pot: Address; action: Action; proposerTg: number; ttlSec?: number },
@@ -161,6 +174,7 @@ export async function addSignature(
 
   const ok = await client.verifyTypedData({ address: signer, signature: args.signature, ...typedData(env) });
   if (!ok) throw new ProposalError("signature does not match this proposal");
+  await refuseWithdrawnVote(client, env.pot, args.id, signer);
 
   await db
     .insert(schema.signatures)
