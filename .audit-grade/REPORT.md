@@ -1,0 +1,89 @@
+> Latest report. The same text, with its date and commit in the name: [REPORT-2026-11-05-18f8b7a.md](REPORT-2026-11-05-18f8b7a.md). Earlier reports: see [README.md](README.md).
+
+# Cofer: Rescore v3
+
+**Repo:** github.com/coferdev/cofer · **Commit:** `18f8b7a` (2026-11-05, clean tree, pushed) · **Mode:** rescore · **Rubric:** v2
+**Previous:** rescore v2 on `2eba701` → 8.7 (full run on `eeea299` the same day → 8.2). Everything ran in a fresh isolated copy (no `.env`, installs with scripts off). Nothing was signed or sent.
+
+**Grade: 9.0 / 10 (was 8.7, +0.3).** Weighted score 9.0475, rounded down. The margin is thin: losing either new point (C −0.15 or F −0.10) would put it under 9.0. No cap binds:
+- no open Critical, High or Medium
+- both fund-holding contracts have stateful invariants
+- a full run is on record from today
+- mainnet is not deployed
+
+## Prior findings
+
+No finding was open going into this run (M-1, L-1 and L-2 were fixed in v2). Accepted items are unchanged: `contracts/src`, `contracts/script/Deploy.s.sol` and `services/src/web/client.ts` are untouched since the full run. The leads are also unchanged.
+
+**New findings:** none at Low or above.
+
+**New lead (Info):** `chain_events.at` is the time an event was *indexed*, not its block time (`services/src/db/schema.ts:121`). After more than an hour of indexer downtime, the catch-up backlog is all stamped "now", which can raise a false `large-outflow` alert (and outflows indexed late are counted late). Monitoring only; the `indexer-behind` alert would already be open. Fix: count by block time, or hold the outflow check while `indexer-behind` is open.
+
+**Cosmetic:** inserting the outflow check left the `opsChecks` doc comment ("Every 5 minutes: operational checks…") above `OutflowDeps` in `services/src/keeper/keeper.ts:446`; it belongs above `opsChecks`.
+
+**Note on Slither triage:** the triage IDs include line numbers, so any edit to `contracts/src` brings the reviewed false positives back and fails CI until they are re-triaged. Any `contracts/src` change already needs the owner's approval and a re-audit, so re-triaging belongs in that step. The changed code was reviewed:
+- `services/src/core/outflow.ts`
+- the `checkLargeOutflow` keeper check
+- `.github/workflows/analysis.yml`
+- the test harness, which swaps modules only while a bot test runs
+
+## What changed since v2
+
+| Commit | Change |
+|---|---|
+| `59eb3d2` | Tests for every bot command and vote-card button through the real bot (`services/test/botCommands.test.ts`, 71 tests; harness `services/test/botHarness.ts`); `docs/invariants.md` S14 |
+| `016f0c2` | `large-outflow` staff alert: more than 5,000 USDG leaving pots in an hour (`services/src/core/outflow.ts`, keeper ops check; `services/test/outflow.test.ts`, 15 tests; `docs/alerts.md`) |
+| `18f8b7a` | Static analysis in CI: Slither 0.11.6 on `contracts/src` (fails on a new Medium or High; 22 reviewed false positives with reasons in `contracts/slither.db.json`) and CodeQL `security-extended` on the services; every action pinned to a commit SHA |
+
+## Verified this run
+
+| Item | Result |
+| --- | --- |
+| Build | `forge build --sizes --skip script` OK; `tsc --noEmit` clean |
+| Tests | contracts **98/98** (8 suites); services **614/614** (55 files) |
+| Invariants | `invariant_potAccountsAndExitsHold` and `invariant_feeRouterConservesAndSplitsExactly`: each 1,000 runs × 100 = **100,000 calls**, 0 failures |
+| Fork | `bun scripts/fork-swap-test.ts`: **10/10** (TSLA, NVDA) at block 107028773, first attempt |
+| Coverage | contracts **97.8%** (579/592). Services, in scope, weighted by code lines: **76.1%** of 4,869. This leaves out the browser page bundle (`web/client.ts`, `web/buffer-polyfill.ts`) and the generated ABIs. `relayer.ts`, `index.ts` and the type-only `cards/CardAdapter.ts` are not loaded (0%). Combined **78.5%**. `bot.ts` went from not loaded to 92.4% of lines (85.3% of functions). |
+| Static analysis | **GitHub:** the `analysis` and `ci` workflows both completed **successfully** on `18f8b7a` (public Actions API). **Local:** the CI Slither command exits 0 with 37 Low/Informational results (run-to-run range 37–41). A planted new Medium made it fail (exit 255) in the previous change's check. CodeQL results are only visible when signed in, so the owner should check the Security tab. |
+| Secrets | none in the tree or history; TruffleHog in CI |
+| Actions hardening | every `uses:` pinned to a full SHA, `permissions` in every workflow (top-level read-only), no risky triggers, no expression injection |
+| Advisories | zod High (unreachable: no collection schemas), esbuild moderate (dev): unchanged |
+| Live check | Mainnet **not deployed**. Testnet (mock tokens) was checked byte-for-byte in the full run on `eeea299`, not on this commit. The 7.0 cap is not applied: everything that goes into the deployed bytecode (`contracts/src`, `foundry.toml`, the deploy scripts) is identical between `eeea299` and `18f8b7a` (empty `git diff`), testnet is pre-launch with mocks, and mainnet is not live. A stricter reading of the rescore wording ("verified on this commit") would apply the cap. |
+
+## Score
+
+| Cat | Was | Now | Weight | Weighted | Why it changed |
+| --- | --- | --- | --- | --- | --- |
+| A | 9.5 | **9.5** | 35% | 3.325 | unchanged (accepted: after-hours deposits −0.4, daily USDG window −0.1) |
+| B | 9.6 | **9.6** | 15% | 1.440 | unchanged (accepted: signer site −0.4) |
+| C | 6.8 | **7.8** | 15% | 1.170 | **+1.0 negative tests:** every external entry point now has refusal tests: contracts (`Negative.t.sol`, C6c), signer API (`routes.test.ts`, S13), and every bot command and button (`botCommands.test.ts`, S14). Coverage 78.5% stays at 0.8. Still not earned: mutation 0, formal 0 |
+| D | 8.0 | **8.0** | 10% | 0.800 | Not earned: monitoring. The large-outflow alert now exists, but the runbook contacts are still "_to fill in_". Not earned: setters (FeeRouter ownership events) |
+| E | 9.25 | **9.25** | 5% | 0.463 | unchanged |
+| F | 8.5 | **9.5** | 10% | 0.950 | **+1.0 static analysis in CI** for each stack (Slither for EVM, CodeQL for TypeScript), confirmed running and green on GitHub. Still not earned: SECURITY.md contact is a placeholder (−0.5) |
+| G | 9.0 | **9.0** | 10% | 0.900 | unchanged (NatSpec 0) |
+| **Total** | 8.80 | | | **9.0475 → 9.0** | no cap |
+
+**Independent check:** a fresh read-only reviewer recomputed **9.0** (9.0475) with no corrections and no cap. It checked every external entry point against its refusal test (contracts, all tRPC routes and the webhook, all 18 commands and both buttons) and judged the C point earned; it judged the F point earned on configuration (GitHub green was confirmed separately through the public Actions API). Adopted from it: the explicit deploy-check reasoning above, the indexing-time lead, the misplaced comment, and the Slither triage note. Its spot-checks of Actions hardening, invariants linked to tests, and tests in CI all held.
+
+## Path to higher (ranked by points per hour)
+
+| # | Change | Size | Points | Projected |
+| --- | --- | --- | --- | --- |
+| 1 | Real security contact in SECURITY.md (owner) | S | +0.05 | 9.0 |
+| 2 | Fill in the runbook contacts (owner); with the outflow alert already in place, this completes monitoring | S | +0.10 | 9.1 |
+| 3 | Mutation testing on `contracts/src` (≥80% killed) | M | +0.15 | 9.3 |
+| 4 | Services coverage to ≥85%, so combined coverage reaches ≥85%: tests for `relayer.ts`, and more of `services/proposals.ts` and `indexer/indexer.ts` | M | +0.06 | 9.4 |
+| 5 | **Waits for the owner** (contract change): `FeeRouter` ownership events | S | +0.10 | 9.5 |
+| 6 | **Waits for the owner** (contract comments): NatSpec on every external function | M | +0.10 | 9.6 |
+
+**Later:**
+- Count outflows by block time, or hold the check while `indexer-behind` is open, and move the misplaced `opsChecks` comment (S, no points)
+- Halmos on the share maths (+0.075)
+- a second install control for `contracts/` (+0.01)
+- hash-pin the Slither install in CI (pip `--require-hashes`)
+- make the fork test's skew helper robust to a pool at its price limit, and allow an archive RPC
+
+**To keep 9+:** once mainnet is live, `check-deploy` must pass in each rescore. A full run must be on record within 30 days (the current one is from 2026-11-05).
+
+---
+This is an automated pre-audit grade, not a substitute for a human audit.

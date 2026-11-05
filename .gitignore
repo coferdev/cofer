@@ -3,6 +3,9 @@ contracts/out/
 contracts/cache/
 contracts/broadcast/
 contracts/slither.sarif
+# audit evidence is published; the proof-of-concept tests are not
+.audit-grade/COFER_POCS/
+.audit-grade/*.zip
 .env
 .env.*
 !.env.example

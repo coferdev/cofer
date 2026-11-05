@@ -1,0 +1,12 @@
+id	status	severity	lane	location	title	first_seen	last_seen
+offchain-backend|services/src/index.ts|stub-adapter-in-production	fixed	High	offchain-backend	services/src/index.ts:21	/card on mainnet pays allowance to 0x...dEaD	aba0779	18f8b7a
+evm|contracts/src/CoferPot.sol|swap-skips-guard-delay	fixed	High	evm	contracts/src/CoferPot.sol:208	Majority drains minority via back-to-back swaps in one tx	aba0779	18f8b7a
+evm|contracts/src/CoferPot.sol|stale-nav-deposit-arbitrage	fixed	Medium	evm	contracts/src/CoferPot.sol:313	Deposits priced on feeds up to 4 days old	aba0779	18f8b7a
+offchain-backend|services/src/web/client.ts|server-controls-what-is-signed	accepted	Medium	offchain-backend	services/src/web/client.ts:186	Signer site controls what passkeys sign	aba0779	18f8b7a
+evm|contracts/src/FeeRouter.sol|plan-price-not-timelocked	fixed	Low	evm	contracts/src/FeeRouter.sol:94	Plan price changeable between vote and execution	aba0779	18f8b7a
+offchain-backend|services/src/indexer/indexer.ts|unknown-digest-silent	fixed	Medium	offchain-backend	services/src/indexer/indexer.ts:128	Vote made outside the bot is queued and executed with no group notice	aba0779	18f8b7a
+evm|contracts/src/CoferPot.sol|after-hours-deposit-within-limit	accepted	Medium	evm	contracts/src/CoferPot.sol:328	After-hours moves within the 12h deposit price-age limit (M-1 remainder)	6f19108	18f8b7a
+offchain-backend|services/src/bot/bot.ts|handle-ilike-wildcard	fixed	Medium	offchain-backend	services/src/bot/bot.ts:230	/send @handle resolves look-alike user via ILIKE wildcard	eeea299	18f8b7a
+offchain-backend|services/src/services/proposals.ts|resign-after-onchain-revoke	fixed	Low	offchain-backend	services/src/services/proposals.ts:170	Re-signed vote counted in DB after on-chain revoke	eeea299	18f8b7a
+offchain-backend|services/src/bot/bot.ts|newpot-not-admin-gated	fixed	Low	offchain-backend	services/src/bot/bot.ts:288	/newpot not limited to group admins (pot slot squatting)	eeea299	18f8b7a
+evm|contracts/script/Deploy.s.sol|usdg-daily-stale-window	accepted	Low	evm	contracts/script/Deploy.s.sol:52	USDG 24h limit vs feed every 24h+30s: ~30s/day refusals	eeea299	18f8b7a
