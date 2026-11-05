@@ -3,6 +3,7 @@ import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import { EXIT_IN_PRIVATE_NOTE, EXIT_PICK_TEXT, EXIT_TEXT, exitButtonLabel, exitMenu, MAX_EXIT_BUTTONS, NO_POTS_TEXT, type ExitPot } from "../src/bot/exitList";
 import { signerUrl } from "../src/bot/keyboards";
+import { helpText } from "../src/bot/help";
 import { onboardLinkProblem, verifyLink } from "../src/core/linkToken";
 
 const POT_A = "0x2D3365a056074f6cd35C943EDcE644FAE7Eb8A45";
@@ -109,6 +110,12 @@ describe("/exit in the private chat: the link works without the group", () => {
     const c = verifyLink(new URL(href).pathname.split("/s/")[1]!, secret);
     expect([c.p, c.ref, c.tg, c.chat]).toEqual(["exit", POT_A, 42, 42]);
     expect(onboardLinkProblem(c)).toBeNull(); // only onboarding links care which chat they came from
+  });
+});
+
+describe("/exit in /help", () => {
+  test("says it also works in a private chat", () => {
+    for (const cardsOn of [false, true]) expect(helpText({ cardsOn })).toContain("/exit take your exact share, any time (also in a private chat with me)");
   });
 });
 

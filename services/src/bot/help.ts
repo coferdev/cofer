@@ -10,7 +10,7 @@ export function helpText(opts: { cardsOn: boolean }): string {
     "/allowance @amy 50 week set a no-vote allowance",
     "/spend spend your allowance",
     ...(opts.cardsOn ? ["/card load a card from your allowance (optional)"] : []),
-    "/exit take your exact share, any time",
+    "/exit take your exact share, any time (also in a private chat with me)",
     "/claim get a token set aside for you during an exit",
     "/me your share and allowance",
     "/pot what the group holds",
