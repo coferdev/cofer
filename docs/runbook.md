@@ -20,6 +20,15 @@ Nothing pauses an exit. Tell members so in every message.
 
 When in doubt, pause deposits first: it only stops new money coming in.
 
+## Not a reason to pause: the daily USDG update
+
+The USDG price limit is 24 hours, and the real USDG feed updates every 24 hours plus up to about
+30 seconds. So for up to about 30 seconds a day, buys, sells and deposits into groups that hold a
+stock are refused; exits are not affected. This is expected (see the accepted risks in
+[SECURITY.md](../SECURITY.md)). If a member reports a refusal at that moment, ask them to try again
+in a minute. A USDG price that stays past its limit for minutes is a real feed problem: treat it like
+any other feed alert.
+
 ## How to pause
 
 Set these once (read-only checks; nothing here signs):

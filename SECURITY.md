@@ -71,6 +71,16 @@ Notes on these choices:
   *What limits it:* the gain is bounded by how far the price moved after the close, less the
   entry spread, and by the deposit size (the beta limit is 5,000 USDG per group, enforced by the
   bot and signer page, not the contract). Raising a group's entry spread (up to 2%) narrows it further.
+- **A short daily window when the USDG price counts as stale.**
+  USDG is listed with a 24-hour price limit (`maxStaleness` 86,400 seconds, as in the spec). The
+  real USDG feed on Robinhood Chain updates once a day, every 24 hours plus up to about 30 seconds
+  (the last 30 updates read on 2026-11-05 were 86,401 to 86,430 seconds apart). So for up to about
+  30 seconds a day the factory refuses the USDG price. In that window, buys, sells and deposits
+  into groups that hold a stock are refused, and a vote that executes in it fails and has to be
+  submitted again. Deposits into groups that hold only USDG are not affected, and exits never are.
+  *Reason:* the owner keeps the spec's 24-hour limit.
+  *What limits it:* the window is seconds long and closes by itself at the feed's next update;
+  nothing is lost, the action is only refused.
 
 ## Known open issues (not accepted, waiting for the owner)
 
