@@ -3,7 +3,8 @@
  * Builds the multisig batch that lists Stock Tokens on CoferFactory.
  *  - addresses come ONLY from the issuer's public API (chainId 4663) -> no look-alike tokens
  *  - a stock the issuer marks as not tradable is skipped
- *  - each must have a Chainlink feed on RHC (8 dp, already includes the multiplier)
+ *  - each must have a Chainlink feed on RHC (8 dp, already includes the multiplier) whose own name
+ *    names that stock and USD (src/core/feedName.ts), so a feed address mixed up in addresses.ts is refused
  *  - each must have real Uniswap depth (src/core/depth.ts): a pool that buys DEPTH_TEST_USDG worth
  *    and a pool that sells DEPTH_TEST_USDG worth, both within DEPTH_MAX_GAP_BPS of the feed price
  *  - prints calldata for CoferFactory.listAsset(asset, feed, maxStaleness, isStock=true)
@@ -20,6 +21,7 @@ import { listingDepth, quoteAllTiers, type TierQuote } from "../src/chain/quotes
 import { DEPTH_MAX_GAP_BPS, DEPTH_TEST_USDG, gapBps } from "../src/core/depth";
 import { quote, type FeedReading } from "../src/core/valuation";
 import { logError } from "../src/core/errors";
+import { feedNameProblem } from "../src/core/feedName";
 
 const WEEKEND_STALENESS = 4 * 24 * 3600; // US market weekend + holiday; deposits/swaps revert beyond this
 const USDG_STALENESS = 24 * 3600; // same as script/Deploy.s.sol
@@ -27,6 +29,7 @@ const PUBLIC_RPC = "https://rpc.mainnet.chain.robinhood.com";
 
 const feedAbi = parseAbi([
   "function decimals() view returns (uint8)",
+  "function description() view returns (string)",
   "function latestRoundData() view returns (uint80, int256, uint256, uint256, uint80)",
 ]);
 
@@ -44,6 +47,8 @@ async function main() {
     return { answer, decimals, updatedAt: Number(updatedAt) };
   };
 
+  const usdgName = feedNameProblem(await client.readContract({ address: FEEDS.USDG!, abi: feedAbi, functionName: "description" }), "USDG");
+  if (usdgName) throw new Error(`USDG ${usdgName}; cannot judge depth`);
   const usdgFeed = await readFeed(FEEDS.USDG!);
   if (usdgFeed.answer <= 0n || now - usdgFeed.updatedAt > USDG_STALENESS) throw new Error("USDG feed is stale or bad; cannot judge depth");
   const usdgSide = { feed: usdgFeed, tokenDecimals: 6 };
@@ -64,6 +69,12 @@ async function main() {
     }
     if (!feed) {
       console.error(`skip ${sym}: no Chainlink feed address configured (add it from the Chainlink RHC directory)`);
+      continue;
+    }
+
+    const problem = feedNameProblem(await client.readContract({ address: feed, abi: feedAbi, functionName: "description" }), sym);
+    if (problem) {
+      console.error(`skip ${sym}: ${problem} (check its feed address in src/chain/addresses.ts)`);
       continue;
     }
 

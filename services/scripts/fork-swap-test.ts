@@ -16,6 +16,7 @@
 import { createPublicClient, getAddress, http, parseAbi, type Address } from "viem";
 import { fetchCanonicalStocks } from "../src/stocks/canonical";
 import { FEEDS, RHC, STOCK_API } from "../src/chain/addresses";
+import { feedNameProblem } from "../src/core/feedName";
 
 const PUBLIC_RPC = "https://rpc.mainnet.chain.robinhood.com";
 const rpc = process.env.FORK_RPC_URL ?? PUBLIC_RPC;
@@ -43,8 +44,8 @@ console.log(`RPC: ${rpc === PUBLIC_RPC ? "public mainnet RPC" : "FORK_RPC_URL"} 
 /** The feed must name this asset ("RHTSLA / USD", "Robinhood AAPL / USD", "USDG / USD") and be fresh enough. */
 async function checkFeed(symbol: string, feed: Address, maxAge: number) {
   const desc = await client.readContract({ address: feed, abi: feedAbi, functionName: "description", blockNumber });
-  const base = desc.split("/")[0]!.trim().toUpperCase();
-  if (![symbol, `RH${symbol}`, `ROBINHOOD ${symbol}`].includes(base)) stop(`feed ${feed} is "${desc}", not ${symbol}`);
+  const problem = feedNameProblem(desc, symbol);
+  if (problem) stop(`${symbol}: ${problem} (${feed})`);
   const [, answer, , updatedAt] = await client.readContract({ address: feed, abi: feedAbi, functionName: "latestRoundData", blockNumber });
   const age = Number(block.timestamp - updatedAt);
   if (answer <= 0n) stop(`${symbol} feed answer is ${answer}`);
