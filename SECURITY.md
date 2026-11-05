@@ -23,7 +23,7 @@ attackers and what stops them are in [docs/threat-model.md](docs/threat-model.md
 | Role | Held by | What it can do | What it cannot do |
 | --- | --- | --- | --- |
 | Owner of `CoferFactory` and `FeeRouter` | 2-of-3 Safe multisig on Robinhood Chain, `0x5ACD09eAe4f160e2f2e2356e6eF0496EF6f0f064`. It takes over from the deployer by calling `acceptOwnership()` on both contracts after deploy. | Pause or unpause new deposits and new pots. List assets, and set assets buyable or not (immediate). Queue feed, swap-adapter and swap-fee changes (48h timelock), and remove an adapter (immediate). Replace the guardian. On `FeeRouter`: set the plan price (immediate, capped at 100 USDG a month) and set the fee sinks and split. | Move, freeze or gate a pot's funds. Block or pause an exit. Vote in a pot. |
-| Guardian | A single wallet | Pause or unpause new deposits and new pots. | Everything else. Exits are never pausable. |
+| Guardian | A single wallet, `0x3f3424cdDc8Ef20EC8CDc9D104DEf1AB293E2833`, which is also one of the 3 owners of the Safe | Pause or unpause new deposits and new pots. | Everything else. Exits are never pausable. |
 | Fee sinks (all four: work, treasury, perks, burn) | The same single wallet as the guardian | Receives swap fees and plan payments when anyone calls `FeeRouter.distribute`. | Anything in a pot. |
 | Members of a pot | Each member's own key (passkey smart account or browser wallet) | Deposit, exit, leave, spend their own allowance, revoke their vote, and sign votes. | Move pot funds without the vote threshold. |
 | Relayer | A hot key in the services | Pays gas to submit `execute()`, which anyone may call, and `createPot` for `/newpot`. | Move funds. It holds only gas money. |
@@ -31,9 +31,14 @@ attackers and what stops them are in [docs/threat-model.md](docs/threat-model.md
 Notes on these choices:
 - Because all four fee sinks are one wallet, the 80/10/5/5 split in `FeeRouter` has no effect
   on-chain. What happens to the "perks" and "burn" shares is decided by whoever holds that wallet.
-- If the single guardian/sink key leaks, an attacker can pause new deposits and new pots, and
-  can take fees already distributed to it. Exits keep working, and the owner multisig can
-  unpause and replace the guardian. Member funds in pots are not reachable from either role.
+- One key holds three things: the guardian role, all four fee sinks, and 1 of the 2 signatures
+  the Safe needs. The Safe still needs a second owner's signature for anything an owner can do.
+- If that key leaks, an attacker can pause new deposits and new pots, and can take all fees:
+  those already distributed to it and those still waiting in `FeeRouter`, because anyone can call
+  `distribute` and it pays that wallet. To act as the owner they would still need a second Safe
+  owner's signature. Exits keep working, and the other two Safe owners together can unpause,
+  replace the guardian, and move the fee sinks (`FeeRouter.setSinks`, immediate) to a new wallet,
+  and remove the leaked key from the Safe. Member funds in pots are not reachable from any of these roles.
 
 ## Accepted risks
 
