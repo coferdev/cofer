@@ -16,7 +16,7 @@ Nothing pauses an exit. Tell members so in every message.
 - A price feed is wrong, frozen or behaving oddly (keeper feed or continuity alerts).
 - A token issuer announces an incident, or a Stock Token behaves unexpectedly.
 - A suspected bug in the contracts or services, or a report to the security contact.
-- Unusual on-chain activity: many swaps in one transaction, an unknown vote alert you cannot explain.
+- Unusual on-chain activity: many swaps in one transaction, an unknown vote alert you cannot explain, or a `large-outflow` alert that is not real member activity.
 
 When in doubt, pause deposits first: it only stops new money coming in.
 

@@ -38,6 +38,7 @@ Members can always exit. No alert, pause or outage changes that.
 | split-mismatch-TSLA | The price moved in a way the token's multiplier does not explain (a split counted twice or not at all). The bot pauses new buys of that stock until it clears. | Dev checks. If values look wrong, pause deposits. |
 | indexer-behind | The indexer is more than 5 minutes behind the chain. The bot may show old numbers. | Dev checks. |
 | job-failing | A background job failed 3 times in a row. | Dev checks. |
+| large-outflow | More than 5,000 USDG worth left group accounts within the last hour (exits, voted transfers, allowance spends, plan payments and claimed set-aside tokens, across all pots; stocks at the oracle price). It names the largest pot and links the largest transaction. Exits are never paused by it. | Dev checks it is real activity. If it is not, pause deposits (runbook). |
 | admin-change | An expected admin change: a pause, a queued or applied feed, adapter or fee change, the plan price, or a role set to its expected address. | Nothing if it was planned. If not, tell the owner and the dev at once. After a pause, tell the groups. |
 
 ## Server and service health

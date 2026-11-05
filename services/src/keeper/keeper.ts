@@ -3,7 +3,7 @@
  * permissionless, so liveness never depends on this process: members can always exit, and anyone
  * can execute a passed proposal.
  */
-import { and, inArray, like, lt, lte, eq, notInArray } from "drizzle-orm";
+import { and, gte, inArray, like, lt, lte, eq, notInArray } from "drizzle-orm";
 import { getAddress, zeroAddress, type Address } from "viem";
 import { db, schema } from "../db/client";
 import { aggregatorAbi, erc20Abi, factoryAbi, factoryAddress, feeRouterAbi, potAbi, publicClient, relayerClient } from "../chain/clients";
@@ -23,6 +23,7 @@ import { relayerFundsProblem } from "../core/relayerFunds";
 import { INDEXER_LAG_ALERT, indexerLagProblem } from "../core/indexerLag";
 import { ROLES_ALERT, roleProblem, type RoleState } from "../core/roles";
 import { CURSOR } from "../indexer/indexer";
+import { OUTFLOW_ALERT, OUTFLOW_EVENTS, OUTFLOW_WINDOW_SEC, outflowAlert, outflowsOf, summarize, valueFromHolding, type Outflow, type PotEvent } from "../core/outflow";
 
 export async function expireProposals(now = Math.floor(Date.now() / 1000)) {
   const rows = await db()
@@ -446,8 +447,66 @@ export async function remindEmergencies(
  * Every 5 minutes: operational checks. Each one runs even if an earlier one failed; the job still
  * fails afterwards (with the first error), so a check that keeps failing is seen.
  */
+export interface OutflowDeps {
+  /** Pot events of the kinds that can move value out (core/outflow.ts), stored since `sinceSec`. */
+  events(sinceSec: number): Promise<PotEvent[]>;
+  /** USDG value of an outflow, or null when it cannot be priced. */
+  price(o: Outflow): Promise<bigint | null>;
+  /** The group's name for a pot (falls back to a short address). */
+  potName(pot: string): string;
+  usdg: string;
+  alerts: AlertDeps;
+  now(): number;
+}
+
+/**
+ * Prices an outflow: USDG as is; any other asset at today's oracle price (CoferFactory.valueInUsdg),
+ * or, when the factory refuses (stale feed, weekend), at the price the keeper last recorded for that
+ * pot's holding. null when neither exists.
+ */
+async function priceOutflow(o: Outflow, usdg: string): Promise<bigint | null> {
+  if (o.asset.toLowerCase() === usdg.toLowerCase()) return o.amount;
+  try {
+    return await publicClient().readContract({ address: factoryAddress(), abi: factoryAbi, functionName: "valueInUsdg", args: [getAddress(o.asset), o.amount] });
+  } catch {
+    const h = await db().query.holdings.findFirst({ where: and(eq(schema.holdings.pot, getAddress(o.pot)), eq(schema.holdings.asset, getAddress(o.asset))) });
+    return valueFromHolding(o.amount, h);
+  }
+}
+
+async function outflowDeps(): Promise<OutflowDeps> {
+  const pots = await db().select({ address: schema.pots.address, title: schema.pots.title }).from(schema.pots);
+  const names = new Map(pots.map((p) => [p.address.toLowerCase(), p.title]));
+  const usdg = env().USDG_ADDRESS;
+  return {
+    async events(sinceSec) {
+      const rows = await db()
+        .select({ address: schema.chainEvents.address, name: schema.chainEvents.name, args: schema.chainEvents.args, txHash: schema.chainEvents.txHash })
+        .from(schema.chainEvents)
+        .where(and(inArray(schema.chainEvents.name, [...OUTFLOW_EVENTS]), gte(schema.chainEvents.at, new Date(sinceSec * 1000))));
+      // only events of known pots (the factory and the fee router emit other names)
+      return rows.filter((r) => names.has(r.address.toLowerCase())).map((r) => ({ pot: r.address, name: r.name, args: r.args as Record<string, unknown>, txHash: r.txHash }));
+    },
+    price: (o) => priceOutflow(o, usdg),
+    potName: (pot) => names.get(pot.toLowerCase()) ?? pot,
+    usdg,
+    alerts: alertDeps(),
+    now: () => Math.floor(Date.now() / 1000),
+  };
+}
+
+/** More than OUTFLOW_ALERT_USDG left pots in the last OUTFLOW_WINDOW_SEC: one large-outflow alert, cleared when it falls back. */
+export async function checkLargeOutflow(deps?: OutflowDeps): Promise<string> {
+  const d = deps ?? (await outflowDeps());
+  const events = await d.events(d.now() - OUTFLOW_WINDOW_SEC);
+  const s = await summarize(outflowsOf(events, d.usdg), d.price);
+  await checkAlert(OUTFLOW_ALERT, outflowAlert(s, d.potName), d.alerts);
+  return s.totalUsdg.toString();
+}
+
 export async function opsChecks(checks: Record<string, () => Promise<unknown>> = {
   voteAlertsCleared: clearVoteAlerts,
+  largeOutflowUsdg: () => checkLargeOutflow(),
   relayerWei: async () => (await checkRelayerFunds())?.toString() ?? null,
   indexerLagSec: () => checkIndexerLag(),
   rolesAsExpected: () => checkRoles(),
