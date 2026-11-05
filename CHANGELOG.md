@@ -15,6 +15,7 @@ Fixes from the 2026-11-01 review of `0.1.0` (commit `aba0779`). `contracts/src` 
 
 ### Security
 - `/send @user` and `/allowance @user` (2026-11-05 review, M-1): the username is now matched exactly, and only among this group's active members with a key. Before, the lookup was a pattern match where `_` matched any character, so a look-alike username (for example `bobxsmith` for `@bob_smith`) could be chosen and shown to voters under the typed name. The vote now shows the username stored for that key, and a name that matches more than one member is refused. To send to someone outside the group, use their 0x address.
+- Only a group admin can open the group account with `/newpot` (2026-11-05 review, L-2). Before, any member with a key could open the group's single account first and become its only founding member. An admin with "Remain anonymous" on is asked to turn it off for this command, because their role cannot be checked while they post as the group. The check runs before anything is paid for.
 - Cards are off by default (`CARD_ADAPTER=off`). The stub card adapter runs on testnet (46630) only, needs an explicit funding address and refuses burn addresses; `/card` is hidden when no adapter runs. Previously, card loads on mainnet were sent to a burn address.
 - Only the member who asked for a card quote can confirm that card order.
 - The group and the ops chat are told when a vote the bot did not create is queued or executed, with the time it can run and a reminder that `/exit` is open.

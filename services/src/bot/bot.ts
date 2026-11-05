@@ -33,6 +33,7 @@ import { CARDS_OFF_TEXT, helpText } from "./help";
 import { newPotRefusal } from "./newpotLimit";
 import { EXIT_IN_PRIVATE_NOTE, EXIT_TEXT, exitMenu, type ExitPot } from "./exitList";
 import { INVALID_HANDLE_TEXT, parseWho, pickMember } from "./resolveHandle";
+import { newpotAdminRefusal } from "./newpotAdmin";
 import { isUsdgUpdating, PRICE_UPDATING_TEXT } from "../core/priceUpdating";
 
 export const DEFAULT_CONFIG = { guardDelay: 6 * 3600, maxSlipBps: 300, entrySpreadBps: 50, depositsOpen: true } as const;
@@ -276,7 +277,7 @@ export function createBot(opts: { cardsOn: boolean }) {
   });
 
   bot.command("start", async (ctx) => {
-    if (ctx.chat.type !== "private") return ctx.reply("Hi! Run /newpot to open a group account, or /help.");
+    if (ctx.chat.type !== "private") return ctx.reply("Hi! A group admin can run /newpot to open a group account, or see /help.");
     await db()
       .insert(schema.users)
       .values({ tgId: ctx.from!.id, username: ctx.from!.username ?? null })
@@ -304,6 +305,9 @@ export function createBot(opts: { cardsOn: boolean }) {
 
   bot.command("newpot", async (ctx) => {
     if (ctx.chat.type === "private") return ctx.reply("Add me to your group and run /newpot there.");
+    // group admins only, checked first (before key setup, which an anonymous admin cannot do as the group)
+    const notAdmin = await newpotAdminRefusal({ fromId: ctx.from?.id, senderChatId: ctx.message?.sender_chat?.id }, async () => (await ctx.getChatMember(ctx.from!.id)).status);
+    if (notAdmin) return ctx.reply(notAdmin);
     const u = await requireLinked(ctx);
     if (!u) return;
     if (await potOf(ctx.chat.id)) return ctx.reply("This group already has an account. /pot to see it.");

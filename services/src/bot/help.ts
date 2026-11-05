@@ -1,7 +1,7 @@
 /** The /help text. /card is listed only when a card adapter runs (cards are off by default). */
 export function helpText(opts: { cardsOn: boolean }): string {
   return [
-    "/newpot open the group account",
+    "/newpot open the group account (group admins)",
     "/join ask to join (members vote)",
     "/deposit add USDG",
     "/buy TSLA 100 vote to buy with 100 USDG (add slip=0.5 for 0.5% slippage; default 1%)",
