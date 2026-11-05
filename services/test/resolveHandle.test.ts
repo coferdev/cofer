@@ -85,3 +85,18 @@ describe("audit v2 M-1: the bot's lookup", () => {
     expect(fn).not.toMatch(/nameCache\.set\([^)]*handle/);
   });
 });
+
+describe("stock symbols in /buy and /sell", () => {
+  const bot = readFileSync(join(import.meta.dir, "..", "src", "bot", "bot.ts"), "utf8");
+
+  test("are matched exactly (ignoring case), never as a pattern", () => {
+    const fn = bot.slice(bot.indexOf("async function findAsset"), bot.indexOf("/** CoferFactory.quote"));
+    expect(fn).toContain("eq(sql`lower(${schema.assets.symbol})`, symbol.toLowerCase())");
+    expect(fn).toContain("eq(schema.assets.listedOnChain, true)");
+  });
+
+  test("no pattern-match lookup is left anywhere in the bot", () => {
+    expect(bot).not.toMatch(/\bilike\b/);
+  });
+});
+

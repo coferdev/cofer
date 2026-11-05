@@ -4,7 +4,7 @@
  * their own passkey. A tap in Telegram is never authorization.
  */
 import { Bot, type Context } from "grammy";
-import { and, eq, ilike, sql } from "drizzle-orm";
+import { and, eq, sql } from "drizzle-orm";
 import { encodeFunctionData, formatUnits, getAddress, keccak256, toHex, type Address, type Hex } from "viem";
 import { env } from "../env";
 import { db, schema } from "../db/client";
@@ -176,8 +176,9 @@ async function continuityOpen(asset: string) {
   return !!(await db().query.alerts.findFirst({ where: eq(schema.alerts.key, continuityAlertKey(asset)) }));
 }
 
+/** A listed asset by its exact symbol, ignoring case (never a pattern match: "_" and "%" are plain characters here). */
 async function findAsset(symbol: string) {
-  return db().query.assets.findFirst({ where: and(ilike(schema.assets.symbol, symbol), eq(schema.assets.listedOnChain, true)) });
+  return db().query.assets.findFirst({ where: and(eq(sql`lower(${schema.assets.symbol})`, symbol.toLowerCase()), eq(schema.assets.listedOnChain, true)) });
 }
 
 /** CoferFactory.quote (Chainlink), with stale feeds and RPC failures reported as such. */
