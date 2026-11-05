@@ -282,6 +282,7 @@ function chain(over: Record<string, unknown> = {}, code: Record<string, Hex> = L
     [`${C.feeRouter}.bps.2`]: 500,
     [`${C.feeRouter}.bps.3`]: 500,
     [`${C.factory}.swapFeeBps`]: 30,
+    [`${C.factory}.pendingSwapFeeEta`]: 0n,
     [`${C.feeRouter}.planPricePerMonth`]: 9_000_000n,
     [`${C.factory}.depositsPaused`]: false,
     [`${C.factory}.creationPaused`]: false,
@@ -318,6 +319,16 @@ describe("post-deploy check", () => {
     const r = await runDeployChecks(chain(), manifest(), ARTS);
     expect(failures(r)).toEqual([]);
     expect(r.length).toBeGreaterThan(25);
+  });
+
+  test("a swap-fee change already queued fails by name and says what is queued", async () => {
+    const r = await runDeployChecks(chain({ [`${C.factory}.pendingSwapFeeEta`]: 1_800_172_800n, [`${C.factory}.pendingSwapFeeBps`]: 100 }), manifest(), ARTS);
+    expect(failures(r)).toEqual(["factory: no swap-fee change pending"]);
+    expect(r.find((x) => x.name === "factory: no swap-fee change pending")!.detail).toBe(
+      "a change to 100 bps is queued, applicable from 2027-01-17T08:00:00.000Z (expected none)",
+    );
+    const ok = await runDeployChecks(chain(), manifest(), ARTS);
+    expect(ok.find((x) => x.name === "factory: no swap-fee change pending")).toEqual({ name: "factory: no swap-fee change pending", ok: true, detail: "pendingSwapFeeEta is 0" });
   });
 
   test("wrong code, a pending owner, a 1-of-3 Safe, a changed sink, an unlocked implementation, a wrong feed: each fails by name", async () => {

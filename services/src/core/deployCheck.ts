@@ -151,6 +151,12 @@ export async function runDeployChecks(r: ChainReader, m: Manifest, artifacts: Re
 
   // 4. settings
   await eq("factory.swapFeeBps", async () => Number(await rd(c.factory, coferFactoryAbi, "swapFeeBps")), e.swapFeeBps);
+  await check("factory: no swap-fee change pending", async () => {
+    const eta = BigInt((await rd(c.factory, coferFactoryAbi, "pendingSwapFeeEta")) as bigint | number);
+    if (eta === 0n) return { ok: true, detail: "pendingSwapFeeEta is 0" };
+    const bps = Number(await rd(c.factory, coferFactoryAbi, "pendingSwapFeeBps"));
+    return { ok: false, detail: `a change to ${bps} bps is queued, applicable from ${new Date(Number(eta) * 1000).toISOString()} (expected none)` };
+  });
   await eq("feeRouter.planPricePerMonth", async () => String(await rd(c.feeRouter, feeRouterAbi, "planPricePerMonth")), e.planPricePerMonth);
   await eq("factory.depositsPaused", () => rd(c.factory, coferFactoryAbi, "depositsPaused"), e.depositsPaused);
   await eq("factory.creationPaused", () => rd(c.factory, coferFactoryAbi, "creationPaused"), e.creationPaused);

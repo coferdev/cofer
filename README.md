@@ -103,7 +103,7 @@ cd services && bun run check-deploy ../contracts/deployments/4663.json --rpc $RH
 
 It compares each contract's code with the local build (deploy-time values masked) and checks the wiring,
 the Safe (2-of-3) as owner of both contracts with no pending owner, the guardian, the fee sinks, the swap
-fee, the plan price, the pause flags, the adapter and every listed asset. It prints PASS or FAIL per line,
+fee (and that no swap-fee change is queued), the plan price, the pause flags, the adapter and every listed asset. It prints PASS or FAIL per line,
 exits with an error on any mismatch, and never signs or sends anything. Commit the filled-in `4663.json`
 with the deploy, and run the check again after every admin change.
 
