@@ -32,6 +32,7 @@ import { continuityAlertKey } from "../core/continuity";
 import { CARDS_OFF_TEXT, helpText } from "./help";
 import { newPotRefusal } from "./newpotLimit";
 import { EXIT_IN_PRIVATE_NOTE, EXIT_TEXT, exitMenu, type ExitPot } from "./exitList";
+import { INVALID_HANDLE_TEXT, parseWho, pickMember } from "./resolveHandle";
 import { isUsdgUpdating, PRICE_UPDATING_TEXT } from "../core/priceUpdating";
 
 export const DEFAULT_CONFIG = { guardDelay: 6 * 3600, maxSlipBps: 300, entrySpreadBps: 50, depositsOpen: true } as const;
@@ -224,16 +225,31 @@ async function buildSwap(pot: Address, side: Side, tokenIn: Address, tokenOut: A
   return { action, note: queuedSwapNote({ side, guardDelaySec: Number(cfg[0]), slipBps, maxSlipBps: Number(cfg[1]) }) };
 }
 
+/** An address as typed, or the one active member of this group's pot whose stored username is exactly the handle (see resolveHandle.ts). */
 async function resolveMember(ctx: Context, who: string): Promise<Address | null> {
-  if (/^0x[0-9a-fA-F]{40}$/.test(who)) return getAddress(who);
-  const handle = who.replace(/^@/, "");
-  const u = await db().query.users.findFirst({ where: ilike(schema.users.username, handle) });
-  if (!u?.address) {
-    await ctx.reply(`@${handle} hasn't set up a key yet.`);
+  const w = parseWho(who);
+  if (w.kind === "address") return w.address;
+  if (w.kind === "invalid") {
+    await ctx.reply(INVALID_HANDLE_TEXT);
     return null;
   }
-  nameCache.set(u.address.toLowerCase(), `@${handle}`);
-  return getAddress(u.address);
+  const pot = await potOf(ctx.chat!.id);
+  if (!pot) {
+    await ctx.reply("No group account here yet. An admin can run /newpot.");
+    return null;
+  }
+  const rows = await db()
+    .select({ username: schema.users.username, address: schema.users.address })
+    .from(schema.members)
+    .innerJoin(schema.users, sql`lower(${schema.users.address}) = lower(${schema.members.address})`)
+    .where(and(eq(schema.members.pot, pot.address), eq(schema.members.active, true), sql`lower(${schema.users.username}) = ${w.handle}`));
+  const pick = pickMember(rows, w.handle);
+  if (!pick.ok) {
+    await ctx.reply(pick.text);
+    return null;
+  }
+  nameCache.set(pick.address.toLowerCase(), pick.label); // the stored username, never the typed text
+  return pick.address;
 }
 
 /** @param opts.cardsOn true only when a card adapter runs (index.ts: selectCardAdapter); otherwise /card is hidden. */
