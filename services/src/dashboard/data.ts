@@ -12,6 +12,8 @@ import { errorKind } from "../core/errors";
 import { INDEXER_LAG_ALERT } from "../core/indexerLag";
 import { CURSOR } from "../indexer/indexer";
 import type { DashboardDeps, PotListItem } from "./routes";
+import { readDepositGate } from "../core/depositGate";
+import { owedFromEvents } from "./actions";
 import { USDG_DECIMALS, type AssetMeta, type PotViewInput, type PricedHoldingRow, type ProposalStatus } from "./view";
 
 export const PRICE_CACHE_MS = 15_000;
@@ -42,7 +44,7 @@ export function priceReader(client: Client, factory: Address, nowMs: () => numbe
   };
 }
 
-export function dashboardData(o: { db?: DB; client: PublicClient; factory: Address; usdg: Address; chainId: number; secret: string }): DashboardDeps {
+export function dashboardData(o: { db?: DB; client: PublicClient; factory: Address; usdg: Address; chainId: number; secret: string; signerUrl: string }): DashboardDeps {
   const d = () => o.db ?? getDb();
   const price = priceReader(o.client, o.factory);
   const tokenMeta = new Map<string, { symbol: string; decimals: number }>();
@@ -83,6 +85,42 @@ export function dashboardData(o: { db?: DB; client: PublicClient; factory: Addre
     );
   }
 
+  /**
+   * The live deposit checks the bot runs before /deposit: the price-age rule (core/depositGate.ts)
+   * and the pot's value for the beta limit. A failed read is "unknown", never a guess: the button
+   * stays on and the signer page and the contract check again. Kept for PRICE_CACHE_MS per pot.
+   */
+  const depositCache = new Map<string, { at: number; v: PotViewInput["deposit"] }>();
+  async function depositChecks(pot: Address): Promise<PotViewInput["deposit"]> {
+    const hit = depositCache.get(pot);
+    if (hit && Date.now() - hit.at < PRICE_CACHE_MS) return hit.v;
+    let stalePrice: PotViewInput["deposit"]["stalePrice"];
+    try {
+      stalePrice = await readDepositGate(o.client as never, pot, o.factory);
+    } catch {
+      stalePrice = undefined;
+    }
+    let nav: bigint | null = null;
+    try {
+      [nav] = await o.client.readContract({ address: pot, abi: potAbi, functionName: "navUsdg" });
+    } catch {
+      nav = null;
+    }
+    const v = { stalePrice, nav };
+    if (depositCache.size > 1_000) depositCache.clear();
+    depositCache.set(pot, { at: Date.now(), v });
+    return v;
+  }
+
+  /** What is set aside for `member` after an exit, per asset: ExitOwed minus OwedClaimed (indexed events). */
+  async function owedTo(pot: Address, member: Address): Promise<PotViewInput["owed"]> {
+    const rows = await d()
+      .select({ name: schema.chainEvents.name, args: schema.chainEvents.args })
+      .from(schema.chainEvents)
+      .where(and(eq(schema.chainEvents.address, pot), inArray(schema.chainEvents.name, ["ExitOwed", "OwedClaimed"])));
+    return owedFromEvents(rows as { name: string; args: Record<string, unknown> }[], member);
+  }
+
   async function isActiveMember(pot: Address, member: Address): Promise<boolean> {
     const row = await d()
       .select({ a: schema.members.address })
@@ -95,6 +133,7 @@ export function dashboardData(o: { db?: DB; client: PublicClient; factory: Addre
   return {
     secret: o.secret,
     chainId: o.chainId,
+    signerUrl: o.signerUrl,
 
     async spendLink(l) {
       // one atomic statement: of two simultaneous requests with the same link, only one gets a row back
@@ -206,6 +245,7 @@ export function dashboardData(o: { db?: DB; client: PublicClient; factory: Addre
           summary: p.summary,
           status: p.status as ProposalStatus,
           queuedEta: p.queuedEta,
+          deadline: p.deadline,
           txHash: p.txHash,
           createdAt: p.createdAt,
         })),
@@ -215,6 +255,8 @@ export function dashboardData(o: { db?: DB; client: PublicClient; factory: Addre
         events: events.map((e) => ({ txHash: e.txHash, logIndex: e.logIndex, block: e.block, name: e.name, args: e.args as Record<string, unknown>, at: e.at })),
         myAllowance,
         indexer: { block: cursor?.block ?? null, behind: !!lag || !cursor },
+        deposit: await depositChecks(potAddr),
+        owed: await owedTo(potAddr, member),
       };
     },
   };

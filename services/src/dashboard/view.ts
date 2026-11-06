@@ -8,6 +8,7 @@ import { getAddress, type Address } from "viem";
 import { requiredVotes } from "../core/votes";
 import { allowanceLeft, memberValue, nextResetAt } from "../core/shares";
 import { shownQuantity } from "../core/valuation";
+import { approveAvailability, claimAvailability, depositAvailability, GROUP_HINTS, spendAvailability } from "./actions";
 
 export type ProposalStatus = "collecting" | "ready" | "queued" | "executed" | "expired" | "stale" | "failed";
 
@@ -36,6 +37,7 @@ export interface ProposalRow {
   summary: string;
   status: ProposalStatus;
   queuedEta: number | null;
+  deadline: number; // unix seconds; past it the proposal can no longer pass
   txHash: string | null;
   createdAt: Date;
 }
@@ -236,6 +238,10 @@ export interface PotViewInput {
   events: EventRow[];
   myAllowance: LiveAllowance | null;
   indexer: IndexerState;
+  /** Live deposit checks (undefined / null = could not be read; the signer page and contract check again). */
+  deposit: { stalePrice: { asset: string; ageSec: number } | null | undefined; nav: bigint | null };
+  /** What is set aside for this member after an exit (raw units, one entry per asset). */
+  owed: { asset: string; amount: bigint }[];
 }
 
 const metaOf = (assets: Map<string, AssetMeta>, a: string, usdg: Address): AssetMeta =>
@@ -302,6 +308,8 @@ export function potView(i: PotViewInput) {
     .map((p) => {
       const counted = countApprovals(sigsBy.get(p.id) ?? [], memberAddrs);
       const st = proposalState(p.status, p.queuedEta, i.now);
+      // your own withdrawn vote does not count, and is not "already signed" (the signer page refuses it with its reason)
+      const approve = approveAvailability({ status: p.status, deadline: p.deadline, now: i.now, signedByYou: counted.has(meLower) });
       return {
         id: p.id,
         kind: p.kind,
@@ -313,6 +321,7 @@ export function potView(i: PotViewInput) {
         required,
         signedByYou: counted.has(meLower),
         executeAfter: p.status === "queued" && p.queuedEta !== null ? new Date(p.queuedEta * 1000).toISOString() : null,
+        approve,
         txHash: p.txHash,
         createdAt: p.createdAt.toISOString(),
       };
@@ -366,6 +375,13 @@ export function potView(i: PotViewInput) {
       }),
     ),
     indexer: { block: i.indexer.block === null ? null : i.indexer.block.toString(), behind: i.indexer.behind },
+    actions: {
+      deposit: depositAvailability({ depositsOpen: i.pot.depositsOpen, stalePrice: i.deposit.stalePrice, nav: i.deposit.nav }),
+      exit: { ok: true, reason: null }, // never gated
+      claim: claimAvailability(i.owed.map((o) => o.amount)),
+      spend: spendAvailability({ allowance: a ? a.allowance : null, allowanceLeft: a ? allowanceLeft(a, i.now) : null }),
+    },
+    groupHints: GROUP_HINTS,
     asOf: new Date(i.now * 1000).toISOString(),
   };
 }

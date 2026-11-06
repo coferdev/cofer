@@ -12,12 +12,14 @@
  */
 import { Hono, type Context } from "hono";
 import { getAddress, isAddress, type Address } from "viem";
-import { newJti, signLink, verifyLink, type LinkClaims } from "../core/linkToken";
+import { newJti, signLink, verifyLink, type LinkClaims, type LinkPurpose } from "../core/linkToken";
+import { ACTIONS, type DashAction } from "./actions";
 import { logError } from "../core/errors";
 import { potSummary, potView, type PotViewInput } from "./view";
 
 export const DASHBOARD_LINK_TTL_SEC = 10 * 60; // the button's one-time link
 export const DASHBOARD_SESSION_TTL_SEC = 30 * 60; // the session it is exchanged for
+export const SIGNER_LINK_TTL_SEC = 15 * 60; // a signer link made for a dashboard button: as long as the bot's
 
 export const TEXT = {
   link: "This dashboard link has expired or was already used. Open it again from Telegram: send /me to the bot.",
@@ -38,6 +40,7 @@ export interface PotListItem {
 export interface DashboardDeps {
   secret: string;
   chainId: number;
+  signerUrl: string; // the signer page's origin (PUBLIC_URL), where the action buttons send the member
   now?: () => number; // unix seconds
   /** Marks a one-time link used. True only for its first use; must be atomic (two taps at once: one wins). */
   spendLink(l: { jti: string; tg: number; purpose: string; expiresAt: Date }): Promise<boolean>;
@@ -122,7 +125,64 @@ export function dashboardRoutes(d: DashboardDeps) {
     return json(c, potView(input));
   });
 
+  /**
+   * An action button: the same one-time signer link the bot makes, for the session's own member and a
+   * pot they are an active member of. The body names only the pot, the action and (for approve) the
+   * proposal; anything else (such as a member or Telegram id) is refused. The availability rules run
+   * again here, so a stale page cannot get a link they would refuse. The link is made for the
+   * member's private chat, works once, and is opened by the page in a new tab.
+   */
+  app.post("/links", async (c) => {
+    const s = dashSession(c.req.header("authorization"), d.secret, now());
+    if (!s) return json(c, { error: TEXT.session }, 401);
+    let body: Record<string, unknown>;
+    try {
+      body = (await c.req.json()) as Record<string, unknown>;
+    } catch {
+      return json(c, { error: TEXT.bad }, 400);
+    }
+    const parsed = parseLinkRequest(body);
+    if (!parsed) return json(c, { error: TEXT.bad }, 400);
+    const key = await d.keyOf(s.tg);
+    if (!key) return json(c, { error: TEXT.notFound }, 404);
+    const t = now();
+    const input = await d.potInput(parsed.pot, key, t);
+    if (!input) return json(c, { error: TEXT.notFound }, 404); // not a member, or no such pot: the same answer
+    const view = potView(input);
+
+    let purpose: LinkPurpose;
+    let ref: string;
+    if (parsed.action === "approve") {
+      const p = view.proposals.find((x) => x.id.toLowerCase() === parsed.proposal!.toLowerCase());
+      if (!p) return json(c, { error: TEXT.notFound }, 404); // not this pot's proposal
+      if (!p.approve.ok) return json(c, { error: p.approve.reason }, 409);
+      purpose = "sign";
+      ref = p.id;
+    } else {
+      const a = view.actions[parsed.action];
+      if (!a.ok) return json(c, { error: a.reason }, 409);
+      purpose = parsed.action === "spend" ? "sign" : parsed.action;
+      ref = parsed.action === "spend" ? `spend:${view.address}` : view.address;
+    }
+    const exp = t + SIGNER_LINK_TTL_SEC;
+    const token = signLink({ tg: s.tg, chat: s.tg, p: purpose, ref, exp, jti: newJti() }, d.secret);
+    return json(c, { url: `${d.signerUrl}/s/${token}`, expiresAt: new Date(exp * 1000).toISOString() });
+  });
+
   // anything else under this prefix
   app.all("*", (c) => json(c, { error: TEXT.notFound }, 404));
   return app;
+}
+
+/** The link request: exactly {pot, action} or {pot, action: "approve", proposal}. Anything else is refused (null). */
+export function parseLinkRequest(b: unknown): { pot: Address; action: DashAction; proposal?: string } | null {
+  if (!b || typeof b !== "object" || Array.isArray(b)) return null;
+  const o = b as Record<string, unknown>;
+  const keys = Object.keys(o);
+  const allowed = o.action === "approve" ? ["pot", "action", "proposal"] : ["pot", "action"];
+  if (keys.some((k) => !allowed.includes(k)) || keys.length !== allowed.length) return null;
+  if (typeof o.pot !== "string" || !/^0x[0-9a-fA-F]{40}$/.test(o.pot)) return null;
+  if (typeof o.action !== "string" || !(ACTIONS as readonly string[]).includes(o.action)) return null;
+  if (o.action === "approve" && (typeof o.proposal !== "string" || !/^0x[0-9a-fA-F]{64}$/.test(o.proposal))) return null;
+  return { pot: getAddress(o.pot), action: o.action as DashAction, ...(o.action === "approve" ? { proposal: o.proposal as string } : {}) };
 }

@@ -34,7 +34,7 @@ async function main() {
   if (run("api")) {
     // the dashboard API exists only where a dashboard is set up (DASHBOARD_URL)
     const dashboard = e.DASHBOARD_URL
-      ? dashboardData({ client: publicClient(), factory: factoryAddress(), usdg: e.USDG_ADDRESS, chainId: e.CHAIN_ID, secret: e.LINK_SECRET })
+      ? dashboardData({ client: publicClient(), factory: factoryAddress(), usdg: e.USDG_ADDRESS, chainId: e.CHAIN_ID, secret: e.LINK_SECRET, signerUrl: e.PUBLIC_URL })
       : undefined;
     const app = createServer({ deps: proposalDeps(), cards, bot, signerJs: await buildSignerBundle(), dashboard });
     Bun.serve({ port: e.PORT, fetch: app.fetch });

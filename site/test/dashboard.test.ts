@@ -156,3 +156,88 @@ describe('activity wording', () => {
     ).toBe('100 USDG → 0.412345 TSLA');
   });
 });
+
+// ---------------------------------------------------------------- phase 2a: action buttons
+import { isSafeLink, openSignerTab } from '../src/lib/dash-open';
+
+describe('action buttons hand off to the signer page; the dashboard never signs', () => {
+  const res = (status: number, body: unknown) => new Response(JSON.stringify(body), { status, headers: { 'content-type': 'application/json' } });
+  const POT = '0x2D3365a056074f6cd35C943EDcE644FAE7Eb8A45';
+  const PROP = `0x${'ab'.repeat(32)}`;
+
+  test('the link request names only the pot, the action and (to approve) the proposal', async () => {
+    const bodies: unknown[] = [];
+    const api = apiClient('/api/dashboard', async (url, init) => {
+      expect(url).toBe('/api/dashboard/links');
+      expect(init!.method).toBe('POST');
+      bodies.push(JSON.parse(String(init!.body)));
+      return res(200, { url: 'https://sign.test/s/a.b', expiresAt: 'x' });
+    });
+    await api.link('S', POT, 'deposit');
+    await api.link('S', POT, 'approve', PROP);
+    expect(bodies).toEqual([{ pot: POT, action: 'deposit' }, { pot: POT, action: 'approve', proposal: PROP }]);
+  });
+
+  test("a refusal (409) carries the server's plain reason", async () => {
+    const api = apiClient('/a', async () => res(409, { error: 'Deposits are closed by the group. A group vote can open them again.' }));
+    const e = await api.link('S', POT, 'deposit').catch((x) => x);
+    expect(e).toBeInstanceOf(ApiError);
+    expect([e.kind, e.message]).toEqual(['refused', 'Deposits are closed by the group. A group vote can open them again.']);
+  });
+
+  function fakeWindow(block = false) {
+    const tabs: { opener: unknown; location: { href: string }; closed: boolean; close(): void }[] = [];
+    return {
+      tabs,
+      open() {
+        if (block) return null;
+        const t = { opener: 'dashboard' as unknown, location: { href: 'about:blank' }, closed: false, close() { t.closed = true; } };
+        tabs.push(t);
+        return t;
+      },
+    };
+  }
+
+  test('the tab opens on the click, before the server answers, cut off from the dashboard, then goes to the link', async () => {
+    const w = fakeWindow();
+    let release!: (u: string) => void;
+    const pending = openSignerTab(() => new Promise<string>((r) => (release = r)), w);
+    expect(w.tabs.length).toBe(1); // opened at once, so the browser allows it
+    expect(w.tabs[0]!.opener).toBeNull();
+    release('https://sign.test/s/abc.def');
+    expect(await pending).toEqual({ ok: true });
+    expect(w.tabs[0]!.location.href).toBe('https://sign.test/s/abc.def');
+  });
+
+  test('a refusal or a failure closes the tab and shows the reason', async () => {
+    const w = fakeWindow();
+    const r = await openSignerTab(async () => Promise.reject(new ApiError('refused', 'You already approved this proposal.')), w);
+    expect(r).toEqual({ ok: false, message: 'You already approved this proposal.' });
+    expect(w.tabs[0]!.closed).toBe(true);
+  });
+
+  test('only a signer-page address is ever opened (never javascript: or another kind of page)', async () => {
+    for (const bad of ['javascript:alert(1)', 'data:text/html,x', 'https://sign.test/other', 'http://sign.test/s/a.b', 'https://sign.test/s/a b']) {
+      expect(isSafeLink(bad)).toBe(false);
+      const w = fakeWindow();
+      expect((await openSignerTab(async () => bad, w)).ok).toBe(false);
+      expect(w.tabs[0]!.closed).toBe(true);
+      expect(w.tabs[0]!.location.href).toBe('about:blank');
+    }
+    expect(isSafeLink('https://sign.getcofer.com/s/eyJ0Zy.abc_-')).toBe(true);
+    expect(isSafeLink('http://localhost:8443/s/a.b')).toBe(true);
+  });
+
+  test('a blocked new tab: the one-time link is offered to tap instead', async () => {
+    const r = await openSignerTab(async () => 'https://sign.test/s/a.b', fakeWindow(true));
+    expect(r).toEqual({ ok: false, message: 'Your browser blocked the new tab. Use this link instead (it works once):', url: 'https://sign.test/s/a.b' });
+  });
+
+  test('two opens at the same moment: two tabs, each with its own link', async () => {
+    const w = fakeWindow();
+    let n = 0;
+    const results = await Promise.all([1, 2].map(() => openSignerTab(async () => `https://sign.test/s/link${++n}.x`, w)));
+    expect(results).toEqual([{ ok: true }, { ok: true }]);
+    expect(new Set(w.tabs.map((t) => t.location.href)).size).toBe(2);
+  });
+});

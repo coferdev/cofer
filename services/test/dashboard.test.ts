@@ -47,6 +47,8 @@ function baseInput(over: Partial<PotViewInput> = {}): PotViewInput {
     events: [],
     myAllowance: null,
     indexer: { block: 123n, behind: false },
+    deposit: { stalePrice: null, nav: 0n },
+    owed: [],
     ...over,
   };
 }
@@ -66,6 +68,7 @@ function fakeDeps(over: Partial<DashboardDeps> = {}) {
   const deps: DashboardDeps = {
     secret,
     chainId: 46630,
+    signerUrl: "https://sign.test",
     now: () => NOW,
     async spendLink(l) {
       calls.spend++;
@@ -392,7 +395,7 @@ describe("decimals: exact integer amounts, never JavaScript numbers", () => {
 
 describe("concurrent approvals: each current member counts once", () => {
   const P = `0x${"ab".repeat(32)}`;
-  const prop = (status: ProposalStatus = "collecting") => ({ id: P, kind: 0, summary: "Send 10 USDG", status, queuedEta: null, txHash: null, createdAt: new Date(NOW * 1000) });
+  const prop = (status: ProposalStatus = "collecting") => ({ id: P, kind: 0, summary: "Send 10 USDG", status, queuedEta: null, deadline: NOW + 86400, txHash: null, createdAt: new Date(NOW * 1000) });
 
   test("two rows for the same signer (two taps at once, any letter case) count once", () => {
     const counted = countApprovals(
@@ -439,8 +442,8 @@ describe("pending, confirmed and failed proposals", () => {
     const v = potView(
       baseInput({
         proposals: [
-          { id: "0x01", kind: 0, summary: "Queued", status: "queued", queuedEta: NOW + 3600, txHash: null, createdAt: new Date((NOW - 10) * 1000) },
-          { id: "0x02", kind: 0, summary: "Failed", status: "failed", queuedEta: null, txHash: "0xdead", createdAt: new Date(NOW * 1000) },
+          { id: "0x01", kind: 0, summary: "Queued", status: "queued", queuedEta: NOW + 3600, deadline: NOW + 86400, txHash: null, createdAt: new Date((NOW - 10) * 1000) },
+          { id: "0x02", kind: 0, summary: "Failed", status: "failed", queuedEta: null, deadline: NOW + 86400, txHash: "0xdead", createdAt: new Date(NOW * 1000) },
         ],
       }),
     );

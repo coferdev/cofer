@@ -9,7 +9,8 @@
  */
 import React, { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState } from 'react';
 import { ArrowUpRight, Check, Clock, X } from 'lucide-react';
-import { ApiError, apiClient, type PotSummary, type PotView, type Proposal } from '@/lib/dash-api';
+import { ApiError, apiClient, type Availability, type DashAction, type PotSummary, type PotView, type Proposal } from '@/lib/dash-api';
+import { openSignerTab, type OpenResult } from '@/lib/dash-open';
 import { addressUrl, botUrl, parseConfig, txUrl, type DashConfig } from '@/lib/dash-config';
 import { clearSession, isLive, linkFromHash, loadSession, saveSession, type Session } from '@/lib/dash-session';
 import { describeActivity, hoursText, POLL_MS, periodText, retryDelay, shortAddress } from '@/lib/dash-text';
@@ -30,6 +31,8 @@ interface Store {
   failures: number;
   select: (address: string) => void;
   refresh: () => void;
+  /** Opens the signer page for one of this member's own actions in a new tab (the dashboard never signs). */
+  openAction: (action: DashAction, proposal?: string) => Promise<OpenResult>;
 }
 
 const Context = createContext<Store | null>(null);
@@ -195,6 +198,16 @@ export function CoferProvider({ children }: { children: React.ReactNode }) {
       setPot(null);
     },
     refresh: () => setTick((t) => t + 1),
+    openAction: async (action, proposal) => {
+      const s = session.current;
+      const target = selectedRef.current;
+      if (!api || !target || !isLive(s)) return { ok: false, message: 'Your dashboard session has ended. Open it again from Telegram: send /me to the bot.' };
+      const r = await openSignerTab(async () => (await api.link(s.session, target, action, proposal)).url);
+      if (!r.ok && r.message.startsWith('Your dashboard session has ended')) signOut(r.message);
+      // the result appears from the indexer: read again soon, then on the usual schedule
+      if (r.ok) window.setTimeout(() => setTick((t) => t + 1), 15_000);
+      return r;
+    },
   };
   return <Context.Provider value={store}>{children}</Context.Provider>;
 }
@@ -261,7 +274,53 @@ function StateBadge({ p }: { p: Proposal }) {
   );
 }
 
-// ---------------------------------------------------------------- the account panel (read-only)
+// ---------------------------------------------------------------- action buttons (hand-off to the signer page)
+
+/**
+ * One action button. It never signs: it opens the signer page in a new tab with a one-time link
+ * made by the server for this member. Disabled with the server's plain reason when it cannot work.
+ */
+function ActionButton({ label, a, action, proposal }: { label: string; a: Availability; action: DashAction; proposal?: string }) {
+  const c = useCofer();
+  const [busy, setBusy] = useState(false);
+  const [note, setNote] = useState<OpenResult | null>(null);
+  const id = `why-${action}-${proposal ?? 'pot'}`;
+  const click = async () => {
+    if (busy || !a.ok) return; // one link at a time per button
+    setBusy(true);
+    setNote(null);
+    try {
+      setNote(await c.openAction(action, proposal));
+    } finally {
+      setBusy(false);
+    }
+  };
+  return (
+    <div className="dash-action">
+      <button type="button" disabled={!a.ok || busy} aria-describedby={!a.ok ? id : undefined} onClick={click}>
+        {busy ? 'Opening…' : label} <ArrowUpRight size={13} />
+      </button>
+      {!a.ok && a.reason && (
+        <small id={id} className="dash-action-reason">
+          {a.reason}
+        </small>
+      )}
+      {note?.ok && <small className="dash-action-note">Opened in a new tab. Sign there; this page shows the result once it is on chain.</small>}
+      {note && !note.ok && (
+        <small className="form-error" role="alert">
+          {note.message}{' '}
+          {note.url && (
+            <a href={note.url} target="_blank" rel="noreferrer noopener">
+              Open the signer page
+            </a>
+          )}
+        </small>
+      )}
+    </div>
+  );
+}
+
+// ---------------------------------------------------------------- the account panel
 
 export function Workspace() {
   const c = useCofer();
@@ -280,10 +339,10 @@ export function Workspace() {
     <section className="workspace" aria-label="Group account" aria-busy={c.potLoading}>
       <div className="workspace-top">
         <div>
-          <span className="workspace-kicker">GROUP ACCOUNT · READ-ONLY</span>
+          <span className="workspace-kicker">GROUP ACCOUNT</span>
           <h2>{p.title}</h2>
           <p>
-            Live from {cfg.chainName}. To propose, approve, deposit or exit, use the bot in Telegram.{' '}
+            Live from {cfg.chainName}. Buttons open the signer page, where you review and sign with your passkey; proposals are made in the group chat.{' '}
             <a href={botUrl(cfg)}>Open in Telegram</a>
           </p>
         </div>
@@ -333,6 +392,24 @@ export function Workspace() {
       <div className="workspace-columns">
         <div className="workspace-panel">
           <div className="workspace-heading">
+            <h3>Actions</h3>
+            <span>You sign on the signer page</span>
+          </div>
+          <div className="dash-actions">
+            <ActionButton label="Deposit" action="deposit" a={p.actions.deposit} />
+            <ActionButton label="Spend allowance" action="spend" a={p.actions.spend} />
+            <ActionButton label="Claim set-aside token" action="claim" a={p.actions.claim} />
+            <ActionButton label="Exit with my share" action="exit" a={p.actions.exit} />
+          </div>
+          <ul className="dash-hints" aria-label="Done in the group chat">
+            {p.groupHints.map((h) => (
+              <li key={h.label}>
+                <span>{h.label}</span>
+                <small>{h.hint}</small>
+              </li>
+            ))}
+          </ul>
+          <div className="workspace-heading spaced">
             <h3>Holdings</h3>
             <span>
               {cfg.chainName} · {cfg.chainId}
@@ -402,6 +479,7 @@ export function Workspace() {
                   </small>
                 </div>
                 <div className="proposal-actions">
+                  {x.state === 'pending' && <ActionButton label="Approve / review" action="approve" proposal={x.id} a={x.approve} />}
                   {x.txHash && (
                     <a className="proposal-link" href={txUrl(cfg, x.txHash)} target="_blank" rel="noreferrer" aria-label="View the transaction">
                       <ArrowUpRight size={13} />

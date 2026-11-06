@@ -4,7 +4,7 @@
  * kept that way (see money.ts). Errors become one of a few kinds the page knows how to show.
  */
 
-export type ApiErrorKind = 'signed-out' | 'not-found' | 'down' | 'offline' | 'bad-response';
+export type ApiErrorKind = 'signed-out' | 'not-found' | 'refused' | 'down' | 'offline' | 'bad-response';
 
 export class ApiError extends Error {
   constructor(public kind: ApiErrorKind, message: string) {
@@ -52,6 +52,15 @@ export interface Member {
 
 export type ProposalState = 'pending' | 'confirmed' | 'failed';
 
+/** Whether an action button can work right now, and if not, why (decided by the server). */
+export interface Availability {
+  ok: boolean;
+  reason: string | null;
+}
+
+/** The buttons that hand off to the signer page. Everything else stays in the group chat. */
+export type DashAction = 'deposit' | 'exit' | 'claim' | 'spend' | 'approve';
+
 export interface Proposal {
   id: string;
   kind: number;
@@ -63,6 +72,7 @@ export interface Proposal {
   required: number;
   signedByYou: boolean;
   executeAfter: string | null;
+  approve: Availability;
   txHash: string | null;
   createdAt: string;
 }
@@ -115,12 +125,15 @@ export interface PotView {
   activity: ActivityItem[];
   assets: Record<string, { symbol: string; decimals: number }>;
   indexer: { block: string | null; behind: boolean };
+  actions: { deposit: Availability; exit: Availability; claim: Availability; spend: Availability };
+  groupHints: { label: string; hint: string }[];
   asOf: string;
 }
 
 const TEXT: Record<ApiErrorKind, string> = {
   'signed-out': 'Your dashboard session has ended. Open it again from Telegram: send /me to the bot.',
   'not-found': 'This group account was not found, or you are not a member of it.',
+  refused: 'That cannot be done right now.',
   down: "Couldn't load the data just now. Retrying.",
   offline: "Couldn't reach the server. Retrying.",
   'bad-response': 'The server sent something unexpected. Retrying.',
@@ -145,6 +158,7 @@ export function apiClient(base: string, fetchFn: Fetch = (i, o) => fetch(i, o)) 
     const serverText = typeof (body as { error?: unknown })?.error === 'string' ? ((body as { error: string }).error) : null;
     if (r.status === 401) throw new ApiError('signed-out', serverText ?? TEXT['signed-out']);
     if (r.status === 404) throw new ApiError('not-found', TEXT['not-found']);
+    if (r.status === 409) throw new ApiError('refused', serverText ?? TEXT.refused);
     if (!r.ok) throw new ApiError('down', TEXT.down);
     if (body === null || typeof body !== 'object') throw new ApiError('bad-response', TEXT['bad-response']);
     return body as T;
@@ -158,6 +172,13 @@ export function apiClient(base: string, fetchFn: Fetch = (i, o) => fetch(i, o)) 
       if (!/^0x[0-9a-fA-F]{40}$/.test(address)) return Promise.reject(new ApiError('not-found', TEXT['not-found']));
       return call<PotView>(`/pots/${address}`, auth(session));
     },
+    /** A one-time signer-page link for this member's own action (the server decides; the page never signs). */
+    link: (session: string, pot: string, action: DashAction, proposal?: string) =>
+      call<{ url: string; expiresAt: string }>('/links', {
+        method: 'POST',
+        headers: { authorization: `Bearer ${session}`, 'content-type': 'application/json' },
+        body: JSON.stringify(action === 'approve' ? { pot, action, proposal } : { pot, action }),
+      }),
   };
 }
 
