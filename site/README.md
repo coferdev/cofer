@@ -23,8 +23,19 @@ What builds what:
 - `npm run build:ui` rebuilds only `dist/assets/ui/` (the dashboard and How it works pages, and the landing-page header) from `src/`.
 - The landing page body is a Framer export edited in place: `dist/index.html`, `dist/assets/ordoo/` and `dist/assets/cofer-overlay.js` (which points links at their destinations by label).
 
-The dashboard pages (`dashboard*.html`) show placeholder data until they are wired to the indexer. They are not linked from anywhere and are marked `noindex`. To link them again, set `DASHBOARD_LIVE` in `src/lib/links.ts` to `true`, rebuild, and add the links back in the landing page.
+The copies of the dashboard pages in `dist/` (`dashboard*.html`) are the old placeholder build. They are not linked from anywhere and are marked `noindex`. The real dashboard is served separately (below).
 
-## Dashboard data
+**Do not run `npm run build:ui` for a dashboard change.** The dashboard pages share source with How it works and the landing-page header, so rebuilding `dist/` now would change files that getcofer.com serves (`assets/ui/shared.js`, `style.css`, `dashboard.js`). `dist/` is left exactly as it is live.
 
-The deployed output is in `dist/`. Account state, proposals and widget order are stored in the browser. The interface is not connected to accounts, wallets, Telegram, live prices, contracts, passkeys or transactions; input prices are manually supplied and no oracle, issuer, liquidity or signature validation is performed. The supplied PDFs remain source material and are not published on the site.
+## Dashboard (dashboard.getcofer.com, testdashboard.getcofer.com)
+
+A separate, read-only build of the same pages, for a member's own group accounts. Data comes from the services' dashboard API on the dashboard's own address; nothing is seeded and nothing about accounts is stored in the browser (only the sign-in session, for that tab, and the widget order). The network, explorer, bot, site and API address come from a `config.json` placed next to the files on each server, so one build serves testnet and mainnet.
+
+```sh
+npm ci --ignore-scripts
+npm run typecheck
+npm test                  # dashboard logic: amounts, config, API errors, sign-in (bun test)
+npm run build:dashboard   # writes dashboard-dist/ only; never dist/
+```
+
+Pages: `dashboard/*.html`; examples of the server settings: `dashboard/config.testnet.json`, `dashboard/config.mainnet.json`. Sign-in, API, Caddy and deploy steps: [docs/dashboard.md](../docs/dashboard.md). The supplied PDFs remain source material and are not published on the site.

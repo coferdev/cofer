@@ -1,0 +1,8 @@
+{
+  "chainId": 46630,
+  "chainName": "Robinhood Chain Testnet",
+  "explorerUrl": "https://explorer.testnet.chain.robinhood.com",
+  "botUsername": "FILL IN: the testnet bot username, without @",
+  "siteUrl": "https://getcofer.com",
+  "apiBase": "/api/dashboard"
+}

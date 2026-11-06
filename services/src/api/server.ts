@@ -8,6 +8,7 @@ import { env, type Env } from "../env";
 import { logError } from "../core/errors";
 import type { ProposalDeps } from "../services/proposals";
 import type { CardAdapter } from "../cards/CardAdapter";
+import { dashboardRoutes, type DashboardDeps } from "../dashboard/routes";
 
 export async function buildSignerBundle(): Promise<string> {
   const out = await Bun.build({ entrypoints: [new URL("../web/client.ts", import.meta.url).pathname], target: "browser", minify: true });
@@ -15,8 +16,11 @@ export async function buildSignerBundle(): Promise<string> {
   return await out.outputs[0]!.text();
 }
 
-/** @param opts.env settings to use instead of the process environment (tests pass fixed values). */
-export function createServer(opts: { deps: ProposalDeps; cards: CardAdapter | null; bot?: Bot; signerJs: string; env?: Env }) {
+/**
+ * @param opts.env settings to use instead of the process environment (tests pass fixed values).
+ * @param opts.dashboard the read-only dashboard API's data source; omitted = no dashboard routes.
+ */
+export function createServer(opts: { deps: ProposalDeps; cards: CardAdapter | null; bot?: Bot; signerJs: string; env?: Env; dashboard?: DashboardDeps }) {
   const e = opts.env ?? env();
   const pageRpc = signerRpcUrl(e);
   const app = new Hono();
@@ -28,6 +32,9 @@ export function createServer(opts: { deps: ProposalDeps; cards: CardAdapter | nu
   });
 
   app.get("/healthz", (c) => c.json({ ok: true }));
+
+  // read-only dashboard API (dashboard/routes.ts); the dashboard site reaches it on its own address
+  if (opts.dashboard) app.route("/api/dashboard", dashboardRoutes(opts.dashboard));
 
   app.use(
     "/trpc/*",

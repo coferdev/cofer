@@ -1,0 +1,8 @@
+{
+  "chainId": 4663,
+  "chainName": "Robinhood Chain",
+  "explorerUrl": "https://robinhoodchain.blockscout.com",
+  "botUsername": "coferappbot",
+  "siteUrl": "https://getcofer.com",
+  "apiBase": "/api/dashboard"
+}

@@ -15,7 +15,7 @@ BOT_MODE=polling ROLE=all bun src/index.ts
 
 | Role | What it runs |
 |---|---|
-| `api` | Hono: `/trpc/*` (signer API), `/s/:token` (signer page), `/assets/signer.js` (built at boot with Bun.build), `/tg/webhook` (grammY, secret-token checked) |
+| `api` | Hono: `/trpc/*` (signer API), `/s/:token` (signer page), `/assets/signer.js` (built at boot with Bun.build), `/tg/webhook` (grammY, secret-token checked), `/api/dashboard/*` (read-only dashboard API, only when `DASHBOARD_URL` is set; [docs/dashboard.md](../docs/dashboard.md)) |
 | `bot` | Long polling, for local development only |
 | `indexer` | viem `getLogs` polling up to head minus `CONFIRMATIONS`. Writes idempotent `chain_events` and projections (members, shares, proposals, epoch, revocations) |
 | `keeper` | BullMQ schedulers: expire (60s), sweep queued/ready (30s), canonical Stock Token refresh (1h), holdings (5m), feed health (15m). Also runs the relay worker |
@@ -32,6 +32,7 @@ src/keeper/      scheduled jobs
 src/notifier/    Telegram card rendering + edits
 src/bot/         grammY plain bot, parsers, keyboards (url buttons only)
 src/api/         tRPC router + Hono server
+src/dashboard/   read-only dashboard API: one-time link sign-in, the member's own pots only, live prices
 src/web/         signer page shell + browser bundle (Kernel v3.1 + passkey validator 0.0.3)
 src/cards/       CardAdapter interface + StubCardAdapter (provider is out of band)
 src/stocks/      canonical Stock Token list from the issuer's public API

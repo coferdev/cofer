@@ -6,7 +6,15 @@
  */
 import { createHmac, timingSafeEqual } from "node:crypto";
 
-export type LinkPurpose = "onboard" | "sign" | "deposit" | "exit" | "claim" | "card" | "session";
+/**
+ * "dashboard" is a one-time link to the read-only dashboard; "dash" is the short dashboard session
+ * it is exchanged for. Neither is accepted by the signer API, and the dashboard accepts neither of
+ * the signer's (see services/src/dashboard/routes.ts and session.exchange in api/router.ts).
+ */
+export type LinkPurpose = "onboard" | "sign" | "deposit" | "exit" | "claim" | "card" | "session" | "dashboard" | "dash";
+
+/** Link purposes that belong to the dashboard only; the signer API refuses them. */
+export const DASHBOARD_PURPOSES: readonly LinkPurpose[] = ["dashboard", "dash"];
 
 export interface LinkClaims {
   tg: number; // telegram user id

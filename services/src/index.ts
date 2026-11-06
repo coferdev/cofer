@@ -16,6 +16,7 @@ import { startKeeper, scheduleKeeper } from "./keeper/keeper";
 import { startRelayer } from "./relayer/relayer";
 import { startNotifier } from "./notifier/notifier";
 import { selectCardAdapter } from "./cards/select";
+import { dashboardData } from "./dashboard/data";
 import { countErrorsWith, logError } from "./core/errors";
 import { recordError } from "./keeper/serverHealth";
 
@@ -31,7 +32,11 @@ async function main() {
   const run = (r: string) => role === "all" || role === r;
 
   if (run("api")) {
-    const app = createServer({ deps: proposalDeps(), cards, bot, signerJs: await buildSignerBundle() });
+    // the dashboard API exists only where a dashboard is set up (DASHBOARD_URL)
+    const dashboard = e.DASHBOARD_URL
+      ? dashboardData({ client: publicClient(), factory: factoryAddress(), usdg: e.USDG_ADDRESS, chainId: e.CHAIN_ID, secret: e.LINK_SECRET })
+      : undefined;
+    const app = createServer({ deps: proposalDeps(), cards, bot, signerJs: await buildSignerBundle(), dashboard });
     Bun.serve({ port: e.PORT, fetch: app.fetch });
     if (e.BOT_MODE === "webhook") {
       await bot.api.setWebhook(`${e.PUBLIC_URL}/tg/webhook`, {

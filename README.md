@@ -130,7 +130,7 @@ bun install --frozen-lockfile
 bunx drizzle-kit migrate
 ```
 
-In `.env`: `CHAIN_ID`, `RHC_RPC_URL`, `FACTORY_ADDRESS`, `ADAPTER_ADDRESS`, `START_BLOCK` (the deploy block), `PUBLIC_URL` (HTTPS), the Telegram, ZeroDev and relayer settings, a random `LINK_SECRET` (`openssl rand -hex 32`), `OPS_CHAT_ID` for alerts, and `CARD_ADAPTER=off`. Fund the relayer address with a little ETH; the keeper alerts below `RELAYER_MIN_ETH`.
+In `.env`: `CHAIN_ID`, `RHC_RPC_URL`, `FACTORY_ADDRESS`, `ADAPTER_ADDRESS`, `START_BLOCK` (the deploy block), `PUBLIC_URL` (HTTPS), the Telegram, ZeroDev and relayer settings, a random `LINK_SECRET` (`openssl rand -hex 32`), `OPS_CHAT_ID` for alerts, and `CARD_ADAPTER=off`. Fund the relayer address with a little ETH; the keeper alerts below `RELAYER_MIN_ETH`. Optional: `DASHBOARD_URL` for the read-only dashboard ([docs/dashboard.md](docs/dashboard.md): build, Caddy, deploy).
 
 Run each role as its own process (the `api` role sets the Telegram webhook itself):
 

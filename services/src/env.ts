@@ -35,6 +35,17 @@ const schema = z.object({
   PAYMASTER_URL: z.string().url().optional(),
   PASSKEY_SERVER_URL: z.string().url().optional(), // ZeroDev passkey server (signer site)
   BOT_MODE: z.enum(["webhook", "polling"]).default("webhook"),
+  // read-only dashboard origin (testnet https://testdashboard.getcofer.com, mainnet https://dashboard.getcofer.com);
+  // unset = no "Open dashboard" button. An https origin with no path (plain http only for localhost, for local testing)
+  DASHBOARD_URL: z
+    .string()
+    .url()
+    .refine(
+      (u) => /^(https:\/\/[^/?#]+|http:\/\/(localhost|127\.0\.0\.1)(:\d+)?)$/.test(u.replace(/\/$/, "")),
+      "DASHBOARD_URL must be an https origin with no path",
+    )
+    .transform((u) => u.replace(/\/$/, ""))
+    .optional(),
 
   TELEGRAM_BOT_TOKEN: z.string(),
   TELEGRAM_BOT_USERNAME: z.string(),

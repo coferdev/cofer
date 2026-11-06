@@ -9,7 +9,7 @@ import { eq, isNull, or } from "drizzle-orm";
 import { getAddress, type Address, type Hex, type PublicClient } from "viem";
 import { schema, type DB } from "../db/client";
 import { potAbi } from "../chain/clients";
-import { signLink, verifyLink, newJti, onboardLinkProblem, type LinkClaims } from "../core/linkToken";
+import { signLink, verifyLink, newJti, onboardLinkProblem, DASHBOARD_PURPOSES, type LinkClaims } from "../core/linkToken";
 import { addSignature, createProposal, getSignable, ProposalError, readRules, type ProposalDeps } from "../services/proposals";
 import { Kind } from "../core/proposal";
 import { previewExit } from "../core/shares";
@@ -76,6 +76,10 @@ const linkClaims = (token: string, secret: string): LinkClaims => {
   try {
     claims = verifyLink(token, secret);
   } catch {
+    throw new TRPCError({ code: "UNAUTHORIZED", message: "link expired or invalid; tap the button in Telegram again" });
+  }
+  // a dashboard link or session never becomes a signer session (the dashboard has its own exchange)
+  if (DASHBOARD_PURPOSES.includes(claims.p)) {
     throw new TRPCError({ code: "UNAUTHORIZED", message: "link expired or invalid; tap the button in Telegram again" });
   }
   // used by both preview and exchange: an onboarding link made outside a private chat is never usable

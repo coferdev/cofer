@@ -1,81 +1,439 @@
-import React, { createContext, useContext, useEffect, useMemo, useRef, useState } from 'react';
-import { ArrowRight, Check, Clock, Plus, X } from 'lucide-react';
-import { BeamButton } from '@/components/ui/cofer-beam';
+/**
+ * Dashboard data, read-only. Everything shown comes from the services' dashboard API (indexer
+ * tables and live feed prices), for the signed-in member's own group accounts only. Nothing is
+ * seeded, nothing is computed locally as a source of truth, and nothing is stored in localStorage.
+ * Amounts stay raw integers with their decimals (lib/money.ts). Changes are made in Telegram.
+ *
+ * Phases: starting -> (no-config | signing-in -> signed-out | loading -> ready | wrong-network).
+ * A failed refresh keeps the last data on screen, says so, and retries with growing waits.
+ */
+import React, { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState } from 'react';
+import { ArrowUpRight, Check, Clock, X } from 'lucide-react';
+import { ApiError, apiClient, type PotSummary, type PotView, type Proposal } from '@/lib/dash-api';
+import { addressUrl, botUrl, parseConfig, txUrl, type DashConfig } from '@/lib/dash-config';
+import { clearSession, isLive, linkFromHash, loadSession, saveSession, type Session } from '@/lib/dash-session';
+import { describeActivity, hoursText, POLL_MS, periodText, retryDelay, shortAddress } from '@/lib/dash-text';
+import { formatAmount, formatBps } from '@/lib/money';
 
-type Member={id:string;name:string;region:string;shares:number;contributed:number;allowance:number;period:'day'|'week'|'month';spent:number;periodStart:number};
-type Holding={symbol:string;units:number;price:number};
-type ProposalKind='send'|'buy'|'sell'|'allowance'|'add'|'remove'|'threshold'|'window'|'plan';
-type Proposal={id:string;kind:ProposalKind;description:string;amount:number;target:string;symbol:string;price:number;period:'day'|'week'|'month';region:string;approvals:string[];state:'open'|'queued'|'executed'|'invalid';executeAfter?:number;epoch:number;createdAt:number};
-type Log={id:string;title:string;detail:string;at:number};
-type Account={id:string;name:string;members:Member[];cash:number;holdings:Holding[];threshold:number;windowHours:number;epoch:number;proposals:Proposal[];activity:Log[];planUntil:number;leaderboard:boolean;contributed:number};
-type State={accounts:Account[];selected:string;acting:string};
-const KEY='cofer-workspace-v1';
-const now=Date.now();
-const seedMembers:Member[]=[420,360,300,240,180].map((shares,i)=>({id:`member-${i}`,name:i===0?'You':`Member ${String.fromCharCode(65+i)}`,region:'SG',shares,contributed:shares,allowance:50,period:'week',spent:0,periodStart:now}));
-const initial:State={selected:'group',acting:'member-0',accounts:[{id:'group',name:'Group account',members:seedMembers,cash:1500,holdings:[],threshold:60,windowHours:6,epoch:0,proposals:[],activity:[{id:'initial',title:'Group account created',detail:'5 members · Robinhood Chain',at:now}],planUntil:0,leaderboard:false,contributed:1500}]};
-const id=()=>globalThis.crypto?.randomUUID?.()??`${Date.now()}-${Math.random().toString(36).slice(2)}`;
-export const fmt=(n:number)=>new Intl.NumberFormat('en-US',{maximumFractionDigits:2}).format(Number.isFinite(n)?n:0);
-const fmtUnits=(n:number)=>new Intl.NumberFormat('en-US',{maximumFractionDigits:6}).format(Number.isFinite(n)?n:0);
-const round=(v:number)=>Math.floor((v+Number.EPSILON)*1000000)/1000000;
-const nav=(a:Account)=>a.cash+a.holdings.reduce((s,h)=>s+h.units*h.price,0);
-const totalShares=(a:Account)=>a.members.reduce((s,m)=>s+m.shares,0);
-const log=(a:Account,title:string,detail:string)=>{a.activity.unshift({id:id(),title,detail,at:Date.now()});a.activity=a.activity.slice(0,80)};
-const blockedRegions=new Set(['US','UK','GB','CA','CH','AE']);
-const allowedSymbols=['SPY','NVDA','TSLA','AAPL'];
-const hasStockAccess=(a:Account)=>a.members.every(m=>m.region&&!blockedRegions.has(m.region.toUpperCase()));
-function invalidate(a:Account){a.epoch++;for(const p of a.proposals)if(p.state==='open'||p.state==='queued')p.state='invalid'}
-function apply(a:Account,p:Proposal){
- if(p.kind==='send'){if(a.cash<p.amount)throw Error('The account does not have enough USDG.');a.cash=round(a.cash-p.amount)}
- if(p.kind==='buy'){
-  if(!hasStockAccess(a))throw Error('Stock buys require an eligible region for every member.');
-  if(!allowedSymbols.includes(p.symbol))throw Error('Choose a listed Stock Token.');
-  if(a.cash<p.amount)throw Error('The account does not have enough USDG.');
-  let holding=a.holdings.find(h=>h.symbol===p.symbol);if(!holding&&a.holdings.length>=11)throw Error('The account can hold at most 12 assets including USDG.');
-  if(!holding){holding={symbol:p.symbol,units:0,price:p.price};a.holdings.push(holding)}
-  a.cash=round(a.cash-p.amount);holding.units=round(holding.units+(p.amount*.997)/p.price);holding.price=p.price;
- }
- if(p.kind==='sell'){const h=a.holdings.find(x=>x.symbol===p.symbol);if(!h||h.units<p.amount)throw Error('There are not enough token units.');h.units=round(h.units-p.amount);a.cash=round(a.cash+p.amount*p.price*.997);h.price=p.price;a.holdings=a.holdings.filter(x=>x.units>0)}
- if(p.kind==='allowance'){const m=a.members.find(x=>x.id===p.target);if(!m)throw Error('Member not found.');m.allowance=p.amount;m.period=p.period;m.spent=0;m.periodStart=Date.now()}
- if(p.kind==='add'){if(a.members.length>=50)throw Error('An account can have at most 50 members.');a.members.push({id:id(),name:p.target,region:p.region,shares:0,contributed:0,allowance:0,period:'week',spent:0,periodStart:Date.now()});invalidate(a)}
- if(p.kind==='remove'){const m=a.members.find(x=>x.id===p.target);if(!m||a.members.length<=1)throw Error('At least one member must remain.');const fraction=totalShares(a)?m.shares/totalShares(a):0;a.cash=round(a.cash*(1-fraction));a.holdings.forEach(h=>h.units=round(h.units*(1-fraction)));a.members=a.members.filter(x=>x.id!==m.id);invalidate(a)}
- if(p.kind==='threshold'){a.threshold=p.amount;invalidate(a)}
- if(p.kind==='window'){a.windowHours=p.amount;invalidate(a)}
- if(p.kind==='plan'){const cost=9*p.amount;if(a.cash<cost)throw Error('The account does not have enough USDG for the plan.');a.cash=round(a.cash-cost);a.planUntil=Math.max(a.planUntil,Date.now())+p.amount*30*86400000}
- p.state='executed'; log(a,'Proposal executed',p.description);
+export type Phase = 'starting' | 'no-config' | 'signing-in' | 'signed-out' | 'loading' | 'ready' | 'wrong-network';
+
+interface Store {
+  phase: Phase;
+  config: DashConfig | null;
+  message: string | null; // why signed out, or the current refresh problem (data kept)
+  linked: boolean;
+  pots: PotSummary[];
+  selected: string | null;
+  pot: PotView | null;
+  potLoading: boolean;
+  lastOk: Date | null;
+  failures: number;
+  select: (address: string) => void;
+  refresh: () => void;
 }
-function updateProposal(a:Account,p:Proposal){const threshold=Math.ceil(a.members.length*a.threshold/100);const approvals=p.approvals.filter(id=>a.members.some(m=>m.id===id)).length;if(approvals<threshold){p.state='open';p.executeAfter=undefined;return}if(approvals===a.members.length||a.windowHours===0){apply(a,p);return}if(p.state!=='queued'){p.state='queued';p.executeAfter=Date.now()+a.windowHours*3600000;log(a,'Proposal queued',`${p.description} · exit window ${a.windowHours} hours`)}}
-interface Store {state:State;account:Account;member:Member|undefined;value:number;shares:number;select:(account:string,member?:string)=>void;create:(name:string,region:string)=>void;deposit:(amount:number)=>void;spend:(amount:number,to:string)=>void;propose:(p:Omit<Proposal,'id'|'approvals'|'state'|'epoch'|'createdAt'|'description'>)=>void;approve:(proposal:string)=>void;revoke:(proposal:string)=>void;execute:(proposal:string)=>void;exit:()=>void;toggleLeaderboard:()=>void;setRegion:(region:string)=>void}
-const Context=createContext<Store|null>(null);
-function getInitial():State{try{const saved=JSON.parse(localStorage.getItem(KEY)||'null');return saved?.accounts?.length?saved:initial}catch{return initial}}
-export function CoferProvider({children}:{children:React.ReactNode}){
- const [state,setState]=useState<State>(getInitial);useEffect(()=>{try{localStorage.setItem(KEY,JSON.stringify(state))}catch{}},[state]);
- const account=state.accounts.find(x=>x.id===state.selected)||state.accounts[0],member=account.members.find(x=>x.id===state.acting),value=nav(account),shares=totalShares(account);
- const mutate=(fn:(s:State,a:Account,m:Member|undefined)=>void)=>{const s=structuredClone(state),a=s.accounts.find(x=>x.id===s.selected)||s.accounts[0],m=a.members.find(x=>x.id===s.acting);fn(s,a,m);try{localStorage.setItem(KEY,JSON.stringify(s))}catch{}setState(s)};
- const select=(accountId:string,memberId?:string)=>mutate(s=>{const a=s.accounts.find(x=>x.id===accountId);if(!a)return;s.selected=a.id;s.acting=memberId&&a.members.some(x=>x.id===memberId)?memberId:(a.members[0]?.id||'')});
- const create=(name:string,region:string)=>mutate(s=>{if(!name.trim())throw Error('Enter a group name.');const mid=id(),aid=id();const a:Account={id:aid,name:name.trim(),members:[{id:mid,name:'You',region:region.toUpperCase(),shares:0,contributed:0,allowance:0,period:'week',spent:0,periodStart:Date.now()}],cash:0,holdings:[],threshold:60,windowHours:6,epoch:0,proposals:[],activity:[],planUntil:0,leaderboard:false,contributed:0};log(a,'Group account created','Robinhood Chain · 1 member');s.accounts.push(a);s.selected=aid;s.acting=mid});
- const deposit=(amount:number)=>mutate((_s,a,m)=>{if(!m)throw Error('Choose a member.');if(amount<=0)throw Error('Enter an amount greater than zero.');if(nav(a)+amount>5000)throw Error('The 5,000 USDG beta limit would be exceeded.');const existing=totalShares(a),valueBefore=nav(a);const effective=amount*(a.holdings.length?.995:1);m.shares=round(m.shares+(existing&&valueBefore?effective*existing/valueBefore:effective));m.contributed=round((m.contributed||0)+amount);a.cash=round(a.cash+amount);a.contributed=round(a.contributed+amount);log(a,'Contribution added',`${m.name} · ${fmt(amount)} USDG`)});
- const spend=(amount:number,to:string)=>mutate((_s,a,m)=>{if(!m)throw Error('Choose a member.');const period=({day:1,week:7,month:30}[m.period])*86400000;if(Date.now()>=m.periodStart+period){m.spent=0;m.periodStart=Date.now()}if(!to.trim()||amount<=0)throw Error('Enter a recipient and an amount.');if(amount>m.allowance-m.spent)throw Error('This exceeds the remaining allowance.');if(amount>a.cash)throw Error('The account does not have enough USDG.');m.spent=round(m.spent+amount);a.cash=round(a.cash-amount);log(a,'Allowance spend',`${m.name} · ${fmt(amount)} USDG to ${to.trim()}`)});
- const propose=(p:Omit<Proposal,'id'|'approvals'|'state'|'epoch'|'createdAt'|'description'>)=>mutate((_s,a,m)=>{if(!m)throw Error('Choose a member.');if(['send','buy','sell','threshold','plan'].includes(p.kind)&&p.amount<=0)throw Error('Enter an amount greater than zero.');if(p.kind==='allowance'&&(!Number.isFinite(p.amount)||p.amount<0))throw Error('Enter a valid allowance.');if(!Number.isFinite(p.amount)||!Number.isFinite(p.price))throw Error('Enter a valid number.');if(p.kind==='window'&&(p.amount<0||p.amount>72))throw Error('The exit window must be between 0 and 72 hours.');if(p.kind==='threshold'&&(p.amount<1||p.amount>100))throw Error('The threshold must be between 1% and 100%.');if(p.kind==='plan'&&(!Number.isInteger(p.amount)||p.amount<1||p.amount>12))throw Error('Choose 1 to 12 months.');if(['buy','sell'].includes(p.kind)&&p.price<=0)throw Error('Enter a price greater than zero.');if(p.kind==='buy'&&!hasStockAccess(a))throw Error('Stock buys require an eligible region for every member.');if(p.kind==='add'&&!p.target.trim())throw Error('Enter a member name.');if(p.kind==='add'&&a.members.length>=50)throw Error('An account can have at most 50 members.');if(p.kind==='send'&&!p.target.trim())throw Error('Enter a recipient.');if(p.kind==='buy'&&p.amount>a.cash)throw Error('The account does not have enough USDG.');if(p.kind==='sell'&&(!a.holdings.find(h=>h.symbol===p.symbol)||p.amount>(a.holdings.find(h=>h.symbol===p.symbol)?.units||0)))throw Error('There are not enough token units.');const names:Record<ProposalKind,string>={send:`Send ${fmt(p.amount)} USDG to ${p.target}`,buy:`Buy ${p.symbol} with ${fmt(p.amount)} USDG`,sell:`Sell ${fmt(p.amount)} ${p.symbol}`,allowance:`Set ${a.members.find(x=>x.id===p.target)?.name||'member'} allowance to ${fmt(p.amount)} USDG per ${p.period}`,add:`Add ${p.target} to the account`,remove:`Remove ${a.members.find(x=>x.id===p.target)?.name||'member'}`,threshold:`Set vote threshold to ${fmt(p.amount)}%`,window:`Set exit window to ${fmt(p.amount)} hours`,plan:`Prepay ${fmt(p.amount)} month${p.amount===1?'':'s'} of the group plan`};const next:Proposal={...p,id:id(),description:names[p.kind],approvals:[],state:'open',epoch:a.epoch,createdAt:Date.now()};a.proposals.unshift(next);log(a,'Proposal created',next.description)});
- const approve=(pid:string)=>mutate((_s,a,m)=>{const p=a.proposals.find(x=>x.id===pid);if(!m||!p||!['open','queued'].includes(p.state)||p.epoch!==a.epoch)throw Error('This proposal is no longer open.');if(p.approvals.includes(m.id))throw Error('This member has already approved.');p.approvals.push(m.id);log(a,'Approval recorded',`${m.name} · ${p.description}`);updateProposal(a,p)});
- const revoke=(pid:string)=>mutate((_s,a,m)=>{const p=a.proposals.find(x=>x.id===pid);if(!m||!p||!['open','queued'].includes(p.state))throw Error('This proposal is no longer open.');p.approvals=p.approvals.filter(x=>x!==m.id);updateProposal(a,p);log(a,'Approval revoked',`${m.name} · ${p.description}`)});
- const execute=(pid:string)=>mutate((_s,a)=>{const p=a.proposals.find(x=>x.id===pid);if(!p||p.state!=='queued'||!p.executeAfter||Date.now()<p.executeAfter)throw Error('The exit window is still open.');if(p.approvals.length<Math.ceil(a.members.length*a.threshold/100))throw Error('The proposal no longer has enough approvals.');apply(a,p)});
- const exit=()=>mutate((s,a,m)=>{if(!m)throw Error('Choose a member.');const ratio=totalShares(a)?m.shares/totalShares(a):0;const pieces=[`${fmt(a.cash*ratio)} USDG`,...a.holdings.map(h=>`${fmtUnits(h.units*ratio)} ${h.symbol}`)];a.cash=round(a.cash*(1-ratio));a.holdings.forEach(h=>h.units=round(h.units*(1-ratio)));a.members=a.members.filter(x=>x.id!==m.id);invalidate(a);s.acting=a.members[0]?.id||'';log(a,'Member exited',`${m.name} · ${pieces.join(' + ')}`)});
- const toggleLeaderboard=()=>mutate((_s,a)=>{a.leaderboard=!a.leaderboard});const setRegion=(region:string)=>mutate((_s,_a,m)=>{if(!m)throw Error('Choose a member.');if(!/^[A-Za-z]{2}$/.test(region))throw Error('Enter a two-letter region code.');m.region=region.toUpperCase()});
- const store:Store={state,account,member,value,shares,select,create,deposit,spend,propose,approve,revoke,execute,exit,toggleLeaderboard,setRegion};return <Context.Provider value={store}>{children}</Context.Provider>
+
+const Context = createContext<Store | null>(null);
+
+/** USDG amounts: two decimals; token quantities: up to six. */
+export const usdg = (raw: string | null | undefined, decimals = 6) => formatAmount(raw ?? null, decimals, 2);
+
+export function CoferProvider({ children }: { children: React.ReactNode }) {
+  const [phase, setPhase] = useState<Phase>('starting');
+  const [config, setConfig] = useState<DashConfig | null>(null);
+  const [message, setMessage] = useState<string | null>(null);
+  const [linked, setLinked] = useState(true);
+  const [pots, setPots] = useState<PotSummary[]>([]);
+  const [selected, setSelected] = useState<string | null>(null);
+  const [pot, setPot] = useState<PotView | null>(null);
+  const [potLoading, setPotLoading] = useState(false);
+  const [lastOk, setLastOk] = useState<Date | null>(null);
+  const [failures, setFailures] = useState(0);
+  const [tick, setTick] = useState(0);
+
+  const session = useRef<Session | null>(null);
+  const selectedRef = useRef<string | null>(null);
+  selectedRef.current = selected;
+  const api = useMemo(() => (config ? apiClient(config.apiBase) : null), [config]);
+
+  const signOut = useCallback((text: string) => {
+    clearSession();
+    session.current = null;
+    setMessage(text);
+    setPhase('signed-out');
+  }, []);
+
+  // 1. settings, then sign-in (a one-time link in the fragment, or this tab's session)
+  useEffect(() => {
+    let stop = false;
+    (async () => {
+      let cfg: DashConfig;
+      try {
+        const r = await fetch('/config.json', { cache: 'no-store', credentials: 'omit' });
+        if (!r.ok) throw new Error('missing');
+        cfg = parseConfig(await r.json());
+      } catch {
+        if (!stop) setPhase('no-config');
+        return;
+      }
+      if (stop) return;
+      setConfig(cfg);
+      const link = linkFromHash(location.hash);
+      if (location.hash) history.replaceState(null, '', location.pathname + location.search); // never leave the link in the address bar
+      if (link) {
+        setPhase('signing-in');
+        try {
+          const s = await apiClient(cfg.apiBase).exchange(link);
+          saveSession(s);
+          session.current = s;
+        } catch (e) {
+          if (!stop) signOut(e instanceof ApiError ? e.message : 'Could not sign in. Open the dashboard again from Telegram.');
+          return;
+        }
+      } else {
+        const s = loadSession();
+        if (!isLive(s)) {
+          if (!stop) signOut('Open the dashboard from Telegram: send /me to the bot and tap “Open dashboard”.');
+          return;
+        }
+        session.current = s;
+      }
+      if (!stop) setPhase('loading');
+    })();
+    return () => {
+      stop = true;
+    };
+  }, [signOut]);
+
+  // 2. read the member's pots and the selected pot; on a schedule, and again on refresh()
+  useEffect(() => {
+    if (!api || !config || (phase !== 'loading' && phase !== 'ready')) return;
+    const s = session.current;
+    if (!isLive(s)) {
+      signOut('Your dashboard session has ended. Open it again from Telegram: send /me to the bot.');
+      return;
+    }
+    let stop = false;
+    let timer = 0;
+    (async () => {
+      try {
+        const list = await api.pots(s.session);
+        if (stop) return;
+        if (list.chainId !== config.chainId) {
+          setPhase('wrong-network');
+          setMessage(`This dashboard is set up for ${config.chainName}, but its server is on a different network. Nothing is shown.`);
+          return;
+        }
+        setLinked(list.linked);
+        setPots(list.pots);
+        const keep = list.pots.find((p) => p.address.toLowerCase() === selectedRef.current?.toLowerCase());
+        const target = keep?.address ?? list.pots[0]?.address ?? null;
+        if (target !== selectedRef.current) setSelected(target);
+        if (target) {
+          setPotLoading(!pot || pot.address !== target);
+          const view = await api.pot(s.session, target);
+          if (stop) return;
+          setPot(view);
+        } else setPot(null);
+        setPotLoading(false);
+        setFailures(0);
+        setMessage(null);
+        setLastOk(new Date());
+        setPhase('ready');
+        timer = window.setTimeout(() => setTick((t) => t + 1), POLL_MS);
+      } catch (e) {
+        if (stop) return;
+        setPotLoading(false);
+        if (e instanceof ApiError && e.kind === 'signed-out') return signOut(e.message);
+        if (e instanceof ApiError && e.kind === 'not-found') {
+          // the member left this pot (or it is gone): read the list again and pick another
+          setSelected(null);
+          setPot(null);
+          timer = window.setTimeout(() => setTick((t) => t + 1), 0);
+          return;
+        }
+        const n = failures + 1;
+        setFailures(n);
+        setMessage(e instanceof ApiError ? e.message : "Couldn't load the data just now. Retrying.");
+        timer = window.setTimeout(() => setTick((t) => t + 1), retryDelay(n));
+      }
+    })();
+    return () => {
+      stop = true;
+      clearTimeout(timer);
+    };
+    // pot and failures are read, not watched: a new read starts on tick, phase or selection only
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [api, config, phase === 'loading' || phase === 'ready', selected, tick, signOut]);
+
+  // 3. end the session on time, and read again when the tab comes back
+  useEffect(() => {
+    const s = session.current;
+    if (!s || (phase !== 'ready' && phase !== 'loading')) return;
+    const left = Date.parse(s.expiresAt) - Date.now();
+    const t = window.setTimeout(() => signOut('Your dashboard session has ended. Open it again from Telegram: send /me to the bot.'), Math.max(0, left));
+    const back = () => document.visibilityState === 'visible' && setTick((x) => x + 1);
+    document.addEventListener('visibilitychange', back);
+    return () => {
+      clearTimeout(t);
+      document.removeEventListener('visibilitychange', back);
+    };
+  }, [phase, signOut]);
+
+  const store: Store = {
+    phase,
+    config,
+    message,
+    linked,
+    pots,
+    selected,
+    pot,
+    potLoading,
+    lastOk,
+    failures,
+    select: (a) => {
+      setSelected(a);
+      setPot(null);
+    },
+    refresh: () => setTick((t) => t + 1),
+  };
+  return <Context.Provider value={store}>{children}</Context.Provider>;
 }
-export function useCofer(){const v=useContext(Context);if(!v)throw Error('Missing Cofer provider');return v}
-export function Workspace(){
- const focusBefore=useRef<HTMLElement|null>(null);const c=useCofer(),[mode,setMode]=useState(''),[amount,setAmount]=useState(''),[target,setTarget]=useState(''),[region,setRegion]=useState(''),[symbol,setSymbol]=useState('NVDA'),[price,setPrice]=useState(''),[period,setPeriod]=useState<'day'|'week'|'month'>('week'),[error,setError]=useState('');
- const open=(m:string)=>{focusBefore.current=document.activeElement as HTMLElement;setMode(m);setAmount('');setTarget('');setPrice('');setError('')};const close=()=>{setMode('');setError('');requestAnimationFrame(()=>focusBefore.current?.focus())};useEffect(()=>{if(!mode)return;const dialog=document.querySelector<HTMLElement>('.workspace-dialog');dialog?.querySelector<HTMLElement>('input,select,button')?.focus();const key=(e:KeyboardEvent)=>{if(e.key==='Escape'){e.preventDefault();close()}if(e.key==='Tab'&&dialog){const f=[...dialog.querySelectorAll<HTMLElement>('button:not([disabled]),input:not([disabled]),select:not([disabled])')];if(!f.length)return;if(e.shiftKey&&document.activeElement===f[0]){e.preventDefault();f[f.length-1].focus()}else if(!e.shiftKey&&document.activeElement===f[f.length-1]){e.preventDefault();f[0].focus()}}};document.addEventListener('keydown',key);return()=>document.removeEventListener('keydown',key)},[mode]);const run=(f:()=>void)=>{try{f();close()}catch(e){setError(e instanceof Error?e.message:'Please check the details.')}};
- const member=c.member,periodMs=({day:1,week:7,month:30}[member?.period||'week'])*86400000;const spent=member&&Date.now()<member.periodStart+periodMs?member.spent:0;const allowance=Math.max(0,(member?.allowance||0)-spent);const ratio=c.shares&&member?member.shares/c.shares:0;
- const actions=[['deposit','Add USDG'],['spend','Spend allowance'],['send','Send payment'],['buy','Buy Stock Tokens'],['sell','Sell Stock Tokens'],['allowance','Set allowance'],['add','Add member'],['remove','Remove member'],['threshold','Change threshold'],['window','Set exit window'],['plan','Group plan'],['region','Set region'],['card','Card'],['exit','Exit account']];
- return <section className="workspace" aria-label="Group account controls"><div className="workspace-top"><div><span className="workspace-kicker">GROUP ACCOUNT</span><h2>Manage your account</h2><p>Manage holdings, members, allowances and proposals in one place.</p></div><label className="workspace-select">Member<div className="select-beam"><select value={member?.id||''} onChange={e=>c.select(c.account.id,e.target.value)}>{c.account.members.map(m=><option key={m.id} value={m.id}>{m.name}</option>)}</select></div></label></div><div className="workspace-stats"><div><span>Account value</span><strong>{fmt(c.value)} <small>USDG</small></strong></div><div><span>Your share</span><strong>{fmt(ratio*100)}<small>%</small></strong></div><div><span>Allowance remaining</span><strong>{fmt(allowance)} <small>USDG / {member?.period||'week'}</small></strong></div><div><span>Approvals required</span><strong>{Math.ceil(c.account.members.length*c.account.threshold/100)} <small>of {c.account.members.length} members</small></strong></div></div><div className="workspace-columns"><div className="workspace-panel"><div className="workspace-heading"><h3>Holdings</h3><span>Robinhood Chain · 4663</span></div><div className="holding-row"><strong>USDG</strong><span>{fmt(c.account.cash)} USDG</span></div>{c.account.holdings.map(h=><div className="holding-row" key={h.symbol}><strong>{h.symbol}</strong><span>{fmtUnits(h.units)} units · {fmt(h.units*h.price)} USDG</span></div>)}<div className="workspace-heading spaced"><h3>Actions</h3></div><div className="workspace-actions">{actions.map(([key,label])=><BeamButton key={key} onClick={()=>open(key)}>{label}<ArrowRight size={13}/></BeamButton>)}</div></div><div className="workspace-panel"><div className="workspace-heading"><h3>Proposals</h3><span>{c.account.threshold}% threshold · {c.account.windowHours}h window</span></div>{!c.account.proposals.length?<p className="workspace-empty">No proposals yet. Choose an action to get started.</p>:c.account.proposals.map(p=><article className="proposal" key={p.id}><div><strong>{p.description}</strong><small>{p.state==='queued'?`Exit window until ${new Date(p.executeAfter||0).toLocaleString()}`:p.state==='invalid'?'Invalidated by a group change':p.state==='executed'?'Executed':`${p.approvals.length} of ${Math.ceil(c.account.members.length*c.account.threshold/100)} approvals`}</small></div><div className="proposal-actions">{['open','queued'].includes(p.state)&&member&&(p.approvals.includes(member.id)?<BeamButton onClick={()=>{try{c.revoke(p.id)}catch(e){setError((e as Error).message)}}}>Revoke</BeamButton>:<BeamButton onClick={()=>{open('review');setTarget(p.id)}}>Review</BeamButton>)}{p.state==='queued'&&p.executeAfter&&Date.now()>=p.executeAfter&&<BeamButton onClick={()=>{try{c.execute(p.id)}catch(e){setError((e as Error).message)}}}>Execute</BeamButton>}{p.state!=='executed'&&<span className="proposal-state">{p.state}</span>}</div></article>)}{error&&!mode&&<p className="form-error" role="alert">{error}</p>}<div className="workspace-heading spaced"><h3>Recent activity</h3></div>{c.account.activity.slice(0,5).map(e=><div className="workspace-log" key={e.id}><span><strong>{e.title}</strong><small>{e.detail}</small></span><time>{new Date(e.at).toLocaleDateString()}</time></div>)}</div></div>{mode&&<div className="workspace-modal" role="presentation" onMouseDown={e=>{if(e.target===e.currentTarget)close()}}><div className="workspace-dialog" role="dialog" aria-modal="true" aria-labelledby="action-title"><button className="dialog-close" aria-label="Close" onClick={close}><X size={18}/></button><span className="workspace-kicker">{c.account.name.toUpperCase()}</span><h2 id="action-title">{mode==='review'?'Review proposal':actions.find(a=>a[0]===mode)?.[1]}</h2>{mode==='review'&&<><p>Review the action and approval count before continuing.</p><div className="exit-summary">{c.account.proposals.find(p=>p.id===target)?.description}<br/>{c.account.proposals.find(p=>p.id===target)?.approvals.length} of {Math.ceil(c.account.members.length*c.account.threshold/100)} approvals</div></>}{mode==='card'?<p>Card access is coming soon and depends on the provider and your region.</p>:mode==='exit'?<><p>Your share is {fmt(ratio*100)}% of each asset. You can exit without a vote.</p><div className="exit-summary">{fmt(c.account.cash*ratio)} USDG{c.account.holdings.map(h=>` · ${fmt(h.units*ratio)} ${h.symbol}`)}</div></>:mode==='region'?<p>Stock buys are unavailable when a member has not declared a region or has declared the US, UK, Canada, Switzerland or UAE.</p>:mode==='plan'?<p>Prepay 9 USDG per 30 days for up to 12 months. The group must approve the plan payment. {c.account.planUntil>Date.now()?`Paid through ${new Date(c.account.planUntil).toLocaleDateString()}.`:'No active plan.'}</p>:['buy','sell'].includes(mode)?<p>Stock Tokens use a group vote. The swap fee is 0.30% of the input. Enter a price to review the order.</p>:mode==='spend'?<p>Your remaining allowance is {fmt(allowance)} USDG per {member?.period}. Allowance spends come from the shared account.</p>:mode==='deposit'?<p>Contributions receive non-transferable shares at the account’s current value. The beta account limit is 5,000 USDG.</p>:mode==='window'?<p>Non-unanimous proposals, swaps included, wait for this window. Choose from 0 to 72 hours.</p>:mode==='threshold'?<p>The approval count is rounded up from the percentage of current members.</p>:null}
- {['deposit','spend','send','buy','sell','allowance','threshold','window','plan'].includes(mode)&&<label>{mode==='sell'?'Token units':mode==='threshold'?'Threshold (%)':mode==='window'?'Hours':mode==='plan'?'Months': 'Amount (USDG)'}<input type="number" inputMode="decimal" min={mode==='window'?0:0.000001} step="any" value={amount} onChange={e=>setAmount(e.target.value)} placeholder={mode==='plan'?'1–12':'0.00'}/></label>}
- {['send','spend'].includes(mode)&&<label>Recipient<input value={target} onChange={e=>setTarget(e.target.value)} maxLength={100} placeholder="Recipient"/></label>}
- {['allowance','remove'].includes(mode)&&<label>Member<select value={target} onChange={e=>setTarget(e.target.value)}><option value="">Choose a member</option>{c.account.members.map(m=><option key={m.id} value={m.id}>{m.name}</option>)}</select></label>}
- {mode==='allowance'&&<label>Period<select value={period} onChange={e=>setPeriod(e.target.value as typeof period)}><option value="day">Day</option><option value="week">Week</option><option value="month">Month</option></select></label>}
- {mode==='add'&&<label>Member name<input value={target} onChange={e=>setTarget(e.target.value)} maxLength={60} placeholder="Name"/></label>}
- {['add','region'].includes(mode)&&<label>{mode==='add'?'Region code (optional)':'Region code'}<input value={region} onChange={e=>setRegion(e.target.value.toUpperCase())} maxLength={2} placeholder="SG"/></label>}
- {['buy','sell'].includes(mode)&&<><label>Stock Token<select value={symbol} onChange={e=>setSymbol(e.target.value)}>{(mode==='buy'?allowedSymbols:c.account.holdings.map(h=>h.symbol)).map(x=><option key={x}>{x}</option>)}</select></label><label>Reference price (USDG per unit)<input type="number" min="0.000001" step="any" value={price} onChange={e=>setPrice(e.target.value)} placeholder="0.00"/></label></>}
- {error&&<p className="form-error" role="alert">{error}</p>}<div className="dialog-actions"><BeamButton radius={24} className="action-secondary" onClick={close}>Cancel</BeamButton><BeamButton radius={24} className="action-primary" onClick={()=>run(()=>{const n=Number(amount);if(mode==='review')return c.approve(target);if(mode==='card')return;if(mode==='deposit')return c.deposit(n);if(mode==='spend')return c.spend(n,target);if(mode==='exit')return c.exit();if(mode==='region')return c.setRegion(region);if(['allowance','remove'].includes(mode)&&!target)throw Error('Choose a member.');if(mode==='add'&&region&&!/^[A-Z]{2}$/.test(region))throw Error('Enter a two-letter region code.');c.propose({kind:mode as ProposalKind,amount:n,target,symbol,price:Number(price),period,region})})}>{mode==='review'?'Approve':mode==='card'?'Done':['deposit','spend','exit','region'].includes(mode)?'Continue':'Create proposal'}</BeamButton></div></div></div>}</section>
+
+export function useCofer() {
+  const v = useContext(Context);
+  if (!v) throw Error('Missing Cofer provider');
+  return v;
+}
+
+// ---------------------------------------------------------------- shared pieces
+
+/** Notices above the data: signed out, refresh problems, indexer behind, paused prices. */
+export function StatusBar() {
+  const c = useCofer();
+  const notes: { tone: 'info' | 'warn' | 'error'; text: string }[] = [];
+  if (c.phase === 'ready' && c.message) notes.push({ tone: 'warn', text: `${c.message}${c.lastOk ? ` Showing data from ${c.lastOk.toLocaleTimeString()}.` : ''}` });
+  if (c.pot?.indexer.behind) notes.push({ tone: 'warn', text: 'The data may be a few minutes behind the chain. Exits and the contracts are not affected.' });
+  if (c.pot?.value.partial) notes.push({ tone: 'info', text: 'Some prices are paused (for example while a market is closed). The total leaves those holdings out.' });
+  if (!notes.length) return null;
+  return (
+    <div className="dash-notes" role="status">
+      {notes.map((n) => (
+        <p key={n.text} className={`dash-note dash-note-${n.tone}`}>
+          {n.text}
+        </p>
+      ))}
+    </div>
+  );
+}
+
+/** The whole-page states before there is data: setting up, signing in, signed out, wrong network. */
+export function Gate({ children }: { children: React.ReactNode }) {
+  const c = useCofer();
+  const bot = c.config ? botUrl(c.config) : null;
+  const card = (title: string, text: string | null, action = true) => (
+    <section className="dash-gate" aria-live="polite">
+      <span className="workspace-kicker">COFER / DASHBOARD</span>
+      <h1>{title}</h1>
+      {text && <p>{text}</p>}
+      {action && bot && (
+        <a className="outline-action" href={bot}>
+          Open in Telegram <ArrowUpRight size={15} />
+        </a>
+      )}
+    </section>
+  );
+  if (c.phase === 'starting' || c.phase === 'signing-in') return card(c.phase === 'starting' ? 'Loading…' : 'Signing you in…', null, false);
+  if (c.phase === 'no-config') return card('The dashboard is not set up here', 'This address has no dashboard settings. Open the dashboard from Telegram: send /me to the bot.', false);
+  if (c.phase === 'signed-out') return card('Open the dashboard from Telegram', c.message);
+  if (c.phase === 'wrong-network') return card('Network mismatch', c.message, false);
+  if (c.phase === 'loading' && !c.pot) return card('Loading your group accounts…', c.message, false);
+  if (c.phase === 'ready' && !c.linked) return card('Set up your key first', 'Your Telegram account has no Cofer key yet. Send /start to the bot to set one up.');
+  if (c.phase === 'ready' && !c.pots.length) return card('No group accounts yet', 'You are not a member of any group account. Ask the group to add you, or start one with /newpot in your group.');
+  return <>{children}</>;
+}
+
+function StateBadge({ p }: { p: Proposal }) {
+  const Icon = p.state === 'confirmed' ? Check : p.state === 'failed' ? X : Clock;
+  return (
+    <span className={`proposal-state state-${p.state}`}>
+      <Icon size={11} /> {p.state}
+    </span>
+  );
+}
+
+// ---------------------------------------------------------------- the account panel (read-only)
+
+export function Workspace() {
+  const c = useCofer();
+  const p = c.pot;
+  const cfg = c.config;
+  if (!p || !cfg) {
+    return (
+      <section className="workspace" aria-label="Group account" aria-busy="true">
+        <p className="workspace-empty">{c.potLoading ? 'Loading the group account…' : 'Choose a group account.'}</p>
+      </section>
+    );
+  }
+  const dec = p.usdg.decimals;
+  const required = p.rules.approvalsRequired;
+  return (
+    <section className="workspace" aria-label="Group account" aria-busy={c.potLoading}>
+      <div className="workspace-top">
+        <div>
+          <span className="workspace-kicker">GROUP ACCOUNT · READ-ONLY</span>
+          <h2>{p.title}</h2>
+          <p>
+            Live from {cfg.chainName}. To propose, approve, deposit or exit, use the bot in Telegram.{' '}
+            <a href={botUrl(cfg)}>Open in Telegram</a>
+          </p>
+        </div>
+        {c.pots.length > 1 && (
+          <label className="workspace-select">
+            Group account
+            <div className="select-beam">
+              <select value={c.selected ?? ''} onChange={(e) => c.select(e.target.value)}>
+                {c.pots.map((x) => (
+                  <option key={x.address} value={x.address}>
+                    {x.title}
+                  </option>
+                ))}
+              </select>
+            </div>
+          </label>
+        )}
+      </div>
+      <StatusBar />
+      <div className="workspace-stats">
+        <div>
+          <span>Account value</span>
+          <strong>
+            {p.value.totalUsdg === null ? 'Price paused' : usdg(p.value.totalUsdg, dec)} <small>USDG{p.value.partial ? ' · partial' : ''}</small>
+          </strong>
+        </div>
+        <div>
+          <span>Your share</span>
+          <strong>
+            {formatBps(p.you.shareBps)}
+            <small>% · {p.you.valueUsdg === null ? '—' : usdg(p.you.valueUsdg, dec)} USDG</small>
+          </strong>
+        </div>
+        <div>
+          <span>Allowance remaining</span>
+          <strong>
+            {p.you.allowanceLeft === null ? '—' : usdg(p.you.allowanceLeft, dec)} <small>USDG / {periodText(p.you.period)}</small>
+          </strong>
+        </div>
+        <div>
+          <span>Approvals required</span>
+          <strong>
+            {required ?? '—'} <small>of {p.rules.membersCount} members</small>
+          </strong>
+        </div>
+      </div>
+      <div className="workspace-columns">
+        <div className="workspace-panel">
+          <div className="workspace-heading">
+            <h3>Holdings</h3>
+            <span>
+              {cfg.chainName} · {cfg.chainId}
+            </span>
+          </div>
+          {!p.holdings.length && <p className="workspace-empty">No holdings yet.</p>}
+          {p.holdings.map((h) => (
+            <div className="holding-row" key={h.asset}>
+              <strong>
+                <a href={addressUrl(cfg, h.asset)} target="_blank" rel="noreferrer">
+                  {h.symbol}
+                </a>
+              </strong>
+              <span>
+                {h.shownQuantity} {h.symbol === 'USDG' ? '' : 'units '}·{' '}
+                {h.pricePaused ? 'price paused' : `${usdg(h.valueUsdg, dec)} USDG`}
+                {!h.pricePaused && h.symbol !== 'USDG' && h.unitPriceUsdg !== null && <small> · {usdg(h.unitPriceUsdg, dec)} per unit</small>}
+              </span>
+            </div>
+          ))}
+          <div className="workspace-heading spaced">
+            <h3>Members</h3>
+            <span>{p.rules.membersCount} members</span>
+          </div>
+          {p.members.map((m) => (
+            <div className="holding-row" key={m.address}>
+              <strong>{m.you ? 'You' : m.username ? `@${m.username}` : shortAddress(m.address)}</strong>
+              <span>
+                {formatBps(m.shareBps)}% · allowance {usdg(m.allowance, dec)} USDG / {periodText(m.period)}
+              </span>
+            </div>
+          ))}
+          <div className="workspace-heading spaced">
+            <h3>Rules</h3>
+          </div>
+          <div className="holding-row">
+            <strong>Exit window</strong>
+            <span>{hoursText(p.rules.exitWindowSec)} for non-unanimous proposals</span>
+          </div>
+          <div className="holding-row">
+            <strong>Deposits</strong>
+            <span>{p.rules.depositsOpen ? 'Open' : 'Closed by the group'}</span>
+          </div>
+          <div className="holding-row">
+            <strong>Group plan</strong>
+            <span>{p.rules.planPaidUntil && Date.parse(p.rules.planPaidUntil) > Date.now() ? `Paid through ${new Date(p.rules.planPaidUntil).toLocaleDateString()}` : 'No active plan'}</span>
+          </div>
+        </div>
+        <div className="workspace-panel">
+          <div className="workspace-heading">
+            <h3>Proposals</h3>
+            <span>
+              {required ?? '—'} of {p.rules.membersCount} approvals · {hoursText(p.rules.exitWindowSec)} window
+            </span>
+          </div>
+          {!p.proposals.length ? (
+            <p className="workspace-empty">No proposals yet. Proposals are made in the group chat with the bot.</p>
+          ) : (
+            p.proposals.map((x) => (
+              <article className="proposal" key={x.id}>
+                <div>
+                  <strong>{x.summary}</strong>
+                  <small>
+                    {x.stateText}
+                    {x.state === 'pending' && x.status !== 'queued' ? ` · ${x.approvals} of ${x.required} approvals${x.signedByYou ? ' · you approved' : ''}` : ''}
+                    {x.executeAfter ? ` · exit window until ${new Date(x.executeAfter).toLocaleString()}` : ''}
+                  </small>
+                </div>
+                <div className="proposal-actions">
+                  {x.txHash && (
+                    <a className="proposal-link" href={txUrl(cfg, x.txHash)} target="_blank" rel="noreferrer" aria-label="View the transaction">
+                      <ArrowUpRight size={13} />
+                    </a>
+                  )}
+                  <StateBadge p={x} />
+                </div>
+              </article>
+            ))
+          )}
+          <div className="workspace-heading spaced">
+            <h3>Recent activity</h3>
+          </div>
+          {!p.activity.length && <p className="workspace-empty">No activity yet.</p>}
+          {p.activity.slice(0, 8).map((e) => {
+            const d = describeActivity(e, p.assets, p.members);
+            return (
+              <div className="workspace-log" key={e.id}>
+                <span>
+                  <strong>{d.title}</strong>
+                  <small>{d.detail}</small>
+                </span>
+                <time dateTime={e.at}>
+                  <a href={txUrl(cfg, e.txHash)} target="_blank" rel="noreferrer">
+                    {new Date(e.at).toLocaleDateString()}
+                  </a>
+                </time>
+              </div>
+            );
+          })}
+        </div>
+      </div>
+    </section>
+  );
 }

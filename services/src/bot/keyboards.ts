@@ -22,6 +22,26 @@ export function signerUrl(ctx: LinkCtx, purpose: LinkPurpose, ref = ""): string 
   return `${ctx.publicUrl}/s/${token}`;
 }
 
+/**
+ * The private "Open dashboard" link: a one-time "dashboard" link, always made for the member's own
+ * private chat (chat id = user id), in the URL fragment so it never reaches a server log or another
+ * site. The dashboard sends it once to its API and gets a short read-only session back.
+ */
+export function dashboardUrl(ctx: { dashboardUrl: string; secret: string; tgId: number; ttlSec: number }): string {
+  const token = signLink(
+    { tg: ctx.tgId, chat: ctx.tgId, p: "dashboard", ref: "", exp: Math.floor(Date.now() / 1000) + ctx.ttlSec, jti: newJti() },
+    ctx.secret,
+  );
+  return `${ctx.dashboardUrl}/#t=${token}`;
+}
+
+/** The one-time token in a signer link (/s/<token>) or a dashboard link (#t=<token>), or "". */
+export function linkTokenOf(href: string): string {
+  const u = new URL(href);
+  const hash = new URLSearchParams(u.hash.replace(/^#/, "")).get("t");
+  return hash ?? u.pathname.split("/s/")[1] ?? "";
+}
+
 /** Proposal card: the approve button opens the signer page for the tapping user only (ephemeral link). */
 export function proposalCard(proposalId: string): InlineKeyboard {
   return new InlineKeyboard().text("Approve / review", `sign:${proposalId}`).text("Details", `info:${proposalId}`);

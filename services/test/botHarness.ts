@@ -151,6 +151,11 @@ function runSelect(from: unknown, join: unknown, p: unknown[]): Row[] {
       .flatMap((m) => state.pots.filter((x) => lc(x.address) === lc(m.pot)))
       .map((x) => ({ address: x.address, title: x.title }));
   }
+  if (from === schema.members && join === undefined) {
+    // isActiveMember (/pot dashboard button): this pot, this key, still active
+    const [pot, addr] = p;
+    return state.members.filter((m) => lc(m.pot) === lc(pot) && lc(m.address) === lc(addr) && m.active !== false).map((m) => ({ a: m.address }));
+  }
   if (from === schema.holdings) return state.holdings.filter((h) => has(p, h.pot));
   return [];
 }

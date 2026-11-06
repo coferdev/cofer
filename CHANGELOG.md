@@ -26,6 +26,7 @@ Fixes from the 2026-11-01 review of `0.1.0` (commit `aba0779`). `contracts/src` 
 - `/newpot` is limited to 2 new group accounts per Telegram user per 24 hours, checked before the relayer sends anything.
 
 ### Added
+- Read-only dashboard, phase 1 (dashboard.getcofer.com, testdashboard.getcofer.com; [docs/dashboard.md](docs/dashboard.md)). A private **Open dashboard** button on `/me` and `/pot` (no new command) opens it with a one-time link, exchanged once for a 30-minute read-only session. It shows only the member's own group accounts: value, holdings with live prices from the factory, members, proposals with pending, confirmed and failed states, activity and the exit window. Amounts stay exact integers end to end. It cannot sign, vote or create anything. One build serves testnet and mainnet; the network settings come from a `config.json` on each server and the new `DASHBOARD_URL` setting. getcofer.com is unchanged.
 - `LICENSE` (MIT) and `SECURITY.md`: how to report a problem, roles and who holds them, accepted risks with reasons, open issues.
 - README: a deploy guide from a fresh clone; rule 3 now describes the owner Safe, the guardian and the fee sinks accurately.
 - CI: a TruffleHog secret scan, and Dependabot updates for GitHub Actions.

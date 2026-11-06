@@ -17,7 +17,8 @@ import { chooseTier, quoteAllTiers } from "../chain/quotes";
 import { depthRefusal, depthTestSize, type Side } from "../core/depth";
 import { errorKind, logError, revertName, RPC_ERROR_TEXT, UserError, userMessage } from "../core/errors";
 import { enqueueNotify, enqueueRelay, redis } from "../queues";
-import { assertNoMiniApp, linkButton, signerUrl } from "./keyboards";
+import { assertNoMiniApp, dashboardUrl, linkButton, linkTokenOf, signerUrl } from "./keyboards";
+import { DASHBOARD_LINK_TTL_SEC } from "../dashboard/routes";
 import { parseAllowance, parseBuy, parseSell, parseSend, parseUsdg } from "./parse";
 import { privateReply, type PrivateReplyDeps } from "./privateReply";
 import { noMiniApp } from "./noMiniApp";
@@ -92,7 +93,7 @@ async function exitPotsOf(address: string): Promise<ExitPot[]> {
 
 /** Cancels a one-time signer link (marks it used), e.g. one that was shown to a whole group. */
 async function burnLink(href: string) {
-  const c = verifyLink(new URL(href).pathname.split("/s/")[1] ?? "", env().LINK_SECRET);
+  const c = verifyLink(linkTokenOf(href), env().LINK_SECRET);
   const now = new Date();
   await db()
     .insert(schema.linkTokens)
@@ -116,6 +117,26 @@ function privateDeps(ctx: Context): PrivateReplyDeps {
 async function ephemeral(ctx: Context, text: string, link?: { label: string; make(): string }) {
   const r = await privateReply(privateDeps(ctx), { chatId: ctx.chat!.id, chatType: ctx.chat!.type, userId: ctx.from!.id, callbackQueryId: ctx.callbackQuery?.id, text, link });
   if (r === "none") await ctx.reply("Open a private chat with me first, then try again.");
+}
+
+export const DASHBOARD_TEXT = "Your read-only dashboard. The link is only for you and works once.";
+
+/** The private "Open dashboard" button, or undefined when no dashboard is set up (DASHBOARD_URL unset). */
+function dashboardLink(ctx: Context): { label: string; make(): string } | undefined {
+  const base = env().DASHBOARD_URL;
+  if (!base) return undefined;
+  return {
+    label: "Open dashboard",
+    make: () => dashboardUrl({ dashboardUrl: base, secret: env().LINK_SECRET, tgId: ctx.from!.id, ttlSec: DASHBOARD_LINK_TTL_SEC }),
+  };
+}
+
+async function isActiveMember(pot: string, address: string): Promise<boolean> {
+  const rows = await db()
+    .select({ a: schema.members.address })
+    .from(schema.members)
+    .where(and(eq(schema.members.pot, pot), sql`lower(${schema.members.address}) = ${address.toLowerCase()}`, eq(schema.members.active, true)));
+  return rows.length > 0;
 }
 
 /** Link context for an onboarding link: always the member's private chat (chat id = user id), never a group. */
@@ -406,6 +427,9 @@ export function createBot(opts: { cardsOn: boolean }) {
     const u = await requireLinked(ctx);
     if (!u) return;
     const pot = await potOf(ctx.chat.id);
+    // in the private chat there is no pot, but the dashboard shows all of this member's pots
+    const dash = dashboardLink(ctx);
+    if (!pot && ctx.chat.type === "private" && dash) return ephemeral(ctx, DASHBOARD_TEXT, dash);
     if (!pot) return ctx.reply("No group account here yet.");
     const info = await publicClient().readContract({ address: getAddress(pot.address), abi: potAbi, functionName: "memberInfo", args: [getAddress(u.address!)] });
     const total = await publicClient().readContract({ address: getAddress(pot.address), abi: potAbi, functionName: "totalShares" });
@@ -414,7 +438,7 @@ export function createBot(opts: { cardsOn: boolean }) {
       { allowance: info.allowance, period: Number(info.period), periodStart: Number(info.periodStart), spent: info.spent },
       Math.floor(Date.now() / 1000),
     );
-    await ephemeral(ctx, `Your share: ${pct}% of the pot.\nAllowance left: ${formatUnits(left, 6)} USDG.`);
+    await ephemeral(ctx, `Your share: ${pct}% of the pot.\nAllowance left: ${formatUnits(left, 6)} USDG.`, dashboardLink(ctx));
   });
 
   bot.command("buy", async (ctx) => {
@@ -528,6 +552,12 @@ export function createBot(opts: { cardsOn: boolean }) {
       lines.push(`${meta.symbol}: ${qty} (${val})${note ? ` · ${note}` : ""}`);
     }
     await ctx.reply([`Group account ${pot.address}`, ...lines].join("\n") || "Empty.");
+    // the dashboard link is personal: sent apart from the group reply, only to a member of this pot
+    const dash = dashboardLink(ctx);
+    if (dash) {
+      const u = await userOf(ctx.from!.id);
+      if (u?.address && (await isActiveMember(pot.address, u.address))) await ephemeral(ctx, DASHBOARD_TEXT, dash);
+    }
   });
 
   bot.command("help", (ctx) => ctx.reply(helpText({ cardsOn: opts.cardsOn })));
