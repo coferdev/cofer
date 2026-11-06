@@ -5,7 +5,7 @@
  */
 import { initTRPC, TRPCError } from "@trpc/server";
 import { z } from "zod";
-import { eq, isNull, or } from "drizzle-orm";
+import { and, eq, isNull, or, sql } from "drizzle-orm";
 import { getAddress, type Address, type Hex, type PublicClient } from "viem";
 import { schema, type DB } from "../db/client";
 import { potAbi } from "../chain/clients";
@@ -167,6 +167,7 @@ export const appRouter = t.router({
 
   pot: t.router({
     get: authed.input(z.object({ pot: zAddr })).query(async ({ ctx, input }) => {
+      await requireActiveMember(ctx.deps.db, ctx.session.tg, input.pot);
       const c = ctx.deps.client;
       const [rules, held, total] = await Promise.all([
         readRules(c, input.pot),
@@ -178,6 +179,7 @@ export const appRouter = t.router({
     }),
     /** Exact in-kind amounts a member would receive (same floor rounding as the contract). */
     previewExit: authed.input(z.object({ pot: zAddr, shares: zBig })).query(async ({ ctx, input }) => {
+      await requireActiveMember(ctx.deps.db, ctx.session.tg, input.pot);
       const c = ctx.deps.client;
       const [held, total] = await Promise.all([
         c.readContract({ address: input.pot, abi: potAbi, functionName: "heldAssets" }),
@@ -242,6 +244,24 @@ export const appRouter = t.router({
 });
 
 export type AppRouter = typeof appRouter;
+
+/** The one answer for a pot the caller may not see, whether it is missing or not theirs. */
+export const POT_NOT_FOUND = "group account not found";
+
+/**
+ * A pot is shown only to an active member of it: the caller's own key (bound to this Telegram
+ * account) must be an active member row. No key, not a member, or no such pot all get the same
+ * NOT_FOUND, so the answer never reveals whether a pot exists. Checked before any chain read.
+ */
+async function requireActiveMember(db: DB, tgId: number, pot: Address): Promise<void> {
+  const user = await db.query.users.findFirst({ where: eq(schema.users.tgId, tgId) });
+  const member = user?.address
+    ? await db.query.members.findFirst({
+        where: and(eq(schema.members.pot, pot), sql`lower(${schema.members.address}) = ${user.address.toLowerCase()}`, eq(schema.members.active, true)),
+      })
+    : undefined;
+  if (!member) throw new TRPCError({ code: "NOT_FOUND", message: POT_NOT_FOUND });
+}
 
 /** Cards are optional and off by default: refuse the card routes when no adapter runs. */
 function cardsOrRefuse(cards: CardAdapter | null): CardAdapter {

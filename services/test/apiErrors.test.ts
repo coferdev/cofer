@@ -10,6 +10,13 @@ import { GENERIC_ERROR_TEXT, RPC_UNREACHABLE_TEXT } from "../src/core/errors";
 const SECRET_URL = "https://api-robinhood-mainnet-archive.n.dwellir.com/SECRETKEY123";
 const POT = "0x0000000000000000000000000000000000000abc";
 const LINK_SECRET = "test-secret";
+/** The caller (Telegram user 1) is an active member of POT, so pot.get gets past the member check to the chain. */
+const MEMBER_DB = {
+  query: {
+    users: { findFirst: async () => ({ tgId: 1, address: "0x00000000000000000000000000000000000000a1" }) },
+    members: { findFirst: async () => ({ pot: POT, address: "0x00000000000000000000000000000000000000a1", active: true }) },
+  },
+};
 
 /** A request through the real signer API; `client`/`db` stand in for the chain and Postgres. */
 async function call(path: string, input: unknown, deps: { client?: unknown; db?: unknown }) {
@@ -31,7 +38,7 @@ describe("signer API errors", () => {
         throw new HttpRequestError({ url: SECRET_URL, details: "fetch failed" });
       },
     };
-    const { status, body } = await call("pot.get", { pot: POT }, { client, db: {} });
+    const { status, body } = await call("pot.get", { pot: POT }, { client, db: MEMBER_DB });
     expect(status).toBe(500);
     expect(JSON.parse(body).error.message).toBe(RPC_UNREACHABLE_TEXT);
     expect(body).not.toContain("SECRETKEY123");
@@ -45,7 +52,7 @@ describe("signer API errors", () => {
         throw new TypeError(`cannot read x of undefined at ${SECRET_URL}`);
       },
     };
-    const { body } = await call("pot.get", { pot: POT }, { client, db: {} });
+    const { body } = await call("pot.get", { pot: POT }, { client, db: MEMBER_DB });
     expect(JSON.parse(body).error.message).not.toContain("SECRETKEY123");
     expect([RPC_UNREACHABLE_TEXT, GENERIC_ERROR_TEXT]).toContain(JSON.parse(body).error.message);
   });
