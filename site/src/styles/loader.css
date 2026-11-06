@@ -1,0 +1,8 @@
+.site-loading{position:fixed;inset:0;z-index:2147483640;display:flex;align-items:center;justify-content:center;background:#f4f4f2;color:#151515;overflow:hidden;opacity:1;transition:opacity 480ms cubic-bezier(.23,1,.32,1)}
+.site-loading.is-leaving{opacity:0;pointer-events:none}
+.site-loading .loader:before,.site-loading .loader:after{background:#f4f4f2}
+.loader-label{position:absolute;bottom:32px;left:32px;font:10px 'Geist Mono',monospace;letter-spacing:.08em;color:#777}
+@media(prefers-reduced-motion:reduce){.site-loading{transition:none}.site-loading .loader{animation:none;opacity:0}.site-loading:after{content:'COFER';font:600 16px 'Geist Mono',monospace;letter-spacing:.14em}}
+
+/* Freeze the completed cycle as the loader fades, so a new loop cannot flash. */
+.site-loading.is-leaving .loader,.site-loading.is-leaving .loader *,.site-loading.is-leaving .loader::before,.site-loading.is-leaving .loader::after,.site-loading.is-leaving .loader *::before,.site-loading.is-leaving .loader *::after{animation-play-state:paused!important}

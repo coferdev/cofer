@@ -1,0 +1,18 @@
+@import "tailwindcss/theme.css" layer(theme);
+@import "tailwindcss/utilities.css" layer(utilities);
+@theme inline {
+  --color-background: var(--background); --color-foreground: var(--foreground);
+  --color-primary: var(--primary); --color-primary-foreground: var(--primary-foreground);
+  --color-card: var(--card); --color-card-foreground: var(--card-foreground);
+  --color-border: var(--border); --color-ring: var(--ring);
+}
+:root { --background:#f7f7f5;--foreground:#111;--primary:#111;--primary-foreground:#fff;--card:#1b1b1e;--card-foreground:#eee;--border:#363638;--ring:#d4d4d4 }
+.cofer-nav-hover{width:164px!important;height:42px!important;border:1px solid #111!important;background:#fff!important;color:#111!important;font-family:Geist,Arial,sans-serif;font-size:13px!important;font-weight:500!important;line-height:1!important}
+.cofer-nav-hover svg{width:16px;height:16px}.cofer-nav-hover div:last-child{background:#111}
+@media (hover:none){.cofer-nav-hover>span{transform:translateX(0)}}
+@media(prefers-reduced-motion:reduce){.cofer-nav-hover *{transition:none!important}}
+@media(max-width:380px){.cofer-nav-hover{width:132px!important;height:40px!important;font-size:12px!important}}
+
+.cofer-nav-hover{display:inline-flex!important;align-items:center;justify-content:center}
+.cofer-nav-hover>span{line-height:1}
+.cofer-nav-hover:not(:hover)>div:last-child{top:calc(50% - 4px)!important}

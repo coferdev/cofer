@@ -1,0 +1,12 @@
+[data-framer-name="Brand"] [data-framer-name="Mark"]{background:#090909 url('/assets/cofer-mark.png') center/cover no-repeat!important;overflow:hidden}
+[data-framer-name="Brand"] [data-framer-name="Mark"]>div{visibility:hidden!important}
+.__framer-badge{display:none!important}
+a[data-cofer-social]{display:flex!important;align-items:center;gap:10px}a[data-cofer-social] svg{width:16px;height:16px;fill:currentColor;flex:none}#cofer-social-dialog{border:0;max-width:420px;width:calc(100% - 40px);padding:35px;box-shadow:0 10px 60px #0003;font-family:Geist,Arial,sans-serif;color:#111}#cofer-social-dialog::backdrop{background:#000a}#cofer-social-dialog button{float:right;background:none;border:1px solid #ddd;width:45px;height:45px;cursor:pointer}#cofer-social-dialog h2{font-size:30px;letter-spacing:-.05em;margin:24px 0}#cofer-social-dialog p{color:#555;line-height:1.6}.cofer-dialog-label{font:10px 'Geist Mono',monospace!important;letter-spacing:.05em}
+#overlay [data-framer-name="Menu Panel"]{top:0!important;left:0!important;overflow-y:auto;overscroll-behavior:contain}
+#overlay>[data-framer-portal-id]{z-index:10000!important}#overlay>[data-framer-name="Menu Panel"]{z-index:10001!important}
+.cofer-loading{min-height:100vh;display:flex;align-items:center;justify-content:center;gap:12px;font:600 14px 'Geist Mono',monospace;letter-spacing:.08em;color:#111;background:#fff}.cofer-loading img{width:28px;height:28px}.cofer-loading small{position:absolute;bottom:32px;left:32px;color:#888;font-size:10px;font-weight:400}
+.cofer-original-dashboard{display:none!important}.cofer-nav-button-host{display:inline-flex;align-items:center;flex:none}.cofer-nav-button-host :is(button,a){box-sizing:border-box}.cofer-nav-button-host :is(button,a):focus-visible{outline:2px solid #555;outline-offset:3px}
+@media(max-width:430px){#overlay [data-framer-name="Menu Panel"] a[data-border] p[style*="--framer-font-size: 48px"]{--framer-font-size:clamp(34px,10vw,42px)!important}}
+@media(max-width:380px){#overlay [data-framer-name="Menu Panel"] .framer-edoldp{display:none!important}}
+
+body[data-cofer-navigation-ready] [data-framer-name="Navigation"]{visibility:hidden!important}
