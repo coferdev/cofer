@@ -74,15 +74,23 @@ The new addresses are printed and saved under `contracts/broadcast/` (git-ignore
 
 ### 3. Contracts on mainnet (4663)
 
-Same steps with `Deploy.s.sol`. It deploys `CoferPot` (implementation), `FeeRouter`, `CoferFactory` and `UniV3SwapAdapter`, lists USDG with its feed, queues the adapter, and starts the ownership hand-off to the Safe.
+Same steps with `Deploy.s.sol`. It deploys `CoferPot` (implementation), `FeeRouter`, `CoferFactory` and `UniV3SwapAdapter`, lists USDG with its feed, queues the adapter, and starts the ownership hand-off to the Safe. It refuses any chain other than 4663.
+
+First the settings and a dry run. The dry run needs no key: it simulates the whole deploy as the deployer address against live mainnet, sends nothing, and prints the gas estimate ("Estimated total gas used" and "Estimated amount required" in ETH). Without `DEPLOYER_KEY` the script refuses `--broadcast`, and it refuses to run without `--sender`.
 
 ```bash
 cd contracts
-read -rs DEPLOYER_KEY && export DEPLOYER_KEY
-export RHC_RPC=https://...                       # your mainnet RPC
+export RHC_RPC=https://...                       # your mainnet RPC (if it contains an API key: read -rs RHC_RPC && export RHC_RPC)
 export MULTISIG=0x5ACD09eAe4f160e2f2e2356e6eF0496EF6f0f064
-export GUARDIAN=0x...                            # the single guardian wallet
+export GUARDIAN=0x...                            # the single guardian wallet (see SECURITY.md)
 export SINK_WORK=$GUARDIAN SINK_TREASURY=$GUARDIAN SINK_PERKS=$GUARDIAN SINK_BURN=$GUARDIAN
+forge script script/Deploy.s.sol --rpc-url robinhood --sender 0x...   # the deployer address; dry run only
+```
+
+Make sure the deployer holds more ETH than the estimate. Then the real deploy, with the key typed at a hidden prompt:
+
+```bash
+read -rs DEPLOYER_KEY && export DEPLOYER_KEY   # paste the 0x... key, press Enter; nothing is shown or saved in history
 forge script script/Deploy.s.sol --rpc-url robinhood --broadcast
 unset DEPLOYER_KEY
 ```

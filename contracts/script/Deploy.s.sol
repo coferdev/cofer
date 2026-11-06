@@ -14,10 +14,32 @@ import {UniV3SwapAdapter} from "../src/SwapAdapter.sol";
 ///   SINK_PERKS=0x... SINK_BURN=0x... \
 ///   forge script script/Deploy.s.sol --rpc-url $RHC_RPC --broadcast
 ///
+/// Dry run with no key (simulation only; prints the gas estimate; refuses --broadcast):
+///
+///   MULTISIG=0x... GUARDIAN=0x... SINK_WORK=0x... SINK_TREASURY=0x... SINK_PERKS=0x... SINK_BURN=0x... \
+///   forge script script/Deploy.s.sol --rpc-url $RHC_RPC --sender <deployer address>
+///
+/// Refuses any chain other than Robinhood Chain mainnet (4663).
+///
 /// Stock Tokens are NOT listed here: run `bun run services/scripts/build-asset-list.ts`, which
 /// pulls canonical addresses from the issuer's public asset API and prints the multisig batch.
+
+/// The two cheatcodes this script needs beyond the shared test helpers (signatures as in forge-std).
+interface ScriptVm {
+    function startBroadcast() external;
+    function isContext(uint8 context) external view returns (bool);
+}
+
 contract Deploy {
     Vm internal constant vm = Vm(address(uint160(uint256(keccak256("hevm cheat code")))));
+    ScriptVm internal constant svm = ScriptVm(address(uint160(uint256(keccak256("hevm cheat code")))));
+
+    uint256 internal constant MAINNET_CHAIN_ID = 4663;
+    // Foundry's ForgeContext values (forge-std Vm.sol): 6 = `forge script --broadcast`, 7 = `--resume`.
+    uint8 internal constant CONTEXT_SCRIPT_BROADCAST = 6;
+    uint8 internal constant CONTEXT_SCRIPT_RESUME = 7;
+    // The sender forge uses when no --sender is given.
+    address internal constant FORGE_DEFAULT_SENDER = 0x1804c8AB1F12E6bbf3894d4083f33e07309d1f38;
 
     // Robinhood Chain mainnet (verified 2026-10-25, see INTERNAL notes)
     address internal constant USDG = 0x5fc5360D0400a0Fd4f2af552ADD042D716F1d168;
@@ -31,8 +53,21 @@ contract Deploy {
         external
         returns (CoferPot impl, FeeRouter router, CoferFactory factory, UniV3SwapAdapter adapter)
     {
-        uint256 key = vm.envUint("DEPLOYER_KEY");
-        address deployer = vm.addr(key);
+        require(block.chainid == MAINNET_CHAIN_ID, "Deploy: chain 4663 only");
+
+        // With DEPLOYER_KEY: the real deploy. Without it: a simulation as the --sender address only.
+        uint256 key = vm.envOr("DEPLOYER_KEY", uint256(0));
+        address deployer;
+        if (key == 0) {
+            require(
+                !svm.isContext(CONTEXT_SCRIPT_BROADCAST) && !svm.isContext(CONTEXT_SCRIPT_RESUME),
+                "Deploy: no DEPLOYER_KEY, so simulation only: run without --broadcast"
+            );
+            require(msg.sender != FORGE_DEFAULT_SENDER, "Deploy: no DEPLOYER_KEY: pass --sender <deployer address>");
+            deployer = msg.sender;
+        } else {
+            deployer = vm.addr(key);
+        }
         address multisig = vm.envAddress("MULTISIG");
         address guardian = vm.envOr("GUARDIAN", multisig);
         address[4] memory sinks = [
@@ -42,7 +77,8 @@ contract Deploy {
             vm.envAddress("SINK_BURN")
         ];
 
-        vm.startBroadcast(key);
+        if (key == 0) svm.startBroadcast(); // records the transactions as --sender, for the simulation
+        else vm.startBroadcast(key);
         impl = new CoferPot();
         router = new FeeRouter(USDG, deployer, PLAN_PRICE, sinks);
         factory = new CoferFactory(address(impl), USDG, address(router), deployer, guardian, SWAP_FEE_BPS);
