@@ -2,7 +2,7 @@
 
 ## Reporting a problem
 
-Email **security@&lt;your-domain&gt;** (placeholder: replace before launch). Please do not open a
+Email **coferproject@gmail.com**. Please do not open a
 public issue for anything that could put member funds or keys at risk. We aim to reply within
 3 working days and to agree a disclosure date with you.
 

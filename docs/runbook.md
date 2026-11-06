@@ -120,5 +120,5 @@ Fill these in before launch, and keep them current.
 | Safe signer 2 | _to fill in_ | _to fill in_ |
 | Safe signer 3 | _to fill in_ | _to fill in_ |
 | Guardian wallet holder | _to fill in_ | _to fill in_ |
-| Security contact | see [SECURITY.md](../SECURITY.md) | _to fill in_ |
+| Security contact | see [SECURITY.md](../SECURITY.md) | coferproject@gmail.com |
 | Services on-call | _to fill in_ | _to fill in_ |
