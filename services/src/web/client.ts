@@ -143,7 +143,7 @@ async function getSigner(register = false): Promise<Signer> {
     send: async (calls) => {
       const callData = await account.encodeCalls(calls.map((c) => ({ ...c, value: 0n })));
       // the user operation must carry the checked calls unchanged (target and data)
-      if (!callDataCarries(callData, calls)) throw new Stop(CALL_MISMATCH_TEXT, "encoded user operation does not carry the checked calls");
+      if (!callDataCarries(callData, calls, account.address)) throw new Stop(CALL_MISMATCH_TEXT, "encoded user operation does not carry the checked calls");
       const hash = await client.sendUserOperation({ callData });
       const r = await client.waitForUserOperationReceipt({ hash });
       return r.receipt.transactionHash;

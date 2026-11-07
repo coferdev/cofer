@@ -177,8 +177,14 @@ export function checkExitCalls(calls: readonly { to: string; data: Hex }[], show
 /**
  * For the passkey path: the smart account's encoded call data must carry every checked call
  * (target and data) unchanged.
+ * `account` is the smart account's own address: Kernel encodes one call to the account itself as
+ * that call's own data, unwrapped (key setup: empty data, a deploy-only user operation), so then
+ * the call data must be exactly that data.
  */
-export function callDataCarries(callData: Hex, calls: readonly { to: string; data: Hex }[]): boolean {
+export function callDataCarries(callData: Hex, calls: readonly { to: string; data: Hex }[], account?: string): boolean {
+  if (account && calls.length === 1 && calls[0]!.to.toLowerCase() === account.toLowerCase()) {
+    return callData.toLowerCase() === calls[0]!.data.toLowerCase();
+  }
   const all = callData.toLowerCase();
   return calls.every((c) => all.includes(c.to.slice(2).toLowerCase()) && all.includes(c.data.slice(2).toLowerCase()));
 }

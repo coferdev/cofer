@@ -46,6 +46,9 @@ Fixes from the 2026-11-01 review of `0.1.0` (commit `aba0779`). `contracts/src` 
 - Bun is pinned to 1.4.4 (`packageManager` in `services/package.json`, also used by CI); `@zerodev/*` are pinned to exact versions.
 - Installs: no package may run install scripts (`trustedDependencies: []` for Bun, `ignore-scripts` for npm in `contracts/`), and Bun skips package versions less than 3 days old. `contracts/package-lock.json` is now committed.
 
+### Fixed
+- Key setup with a passkey works again on the signer page. Since the exit-destination change (`481f153`), every new key was refused with "What was about to be signed does not match what was shown. Nothing was sent.": the call-data check looked for the account address inside the encoded call, but the Kernel account sends a single call to itself unwrapped (empty call data for key setup). That case now has to match the call data exactly. Nothing had been sent. A new test runs every passkey call shape (key setup, deposit, exit, spend, claim) through the real account encoder.
+
 ## [0.1.0] - 2026-10-31
 
 The reviewed version (commit `aba0779`).

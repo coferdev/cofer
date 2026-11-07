@@ -175,9 +175,36 @@ describe("both signing paths send exactly the checked exit", () => {
     expect(exitBranch).toContain("const calls = exitCalls(shownExit);");
     expect(exitBranch).toContain("checkExitCalls(calls, shownExit)");
     expect(exitBranch).toContain("await s.send!(calls)");
-    // the passkey path checks the encoded user operation before it is sent
-    expect(client).toMatch(/if \(!callDataCarries\(callData, calls\)\) throw new Stop/);
-    expect(client.indexOf("callDataCarries(callData, calls)")).toBeLessThan(client.indexOf("client.sendUserOperation({ callData })"));
+    // the passkey path checks the encoded user operation before it is sent, with the account's own address
+    expect(client).toMatch(/if \(!callDataCarries\(callData, calls, account\.address\)\) throw new Stop/);
+    const checkAt = client.indexOf("callDataCarries(callData, calls, account.address)");
+    expect(checkAt).toBeGreaterThan(-1);
+    expect(checkAt).toBeLessThan(client.indexOf("client.sendUserOperation({ callData })"));
+  });
+});
+
+describe("a single call to the account itself (key setup) must be exactly the encoded call data", () => {
+  // Kernel encodes one call to the account itself as that call's own data, unwrapped:
+  // key setup is one empty call to the account, so its call data is "0x" (deploy only)
+  test("key setup: empty call data carries the one empty call to the account", () => {
+    expect(callDataCarries("0x", [{ to: OWN, data: "0x" }], OWN)).toBe(true);
+    expect(callDataCarries("0x", [{ to: OWN.toLowerCase(), data: "0x" }], OWN)).toBe(true); // case does not matter
+  });
+
+  test("a self-call with different data is refused (exact match, not a substring)", () => {
+    expect(callDataCarries("0xdeadbeef", [{ to: OWN, data: "0x" }], OWN)).toBe(false);
+    expect(callDataCarries("0x", [{ to: OWN, data: "0xdeadbeef" }], OWN)).toBe(false);
+    expect(callDataCarries("0x00deadbeef00", [{ to: OWN, data: "0xdeadbeef" }], OWN)).toBe(false);
+    expect(callDataCarries("0xdeadbeef", [{ to: OWN, data: "0xdeadbeef" }], OWN)).toBe(true);
+  });
+
+  test("the exit cases are unchanged when the account is given", async () => {
+    const shown: ExitCall = { kind: "exit", pot: POT, shares: 10n ** 24n + 7n, to: FRIEND, own: false };
+    const calls = exitCalls(shown);
+    const callData = (await encodeCallDataEpV07(calls.map((c) => ({ ...c, value: 0n })))) as Hex;
+    expect(callDataCarries(callData, calls, OWN)).toBe(true);
+    const swapped = (await encodeCallDataEpV07(exitCalls({ ...shown, to: OWN }).map((c) => ({ ...c, value: 0n })))) as Hex;
+    expect(callDataCarries(swapped, calls, OWN)).toBe(false);
   });
 });
 
