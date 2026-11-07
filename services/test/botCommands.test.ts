@@ -8,6 +8,7 @@ import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 import { verifyLink } from "../src/core/linkToken";
 import { Kind } from "../src/core/proposal";
 import { CARDS_OFF_TEXT } from "../src/bot/help";
+import { NOTICE_POINTER, NOTICE_TEXT, NOTICE_TITLE } from "../src/core/notice";
 import { DEPOSITS_CLOSED_TEXT } from "../src/core/depositGate";
 import { ONBOARD_DM_FIRST, ONBOARD_SENT_BY_DM, ONBOARD_TEXT } from "../src/bot/bot";
 import { NEWPOT_ADMINS_ONLY_TEXT, NEWPOT_ANONYMOUS_TEXT, GROUP_ANONYMOUS_BOT_ID } from "../src/bot/newpotAdmin";
@@ -101,6 +102,35 @@ describe("/start", () => {
   });
 });
 
+describe("/start: the statement", () => {
+  const startMessages = () => messages().map((m) => ({ text: String(m.text ?? ""), urls: urls(m), parseMode: m.parse_mode, entities: m.entities }));
+
+  for (const [who, setup] of [
+    ["a new member", () => {}],
+    ["an already linked member", () => linkedUser(ALICE)],
+  ] as const) {
+    test(`${who}: the notice comes once, first, in plain text, above the set-up button`, async () => {
+      setup();
+      await say("/start", ALICE, privateChat(ALICE));
+      const sent = startMessages();
+      expect(sent).toHaveLength(2);
+      expect(sent[0]!.text).toBe(NOTICE_TEXT);
+      expect(sent[0]!.urls).toEqual([]); // the notice itself carries no button
+      expect(sent[0]!.parseMode).toBeUndefined(); // plain text: no Markdown or HTML
+      expect(sent[0]!.entities).toBeUndefined();
+      expect(sent[1]!.urls).toHaveLength(1); // then the usual reply with "Set up my key"
+      expect(claims(sent[1]!.urls[0]!).p).toBe("onboard");
+      expect(sent.filter((m) => m.text.includes(NOTICE_TITLE))).toHaveLength(1);
+    });
+  }
+
+  test("not in a group: the group reply is unchanged and has no notice", async () => {
+    await say("/start");
+    expect(messages()).toHaveLength(1);
+    expect(text()).not.toContain(NOTICE_TITLE);
+  });
+});
+
 describe("/chatid", () => {
   test("silent in a group", async () => {
     await say("/chatid");
@@ -137,6 +167,15 @@ describe("/help", () => {
     bot = await makeBot({ cardsOn: true });
     await say("/help");
     expect(text()).toContain("/card");
+  });
+
+  test("ends with the pointer to the statement, with cards on or off", async () => {
+    for (const cardsOn of [false, true]) {
+      bot = await makeBot({ cardsOn });
+      await say("/help");
+      expect(text().split("\n").at(-1)).toBe(NOTICE_POINTER);
+      expect(NOTICE_POINTER).toBe("Read the statement: send /start to me in a private chat.");
+    }
   });
 });
 

@@ -31,6 +31,7 @@ import { DEPOSITS_CLOSED_TEXT, readDepositGate } from "../core/depositGate";
 import { buyPause, potNote } from "../core/buyPause";
 import { continuityAlertKey } from "../core/continuity";
 import { CARDS_OFF_TEXT, helpText } from "./help";
+import { NOTICE_TEXT } from "../core/notice";
 import { newPotRefusal } from "./newpotLimit";
 import { EXIT_IN_PRIVATE_NOTE, EXIT_TEXT, exitMenu, type ExitPot } from "./exitList";
 import { INVALID_HANDLE_TEXT, parseWho, pickMember } from "./resolveHandle";
@@ -305,6 +306,8 @@ export function createBot(opts: { cardsOn: boolean }) {
       .onConflictDoUpdate({ target: schema.users.tgId, set: { username: ctx.from!.username ?? null } });
     const kb = linkButton("Set up my key", signerUrl(onboardLinkCtx(ctx), "onboard"));
     assertNoMiniApp(kb);
+    // the statement first, as plain text, for new and linked members alike; then the usual reply with the button
+    await ctx.reply(NOTICE_TEXT);
     await ctx.reply(
       "Cofer is a shared money account for your group chat, on Robinhood Chain.\n\nYou'll create a passkey on this phone. It's your key: votes and withdrawals need it, so nobody (including us) can move your share without you.",
       { reply_markup: kb },

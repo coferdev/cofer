@@ -110,6 +110,27 @@ Post in each affected group (the bot's ops chat lists them), and keep it factual
 > New deposits are paused while we check <short reason>. Your money is not affected: you can still
 > /exit with your exact share at any time, and votes still work. We will post here when deposits reopen.
 
+## The statement members read
+
+The bot sends this, as plain text, on /start in a private chat, above the key set-up button (new and
+already linked members alike); the last line of /help points to it. The text lives in
+`services/src/core/notice.ts`; the beta limit and the network name in it come from the code
+(`BETA_DEPOSIT_CAP_USDG`, `NETWORK_NAME`). If a member asks what Cofer is, point them to it rather than
+rephrasing it. This is the staff copy; a test keeps it equal to what the bot sends.
+
+> Before you start
+>
+> "Read This Statement"
+>
+> Cofer is a shared money account for your Telegram group, on Robinhood Chain.
+>
+> • Your key: when you set up, Cofer creates an address for you on Robinhood Chain, protected by your passkey (Face ID or fingerprint). There is no seed phrase. This bot never holds your keys or your money.
+> • Robinhood Chain only: send USDG to that address on Robinhood Chain only. Money sent on any other network will not arrive.
+> • Leaving is always open: any member can /exit at any time and get their exact share. Nobody can block it, not even us.
+> • Where it goes: your exit goes to your own Cofer address, or to a different address you type. That must be a wallet that supports Robinhood Chain. Many exchange deposit addresses do not.
+> • Your passkey is your key. There is no recovery: if you lose it and have no backup, you lose access to your money, like a lost seed phrase. Make sure your phone or browser backs up your passkeys.
+> • Cofer is in beta: each group is limited to 5,000 USDG while we test. Stocks can lose value. This is software for a group to manage its own money, not financial advice.
+
 ## Member help: lost passkeys and exits to another address
 
 Nobody can recover a passkey or reverse an exit. Say so plainly. The sign-up screen tells members, before the

@@ -1,4 +1,6 @@
-/** The /help text. /card is listed only when a card adapter runs (cards are off by default). */
+import { NOTICE_POINTER } from "../core/notice";
+
+/** The /help text. /card is listed only when a card adapter runs (cards are off by default). It ends with the pointer to the statement. */
 export function helpText(opts: { cardsOn: boolean }): string {
   return [
     "/newpot open the group account (group admins)",
@@ -16,6 +18,8 @@ export function helpText(opts: { cardsOn: boolean }): string {
     "/pot what the group holds",
     "/plan 3 vote to prepay the optional group plan for 3 months",
     "/region XX declare your country (stock buys)",
+    "",
+    NOTICE_POINTER,
   ].join("\n");
 }
 
