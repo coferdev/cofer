@@ -10,7 +10,7 @@
  *     pinned @zerodev versions during milestone M5 on RHC testnet 46630.
  */
 import "./buffer-polyfill";
-import { createPublicClient, createWalletClient, custom, encodeFunctionData, http, type Address, type Hex } from "viem";
+import { createPublicClient, createWalletClient, custom, encodeFunctionData, http, isAddress, type Address, type Hex } from "viem";
 import { createKernelAccount, createKernelAccountClient, createZeroDevPaymasterClient } from "@zerodev/sdk";
 import { getEntryPoint, KERNEL_V3_1 } from "@zerodev/sdk/constants";
 import { toPasskeyValidator, PasskeyValidatorContractVersion } from "@zerodev/passkey-validator";
@@ -21,7 +21,20 @@ import { failureText, isHandOff, ServerSaid } from "../core/retryText";
 import { capRefusal, navReadFailureText, roomText } from "../core/betaCap";
 import { DEPOSITS_CLOSED_TEXT, readDepositGate } from "../core/depositGate";
 import { isUsdgUpdating } from "../core/priceUpdating";
-import { checkBeforeSign, pageSummary, tokensOf, VOTE_MISMATCH_TEXT, type ServerTypedData } from "../core/signCheck";
+import {
+  callDataCarries,
+  CALL_MISMATCH_TEXT,
+  checkBeforeSign,
+  checkExitCalls,
+  exitCalls,
+  EXIT_MISMATCH_TEXT,
+  pageSummary,
+  tokensOf,
+  VOTE_MISMATCH_TEXT,
+  type ExitCall,
+  type ServerTypedData,
+} from "../core/signCheck";
+import { chooseExitDestination, DEST_TEXT, destinationProblem, groupAddress, type BlockedAddresses } from "../core/exitDestination";
 import { typedData, type ProposalEnvelope, type TokenMeta } from "../core/proposal";
 import { CONFIG_ELEMENT_ID } from "./pageConfig";
 
@@ -31,7 +44,7 @@ declare global {
   }
 }
 
-type PageConfig = { chainId: number; rpcUrl: string; bundlerUrl: string; paymasterUrl: string; passkeyServerUrl: string; usdg: Address; factory?: Address; token: string };
+type PageConfig = { chainId: number; rpcUrl: string; bundlerUrl: string; paymasterUrl: string; passkeyServerUrl: string; usdg: Address; factory?: Address; adapter?: Address; token: string };
 
 // Settings come from a JSON data block (never executed), so the page needs no inline script (CSP script-src 'self').
 const cfg = JSON.parse(document.getElementById(CONFIG_ELEMENT_ID)!.textContent!) as PageConfig;
@@ -128,7 +141,10 @@ async function getSigner(register = false): Promise<Signer> {
     signTypedData: (td) => account.signTypedData(td),
     signMessage: (m) => account.signMessage({ message: m }),
     send: async (calls) => {
-      const hash = await client.sendUserOperation({ callData: await account.encodeCalls(calls.map((c) => ({ ...c, value: 0n }))) });
+      const callData = await account.encodeCalls(calls.map((c) => ({ ...c, value: 0n })));
+      // the user operation must carry the checked calls unchanged (target and data)
+      if (!callDataCarries(callData, calls)) throw new Stop(CALL_MISMATCH_TEXT, "encoded user operation does not carry the checked calls");
+      const hash = await client.sendUserOperation({ callData });
       const r = await client.waitForUserOperationReceipt({ hash });
       return r.receipt.transactionHash;
     },
@@ -164,6 +180,54 @@ async function memberSigner(): Promise<Signer> {
 }
 
 const IS_POT_ABI = [{ type: "function", name: "isPot", stateMutability: "view", inputs: [{ type: "address" }], outputs: [{ type: "bool" }] }] as const;
+const FACTORY_READ_ABI = [
+  ...IS_POT_ABI,
+  { type: "function", name: "isAdapter", stateMutability: "view", inputs: [{ type: "address" }], outputs: [{ type: "bool" }] },
+  { type: "function", name: "feeRouter", stateMutability: "view", inputs: [], outputs: [{ type: "address" }] },
+  { type: "function", name: "assetCount", stateMutability: "view", inputs: [], outputs: [{ type: "uint256" }] },
+  { type: "function", name: "assetList", stateMutability: "view", inputs: [{ type: "uint256" }], outputs: [{ type: "address" }] },
+] as const;
+
+/** Addresses known without a network read (the format and these are checked as the member types). */
+function knownBlocked(pot: Address): BlockedAddresses {
+  return { pot, factory: cfg.factory, adapters: cfg.adapter ? [cfg.adapter] : [], usdg: cfg.usdg, stockTokens: [] };
+}
+
+/**
+ * The full refusal list for a typed exit destination, read on-chain from the factory: the fee router
+ * and every listed token. Any failed read refuses the different address (the member's own key still works).
+ */
+async function readBlocked(pot: Address): Promise<BlockedAddresses> {
+  const f = cfg.factory;
+  if (!f) throw new Stop(DEST_TEXT.unchecked, "the page has no factory address");
+  try {
+    const [feeRouter, count] = await Promise.all([
+      publicClient.readContract({ address: f, abi: FACTORY_READ_ABI, functionName: "feeRouter" }),
+      publicClient.readContract({ address: f, abi: FACTORY_READ_ABI, functionName: "assetCount" }),
+    ]);
+    const listed = await Promise.all(Array.from({ length: Number(count) }, (_, i) => publicClient.readContract({ address: f, abi: FACTORY_READ_ABI, functionName: "assetList", args: [BigInt(i)] })));
+    return { ...knownBlocked(pot), feeRouter, stockTokens: listed };
+  } catch (e) {
+    throw new Stop(DEST_TEXT.unchecked, `destination check failed: ${String(e)}`);
+  }
+}
+
+/** On-chain: no Cofer pot and no swap adapter may be an exit destination. */
+async function contractRefusal(to: Address): Promise<string | null> {
+  const f = cfg.factory!;
+  let isPot: boolean, isAdapter: boolean;
+  try {
+    [isPot, isAdapter] = await Promise.all([
+      publicClient.readContract({ address: f, abi: FACTORY_READ_ABI, functionName: "isPot", args: [to] }),
+      publicClient.readContract({ address: f, abi: FACTORY_READ_ABI, functionName: "isAdapter", args: [to] }),
+    ]);
+  } catch (e) {
+    throw new Stop(DEST_TEXT.unchecked, `destination check failed: ${String(e)}`);
+  }
+  if (isPot) return DEST_TEXT.otherPot;
+  if (isAdapter) return DEST_TEXT.adapter;
+  return null;
+}
 const TOKEN_META_ABI = [
   { type: "function", name: "symbol", stateMutability: "view", inputs: [], outputs: [{ type: "string" }] },
   { type: "function", name: "decimals", stateMutability: "view", inputs: [], outputs: [{ type: "uint8" }] },
@@ -237,6 +301,7 @@ async function main() {
   if (ex.purpose === "onboard") {
     $("title").textContent = "Set up your key";
     $("body").textContent = "Creates a passkey on this device. It controls your seat: votes, deposits and exits. Nobody else can use it.";
+    $("keywarn").hidden = false; // shown before the passkey is created
     act.textContent = "Create passkey";
     act.onclick = guard(async () => {
       say("Creating passkey...");
@@ -316,16 +381,74 @@ async function main() {
       say(`Deposited. tx ${tx}`);
     }, true);
   } else if (ex.purpose === "exit") {
+    // the link carries only the pot; the destination is never read from the link, the URL or the dashboard
+    if (!isAddress(pot)) throw new Stop("This exit link is not valid. Tap /exit in Telegram again.");
+    const intro = "You receive your share of every asset the group holds, as it is (USDG and stocks). No vote. Never paused.";
+    const dest = $("dest") as HTMLDetailsElement;
+    const typed = $("destAddr") as HTMLInputElement;
+    const confirmed = $("destOk") as HTMLInputElement;
+    const shown = $("destShow");
     $("title").textContent = "Exit with your exact share";
-    $("body").textContent = "You receive your share of every asset the group holds, as it is (USDG and stocks). No vote. Never paused.";
-    act.textContent = "Exit everything";
-    act.onclick = guard(async () => {
+    dest.hidden = false; // collapsed: the default is the member's own key
+    let done = false;
+    // Step 1 checks and shows exactly what will be sent; step 2 sends that, and only that.
+    const check = guard(async () => {
+      say("Checking your exit...");
       const s = await memberSigner();
       const info = (await publicClient.readContract({ address: pot, abi: coferPotAbi, functionName: "memberInfo", args: [s.address] })) as { shares: bigint };
-      const data = encodeFunctionData({ abi: coferPotAbi, functionName: "exit", args: [info.shares, s.address] });
-      const tx = await s.send!([{ to: pot, data }]);
-      say(`Exited. tx ${tx}`);
-    }, true);
+      if (info.shares === 0n) throw new Stop("You have no share in this group to exit.");
+      const open = dest.open;
+      const snapshot = { open, typed: typed.value, confirmed: confirmed.checked };
+      const choice = chooseExitDestination({ own: s.address, open, typed: typed.value, confirmed: confirmed.checked, blocked: open ? await readBlocked(pot) : knownBlocked(pot) });
+      if (!choice.ok) throw new Stop(choice.reason);
+      if (choice.custom) {
+        const refusal = await contractRefusal(choice.to);
+        if (refusal) throw new Stop(refusal);
+      }
+      const shownExit: ExitCall = { kind: "exit", pot, shares: info.shares, to: choice.to, own: !choice.custom };
+      $("body").textContent = `You are signing:\n${pageSummary(shownExit, () => ({ symbol: "", decimals: 0 }))}`;
+      say("Checked. Read it, then exit.");
+      act.textContent = "Exit everything";
+      act.onclick = guard(async () => {
+        // nothing about the destination may change between the summary and the signature
+        if (dest.open !== snapshot.open || typed.value !== snapshot.typed || confirmed.checked !== snapshot.confirmed) {
+          reset();
+          throw new Stop("The address changed. Check your exit again.");
+        }
+        const calls = exitCalls(shownExit);
+        const v = checkExitCalls(calls, shownExit);
+        if (!v.ok) throw new Stop(EXIT_MISMATCH_TEXT, `exit check failed: ${v.problem}`);
+        say("Confirm with your passkey...");
+        const tx = await s.send!(calls);
+        done = true; // the button stays off
+        act.onclick = null;
+        say(`Exited. tx ${tx}`);
+      }, true);
+      act.disabled = false;
+    });
+    // As the member types: the format and the known contracts are checked at once; the rest on "Check my exit".
+    const refresh = () => {
+      if (!dest.open) {
+        shown.textContent = "";
+        act.disabled = false;
+        return;
+      }
+      const t = typed.value.trim();
+      const problem = t ? destinationProblem(t, knownBlocked(pot)) : null;
+      shown.textContent = !t ? "" : problem ?? groupAddress(t);
+      act.disabled = !t || !!problem || !confirmed.checked;
+    };
+    // any change after the summary goes back to step 1
+    const reset = () => {
+      if (done) return;
+      $("body").textContent = intro;
+      act.textContent = "Check my exit";
+      act.onclick = check;
+      say("");
+      refresh();
+    };
+    for (const [el, ev] of [[typed, "input"], [confirmed, "change"], [dest, "toggle"], [$("useWallet"), "change"]] as const) el.addEventListener(ev, reset);
+    reset();
   } else if (ex.purpose === "claim") {
     $("title").textContent = "Claim a set-aside token";
     $("body").textContent =

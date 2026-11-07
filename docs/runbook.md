@@ -110,6 +110,24 @@ Post in each affected group (the bot's ops chat lists them), and keep it factual
 > New deposits are paused while we check <short reason>. Your money is not affected: you can still
 > /exit with your exact share at any time, and votes still work. We will post here when deposits reopen.
 
+## Member help: lost passkeys and exits to another address
+
+Nobody can recover a passkey or reverse an exit. Say so plainly. The sign-up screen tells members, before the
+passkey is created:
+
+> Your passkey is your key. There is no recovery: if you lose it and have no backup, you lose access to your funds, like a lost seed phrase. Make sure your phone or browser backs up your passkeys (for example iCloud Keychain or Google Password Manager).
+
+- **Lost passkey, no backup:** the member's key and its share cannot be reached by anyone, including
+  the studio. Do not promise more.
+- **Exit sent to a wrong address:** it cannot be undone. The exit page shows the full destination and
+  "Network: Robinhood Chain", and asks the member to confirm the address is theirs and supports
+  Robinhood Chain.
+- **A token was set aside during an exit to another address** (for example, its issuer paused it):
+  it is kept for that destination address, not for the member's key, so `/claim` and the dashboard
+  do not show it. Once the token works again, anyone can call `claimOwed(<token>, <destination>)` on
+  the group account from the explorer's "Write contract" page; it always pays the destination. Paying
+  the gas is the only cost.
+
 ## Contacts
 
 Fill these in before launch, and keep them current.

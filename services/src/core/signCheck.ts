@@ -13,7 +13,9 @@
  * Limit: this protects against tampered server data. It cannot protect against a replaced page
  * script, which could skip these checks (see SECURITY.md).
  */
-import { getAddress, isAddress, type Address, type Hex } from "viem";
+import { decodeFunctionData, encodeFunctionData, getAddress, isAddress, type Address, type Hex } from "viem";
+import { coferPotAbi } from "../chain/abi";
+import { groupAddress, NETWORK_NAME } from "./exitDestination";
 import {
   DOMAIN_NAME,
   DOMAIN_VERSION,
@@ -115,7 +117,68 @@ export function tokensOf(a: Action): Address[] {
   return [];
 }
 
-/** The summary the member reads: rendered from the signed bytes, every address in full. */
-export function pageSummary(a: Action, tokens: (addr: Address) => TokenMeta): string {
+/** An exit as the page shows it before anything is signed. `own` is true when `to` is the member's own key. */
+export interface ExitCall {
+  kind: "exit";
+  pot: Address;
+  shares: bigint;
+  to: Address;
+  own: boolean;
+}
+
+/**
+ * The summary the member reads, every address in full. A vote is rendered from the signed bytes; an
+ * exit states its destination (in groups of four) and the network.
+ */
+export function pageSummary(a: Action | ExitCall, tokens: (addr: Address) => TokenMeta): string {
+  if (a.kind === "exit") {
+    return [
+      `Exit your share from group account ${getAddress(a.pot)}`,
+      `Shares: ${a.shares.toString()}`,
+      `Destination: ${groupAddress(a.to)} (${a.own ? "your own key" : "a different address, not your key"})`,
+      `Network: ${NETWORK_NAME}`,
+    ].join("\n");
+  }
   return describe(a, tokens, (addr) => getAddress(addr));
+}
+
+/** What the member reads when a smart-account call differs from the checked calls. Nothing is sent. */
+export const CALL_MISMATCH_TEXT = "What was about to be signed does not match what was shown. Nothing was sent.";
+
+/** What the member reads when the exit about to be sent differs from the summary shown. Nothing is sent. */
+export const EXIT_MISMATCH_TEXT = "This exit does not match what was shown. Nothing was sent. Check the address and try again.";
+
+/** The one call an exit sends: CoferPot.exit(shares, to) on the pot. */
+export function exitCalls(e: ExitCall): { to: Address; data: Hex }[] {
+  return [{ to: getAddress(e.pot), data: encodeFunctionData({ abi: coferPotAbi, functionName: "exit", args: [e.shares, getAddress(e.to)] }) }];
+}
+
+/**
+ * The summary-versus-signed check for an exit: the calls about to be signed must be exactly one
+ * exit(shares, to) on the shown pot, with the shown shares and the shown destination.
+ */
+export function checkExitCalls(calls: readonly { to: string; data: Hex }[], shown: ExitCall): { ok: true } | { ok: false; problem: string } {
+  if (calls.length !== 1) return { ok: false, problem: "not exactly one call" };
+  const c = calls[0]!;
+  if (!isAddress(c.to) || getAddress(c.to) !== getAddress(shown.pot)) return { ok: false, problem: "call is not to the shown pot" };
+  let d;
+  try {
+    d = decodeFunctionData({ abi: coferPotAbi, data: c.data });
+  } catch {
+    return { ok: false, problem: "call does not decode" };
+  }
+  if (d.functionName !== "exit") return { ok: false, problem: `call is ${d.functionName}, not exit` };
+  const [shares, to] = d.args as readonly [bigint, Address];
+  if (shares !== shown.shares) return { ok: false, problem: "shares differ from the summary" };
+  if (getAddress(to) !== getAddress(shown.to)) return { ok: false, problem: "destination differs from the summary" };
+  return { ok: true };
+}
+
+/**
+ * For the passkey path: the smart account's encoded call data must carry every checked call
+ * (target and data) unchanged.
+ */
+export function callDataCarries(callData: Hex, calls: readonly { to: string; data: Hex }[]): boolean {
+  const all = callData.toLowerCase();
+  return calls.every((c) => all.includes(c.to.slice(2).toLowerCase()) && all.includes(c.data.slice(2).toLowerCase()));
 }

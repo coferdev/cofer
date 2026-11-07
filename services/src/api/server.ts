@@ -79,6 +79,7 @@ export function createServer(opts: { deps: ProposalDeps; cards: CardAdapter | nu
         passkeyServerUrl: e.PASSKEY_SERVER_URL ?? "",
         usdg: e.USDG_ADDRESS,
         factory: e.FACTORY_ADDRESS, // public; the page checks isPot before any vote is signed
+        adapter: e.ADAPTER_ADDRESS, // public; an exit may never be sent to it
       }),
     );
   });

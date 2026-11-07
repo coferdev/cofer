@@ -2,6 +2,8 @@
 
 import { createHash } from "node:crypto";
 import { CONFIG_ELEMENT_ID, configJson } from "./pageConfig";
+import { EXIT_CONFIRM_TEXT, EXIT_NETWORK_WARNING, EXIT_SET_ASIDE_NOTE, EXIT_TOGGLE_TEXT } from "../core/exitDestination";
+import { PASSKEY_LOSS_WARNING } from "../core/passkeyWarning";
 
 export interface PageCfg {
   chainId: number;
@@ -12,11 +14,13 @@ export interface PageCfg {
   usdg: string;
   /** CoferFactory address: the page checks on-chain that a vote is for a real pot (isPot). Without it, votes are refused. */
   factory?: string;
+  /** The swap adapter (public): an exit may never be sent to it, also while it is still queued on-chain. */
+  adapter?: string;
 }
 
 /** The page's only <style> block. The CSP allows exactly this text by its sha256 hash. */
-export const PAGE_CSS = `:root{--bg:#f7f5f0;--fg:#1c1b19;--muted:#6b675f;--accent:#2f5d50;--card:#fff}
-@media (prefers-color-scheme:dark){:root{--bg:#141412;--fg:#ecebe6;--muted:#a19d94;--accent:#7fb7a4;--card:#1e1d1b}}
+export const PAGE_CSS = `:root{--bg:#f7f5f0;--fg:#1c1b19;--muted:#6b675f;--accent:#2f5d50;--card:#fff;--warn:#9a3412}
+@media (prefers-color-scheme:dark){:root{--bg:#141412;--fg:#ecebe6;--muted:#a19d94;--accent:#7fb7a4;--card:#1e1d1b;--warn:#fdba74}}
 body{margin:0;background:var(--bg);color:var(--fg);font:16px/1.5 system-ui,sans-serif}
 main{max-width:440px;margin:0 auto;padding:24px 16px}
 .card{background:var(--card);border-radius:14px;padding:20px}
@@ -29,7 +33,10 @@ small{color:var(--muted)}
 #notice{position:fixed;inset:0;background:rgba(0,0,0,.55);display:flex;align-items:center;justify-content:center;padding:16px;z-index:10}
 #notice[hidden]{display:none}
 #notice .card{max-width:400px;box-shadow:0 8px 32px rgba(0,0,0,.3)}
-#notice p{color:var(--muted);margin:0}`;
+#notice p{color:var(--muted);margin:0}
+.warn{color:var(--warn);font-size:14px;margin:8px 0}
+details{margin:12px 0}summary{cursor:pointer;color:var(--accent);font-weight:600}
+.addr{font-family:ui-monospace,Menlo,monospace;overflow-wrap:break-word;margin:4px 0}`;
 
 const styleHash = createHash("sha256").update(PAGE_CSS, "utf8").digest("base64");
 
@@ -68,6 +75,15 @@ export function signerPage(token: string, cfg: PageCfg): string {
 <body><main><div class="card">
 <h1 id="title">Loading...</h1>
 <p id="body"></p>
+<p id="keywarn" class="warn" hidden>${esc(PASSKEY_LOSS_WARNING)}</p>
+<details id="dest" hidden><summary>${esc(EXIT_TOGGLE_TEXT)}</summary>
+<p class="warn">${esc(EXIT_NETWORK_WARNING)}</p>
+<input id="destAddr" placeholder="Destination 0x..." autocomplete="off" autocapitalize="off" spellcheck="false">
+<p id="destShow" class="addr"></p>
+<p><small>${esc(EXIT_SET_ASIDE_NOTE)}</small></p>
+<p class="warn">${esc(EXIT_NETWORK_WARNING)}</p>
+<label><input type="checkbox" id="destOk" class="check"> <small>${esc(EXIT_CONFIRM_TEXT)}</small></label>
+</details>
 <input id="amount" inputmode="decimal" placeholder="Amount (USDG)" hidden>
 <input id="to" placeholder="Recipient 0x..." hidden>
 <label><input type="checkbox" id="useWallet" class="check"> <small>Use a browser wallet instead of a passkey</small></label>

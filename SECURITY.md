@@ -53,10 +53,30 @@ Notes on these choices:
   equals the vote in the member's link, that the server's decoded action matches the bytes, that
   the deadline has not passed, and on-chain that the contract is a real pot (`isPot`). It then
   shows a summary rendered from those exact bytes, with full addresses, and signs only the typed
-  data it built. This protects against tampered server data (database or API).
+  data it built. This protects against tampered server data (database or API). For an exit, the
+  page shows the destination in full and "Network: Robinhood Chain", and refuses to send if the
+  encoded call's destination, shares or pot differ from that summary.
   *Still open:* a replaced page script could skip these checks. Closing that needs the script
   served from a fixed, versioned location with an integrity hash. Members who prefer can use
   their own browser wallet, which shows the typed data it signs.
+- **A lost passkey cannot be recovered.** What members read on the sign-up screen, before the
+  passkey is created:
+  "Your passkey is your key. There is no recovery: if you lose it and have no backup, you lose access to your funds, like a lost seed phrase. Make sure your phone or browser backs up your passkeys (for example iCloud Keychain or Google Password Manager)."
+  *Reason:* a passkey is the member's own key; nobody else holds a copy, so nobody can restore it.
+  *What limits it:* the backup the member's phone or browser makes of its passkeys, and the warning
+  above. A member who also has a browser wallet can use that instead of a passkey.
+- **An exit can be sent to a different address the member types.** Sending to a wrong address, or
+  to an exchange deposit address that does not support Robinhood Chain USDG, cannot be undone.
+  *Reason:* `CoferPot.exit(shares, to)` takes any destination; members asked to exit straight to
+  their own wallet.
+  *What limits it:* the option is collapsed and the member's own key stays the default. The address
+  can only be typed on the signer page (never taken from a link, the URL or the dashboard). The page
+  refuses the zero address, the pot itself and any other Cofer pot, the factory, the fee router, the
+  swap adapter, USDG and every listed Stock Token, shows the network warning twice and the full
+  address in groups, requires a confirmation box, and checks the call against the summary before it
+  is sent. The page does not detect exchanges. A token that cannot be sent during the exit is set
+  aside for the destination address, not for the member's key; anyone may call
+  `claimOwed(asset, destination)` and it is always paid to that address.
 - **Exits are in kind.** A member who exits receives their exact share of every asset the pot
   holds, as it is; nothing is converted for them.
   *Reason:* this keeps exits free of oracles, votes and pauses, so they cannot be blocked.
