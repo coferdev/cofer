@@ -21,6 +21,7 @@ import * as realDb from "../src/db/client";
 import * as realQueues from "../src/queues";
 import * as realClients from "../src/chain/clients";
 import * as realProposals from "../src/services/proposals";
+import { telegramProblem } from "./strictTelegram";
 
 const { schema } = realDb;
 
@@ -79,6 +80,8 @@ function freshState() {
     rateWaitMs: 0,
     /** Every Telegram call the bot made. */
     sent: [] as Sent[],
+    /** Calls Telegram itself would have refused (text or button limits, see strictTelegram.ts). */
+    telegramProblems: [] as string[],
     /** Every proposal the bot created (the action and who proposed it). */
     proposals: [] as { pot: string; action: Row; proposerTg: number }[],
     /** Every createPot transaction the relayer would have sent. */
@@ -299,9 +302,13 @@ const real = {
   getSignable: realProposals.getSignable,
 };
 let active = false;
-/** Switches the stand-ins off again (call after each bot test). */
+/**
+ * Switches the stand-ins off again (call after each bot test). Then fails the test if the bot sent
+ * anything Telegram would have refused, even when the bot caught the error.
+ */
 export function releaseHarness() {
   active = false;
+  if (state.telegramProblems.length > 0) throw new Error(`Telegram would refuse: ${state.telegramProblems.join("; ")}`);
 }
 type AnyFn = (...a: never[]) => unknown;
 /** The stand-in while a bot test runs, otherwise the real function. */
@@ -364,6 +371,12 @@ export async function makeBot(opts: { cardsOn?: boolean } = {}) {
   bot.api.config.use(async (_prev, method, payload) => {
     const p = { ...(payload as Record<string, unknown>) };
     state.sent.push({ method, payload: p });
+    // Telegram's limits are checked as Telegram checks them, and refused the same way (a 400)
+    const problem = telegramProblem(method, p);
+    if (problem) {
+      state.telegramProblems.push(`${method}: ${problem}`);
+      return { ok: false, error_code: 400, description: problem } as never;
+    }
     return telegramResult(method, p) as never;
   });
   return bot;

@@ -14,6 +14,7 @@ import { ONBOARD_DM_FIRST, ONBOARD_SENT_BY_DM, ONBOARD_TEXT } from "../src/bot/b
 import { NEWPOT_ADMINS_ONLY_TEXT, NEWPOT_ANONYMOUS_TEXT, GROUP_ANONYMOUS_BOT_ID } from "../src/bot/newpotAdmin";
 import { INVALID_HANDLE_TEXT, notMemberText } from "../src/bot/resolveHandle";
 import { EXIT_IN_PRIVATE_NOTE, NO_POTS_TEXT } from "../src/bot/exitList";
+import { encodeProposalRef, proposalCard } from "../src/bot/keyboards";
 import { RPC_ERROR_TEXT } from "../src/core/errors";
 import {
   ALICE,
@@ -599,15 +600,18 @@ describe("/pot", () => {
 // ---------------------------------------------------------------- vote card buttons
 
 describe("vote card buttons", () => {
+  // the buttons carry the proposal id in its short form (keyboards.ts encodeProposalRef)
+  const REF = encodeProposalRef(PROPOSAL_ID);
+
   test("Approve without a key: the tap is answered and the member is asked to set up a key", async () => {
-    await send(tap(`sign:${PROPOSAL_ID}`, BOB));
+    await send(tap(`sign:${REF}`, BOB));
     expect(state.sent.some((s) => s.method === "answerCallbackQuery")).toBe(true);
     expectOnboarding(BOB);
   });
 
   test("Approve with a key: a sign link for that vote, only for the member who tapped", async () => {
     linkedUser(BOB);
-    await send(tap(`sign:${PROPOSAL_ID}`, BOB));
+    await send(tap(`sign:${REF}`, BOB));
     const m = lastMessage()!;
     expect(m.ephemeral_message_parameters).toEqual(expect.objectContaining({ receiver_user_id: BOB.id }));
     const c = claims(urls(m)[0]!);
@@ -615,14 +619,31 @@ describe("vote card buttons", () => {
   });
 
   test("Details: the vote's summary and tally, no link", async () => {
-    await send(tap(`info:${PROPOSAL_ID}`, BOB));
+    await send(tap(`info:${REF}`, BOB));
     expect(text()).toBe("Send 50 USDG to @bob_smith\nStatus: collecting\nSigned by 1 of 2 needed.");
     expect(urls(lastMessage())).toEqual([]);
   });
 
   test("a button with malformed data does nothing", async () => {
+    linkedUser(BOB);
     await send(tap("sign:not-a-proposal", BOB));
     await send(tap(`info:${PROPOSAL_ID}ff`, BOB));
+    await send(tap(`sign:${PROPOSAL_ID}`, BOB)); // the old, too-long form
+    await send(tap(`info:${REF}A`, BOB)); // one character too long
+    await send(tap(`sign:${REF.slice(0, -1)}`, BOB)); // one character short
+    // same length, but the last character's spare bits are set: not the one canonical form
+    const nonCanonical = REF.slice(0, -1) + (REF.endsWith("B") ? "C" : "B");
+    await send(tap(`sign:${nonCanonical}`, BOB));
+    await send(tap(`info:${nonCanonical}`, BOB));
     expect(messages()).toHaveLength(0);
+  });
+
+  test("the buttons on a real card reach the vote they were made for", async () => {
+    linkedUser(BOB);
+    const [approve, details] = proposalCard(PROPOSAL_ID).inline_keyboard[0]! as { callback_data: string }[];
+    await send(tap(approve!.callback_data, BOB));
+    expect(claims(urls(lastMessage())[0]!).ref).toBe(PROPOSAL_ID);
+    await send(tap(details!.callback_data, BOB));
+    expect(text()).toBe("Send 50 USDG to @bob_smith\nStatus: collecting\nSigned by 1 of 2 needed.");
   });
 });

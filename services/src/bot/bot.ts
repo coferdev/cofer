@@ -17,7 +17,7 @@ import { chooseTier, quoteAllTiers } from "../chain/quotes";
 import { depthRefusal, depthTestSize, type Side } from "../core/depth";
 import { errorKind, logError, revertName, RPC_ERROR_TEXT, UserError, userMessage } from "../core/errors";
 import { enqueueNotify, enqueueRelay, redis } from "../queues";
-import { assertNoMiniApp, dashboardUrl, linkButton, linkTokenOf, signerUrl } from "./keyboards";
+import { assertNoMiniApp, dashboardUrl, decodeProposalRef, linkButton, linkTokenOf, signerUrl } from "./keyboards";
 import { DASHBOARD_LINK_TTL_SEC } from "../dashboard/routes";
 import { parseAllowance, parseBuy, parseSell, parseSend, parseUsdg } from "./parse";
 import { privateReply, type PrivateReplyDeps } from "./privateReply";
@@ -565,15 +565,20 @@ export function createBot(opts: { cardsOn: boolean }) {
 
   bot.command("help", (ctx) => ctx.reply(helpText({ cardsOn: opts.cardsOn })));
 
-  bot.callbackQuery(/^sign:(0x[0-9a-f]{64})$/, async (ctx) => {
+  // card buttons carry the proposal id in its short form (see encodeProposalRef in keyboards.ts)
+  bot.callbackQuery(/^sign:([A-Za-z0-9_-]{43})$/, async (ctx) => {
     await ctx.answerCallbackQuery();
+    const id = decodeProposalRef(ctx.match[1]!);
+    if (!id) return;
     if (!(await requireLinked(ctx))) return;
-    await ephemeral(ctx, "Review the exact action and sign with your passkey.", { label: "Review & sign", make: () => signerUrl(linkCtx(ctx), "sign", ctx.match[1]) });
+    await ephemeral(ctx, "Review the exact action and sign with your passkey.", { label: "Review & sign", make: () => signerUrl(linkCtx(ctx), "sign", id) });
   });
 
-  bot.callbackQuery(/^info:(0x[0-9a-f]{64})$/, async (ctx) => {
+  bot.callbackQuery(/^info:([A-Za-z0-9_-]{43})$/, async (ctx) => {
     await ctx.answerCallbackQuery();
-    const s = await getSignable({ db: db(), client: publicClient() }, ctx.match[1] as Hex);
+    const id = decodeProposalRef(ctx.match[1]!);
+    if (!id) return;
+    const s = await getSignable({ db: db(), client: publicClient() }, id as Hex);
     await ephemeral(ctx, `${s.summary}\nStatus: ${s.status}\nSigned by ${s.tally.approvals} of ${s.tally.required} needed.`);
   });
 

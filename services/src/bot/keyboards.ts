@@ -42,9 +42,33 @@ export function linkTokenOf(href: string): string {
   return hash ?? u.pathname.split("/s/")[1] ?? "";
 }
 
+/**
+ * Telegram refuses a button whose callback_data is over 64 bytes (BUTTON_DATA_INVALID), and a
+ * proposal id written as 0x + 64 hex is 66 on its own. So card buttons carry the id's 32 bytes as
+ * base64url: always 43 characters, which makes "sign:" / "info:" + id 48 bytes.
+ */
+const PROPOSAL_ID_HEX = /^0x[0-9a-fA-F]{64}$/;
+const PROPOSAL_REF = /^[A-Za-z0-9_-]{43}$/;
+
+/** A proposal id (0x + 64 hex) as the 43-character reference used in button data. Throws on anything else. */
+export function encodeProposalRef(proposalId: string): string {
+  if (!PROPOSAL_ID_HEX.test(proposalId)) throw new Error("not a proposal id");
+  return Buffer.from(proposalId.slice(2), "hex").toString("base64url");
+}
+
+/** The proposal id (lowercase 0x + 64 hex) in a button reference, or null if it is malformed or the wrong length. */
+export function decodeProposalRef(ref: string): `0x${string}` | null {
+  if (!PROPOSAL_REF.test(ref)) return null;
+  const bytes = Buffer.from(ref, "base64url");
+  // exactly 32 bytes, and written the one canonical way (the last character's spare bits are zero)
+  if (bytes.length !== 32 || bytes.toString("base64url") !== ref) return null;
+  return `0x${bytes.toString("hex")}`;
+}
+
 /** Proposal card: the approve button opens the signer page for the tapping user only (ephemeral link). */
 export function proposalCard(proposalId: string): InlineKeyboard {
-  return new InlineKeyboard().text("Approve / review", `sign:${proposalId}`).text("Details", `info:${proposalId}`);
+  const ref = encodeProposalRef(proposalId);
+  return new InlineKeyboard().text("Approve / review", `sign:${ref}`).text("Details", `info:${ref}`);
 }
 
 export function linkButton(label: string, url: string): InlineKeyboard {

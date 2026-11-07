@@ -5,6 +5,7 @@ import { DelayedError } from "bullmq";
 import { GrammyError } from "grammy";
 import { retryAfterMs, updateCard, type CardDeps } from "../src/notifier/notifier";
 import { safeError } from "../src/core/errors";
+import { enforceTelegramLimits } from "./strictTelegram";
 
 const ID = "0x" + "ab".repeat(32);
 const CHAT = -1001;
@@ -29,13 +30,16 @@ function world(opts: { locking?: boolean; editFails?: unknown } = {}) {
       return run;
     },
     load: async () => ({ chatId: CHAT, messageId, text: "Vote: Buy TSLA", open: true }),
-    send: async () => {
+    // Telegram's real limits (button data, text length, urls) are enforced on every send and edit
+    send: async (chatId, text, kb) => {
+      enforceTelegramLimits("sendMessage", { chat_id: chatId, text, ...(kb ? { reply_markup: kb } : {}) });
       await Bun.sleep(5); // Telegram takes a moment
       const id = nextId++;
       posted.push(id);
       return id;
     },
-    edit: async (_c, mid) => {
+    edit: async (c, mid, text, kb) => {
+      enforceTelegramLimits("editMessageText", { chat_id: c, message_id: mid, text, ...(kb ? { reply_markup: kb } : {}) });
       if (opts.editFails) throw opts.editFails;
       edits.push(mid);
     },
