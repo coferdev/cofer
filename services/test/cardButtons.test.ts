@@ -8,7 +8,7 @@ import { describe, expect, test } from "bun:test";
 import { randomBytes } from "node:crypto";
 import { InlineKeyboard } from "grammy";
 import { decodeProposalRef, encodeProposalRef, proposalCard } from "../src/bot/keyboards";
-import { updateCard, type CardDeps } from "../src/notifier/notifier";
+import { renderCard, updateCard, type CardDeps } from "../src/notifier/notifier";
 import { CALLBACK_DATA_MAX_BYTES, TEXT_MAX_CHARS, enforceTelegramLimits, telegramProblem } from "./strictTelegram";
 
 /** The proposal whose card Telegram refused on testnet. */
@@ -51,6 +51,36 @@ describe("vote card buttons fit Telegram's limit", () => {
     };
     expect(await updateCard(TESTNET_ID, d)).toBe("posted");
     expect(posted).toBe(1);
+  });
+  test("the card goes from open to passed-and-waiting to done through the strict stand-in (send and edit)", async () => {
+    const eta = Date.UTC(2026, 10, 8, 11, 6) / 1000;
+    const base = { summary: "Send 100 USDG to @bob", approvals: 3, required: 3, delaySeconds: 21600, exitWindowSec: 21600 };
+    const texts = [renderCard({ ...base, status: "collecting" }), renderCard({ ...base, status: "queued", queuedEta: eta }), renderCard({ ...base, status: "executed" })];
+    expect(texts[1]).toBe("Vote: Send 100 USDG to @bob\nApprovals: 3/3\nPassed. It will be done in 6 hours, at 11:06 UTC on 8 Nov 2026. Disagree? /exit takes your exact share any time.");
+    expect(texts[2]).toBe("Vote: Send 100 USDG to @bob\nApprovals: 3/3\nDone.");
+    let step = 0;
+    let messageId: number | null = null;
+    const calls: string[] = [];
+    const d: CardDeps = {
+      withLock: (_id, fn) => fn(),
+      load: async () => ({ chatId: -1001, messageId, text: texts[step]!, open: step === 0 }),
+      send: async (chatId, text, kb) => {
+        enforceTelegramLimits("sendMessage", { chat_id: chatId, text, reply_markup: kb });
+        calls.push(`send:${text}`);
+        return 7;
+      },
+      edit: async (chatId, id, text, kb) => {
+        enforceTelegramLimits("editMessageText", { chat_id: chatId, message_id: id, text, reply_markup: kb });
+        calls.push(`edit:${text}`);
+      },
+      saveMessageId: async (_id, m) => void (messageId = m),
+    };
+    expect(await updateCard(TESTNET_ID, d)).toBe("posted");
+    step = 1;
+    expect(await updateCard(TESTNET_ID, d)).toBe("edited");
+    step = 2;
+    expect(await updateCard(TESTNET_ID, d)).toBe("edited");
+    expect(calls).toEqual([`send:${texts[0]}`, `edit:${texts[1]}`, `edit:${texts[2]}`]);
   });
 });
 

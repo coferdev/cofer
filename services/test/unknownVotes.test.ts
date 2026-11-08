@@ -16,6 +16,7 @@ function fakeDeps(chat: number | null = CHAT) {
     chatOf: async () => chat,
     sendGroup: async (c, t) => void group.push([c, t]),
     sendOps: async (t) => void ops.push(t),
+    exitWindowOf: async () => 21600,
   };
   return { deps, group, ops };
 }
@@ -30,7 +31,7 @@ describe("votes not made through the bot (M-3)", () => {
     expect(f.group).toHaveLength(1);
     const [chat, text] = f.group[0]!;
     expect(chat).toBe(CHAT);
-    expect(text).toBe("A vote that was not made through this bot was queued: send funds. It can run after 14:05 UTC on 2 Nov 2026. If you disagree, use /exit before then to take your exact share.");
+    expect(text).toBe("A vote that was not made through this bot was queued: send funds. It will be done in 6 hours, at 14:05 UTC on 2 Nov 2026. If you disagree, use /exit before then to take your exact share.");
     expect(f.ops).toHaveLength(1);
     expect(alertText(f.ops[0]!)).toBe(
       "[cofer alert] vote-unknown\nA vote not made through the bot was queued and can run after 14:05 UTC on 2 Nov 2026 in pot 0x0000…00aa: send funds (vote 0xabab…abab). The group was told.\nWho acts: Dev checks. If nobody in that group made this vote, tell the owner and the dev at once.",
@@ -71,6 +72,20 @@ describe("votes not made through the bot (M-3)", () => {
       throw new Error("ops chat down");
     };
     await expect(onVoteEvent(f.deps, { pot: POT, event: queued, isNew: true, known: false })).rejects.toThrow("ops chat down");
+  });
+
+  test("the wait comes from the pot's own exit window; a failed read still gives the time", async () => {
+    const f = fakeDeps();
+    f.deps.exitWindowOf = async () => 1800;
+    await onVoteEvent(f.deps, { pot: POT, event: queued, isNew: true, known: false });
+    expect(f.group[0]![1]).toContain("It will be done in 30 minutes, at 14:05 UTC on 2 Nov 2026.");
+    const g = fakeDeps();
+    g.deps.exitWindowOf = async () => {
+      throw new Error("rpc down");
+    };
+    await onVoteEvent(g.deps, { pot: POT, event: queued, isNew: true, known: false });
+    expect(g.group[0]![1]).toContain("It will be done at 14:05 UTC on 2 Nov 2026.");
+    expect(g.ops).toHaveLength(1);
   });
 
   test("text helpers", () => {

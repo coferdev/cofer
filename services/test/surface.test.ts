@@ -177,7 +177,7 @@ describe("canonical Stock Token list", () => {
 
 describe("chat card + card adapter", () => {
   test("card text tells dissenters they can exit", () => {
-    const t = renderCard({ summary: "Send 100 USDG to @bob", status: "queued", approvals: 3, required: 3, delaySeconds: 21600, queuedEta: 1_900_000_000 });
+    const t = renderCard({ summary: "Send 100 USDG to @bob", status: "queued", approvals: 3, required: 3, delaySeconds: 21600, exitWindowSec: 21600, queuedEta: 1_900_000_000 });
     expect(t).toContain("/exit");
   });
 

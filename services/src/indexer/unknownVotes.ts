@@ -8,6 +8,7 @@
 import type { Address, Hex } from "viem";
 import { Kind } from "../core/proposal";
 import { shortHex, type AlertMessage } from "../core/alertFormat";
+import { utcText, waitText } from "../core/waitText";
 
 export type VoteEvent =
   | { name: "ProposalQueued"; digest: Hex; kind: number; eta: bigint }
@@ -19,6 +20,8 @@ export interface UnknownVoteDeps {
   sendGroup(chatId: number, text: string): Promise<void>;
   /** The staff alert path (log + staff chat). */
   sendOps(m: AlertMessage): Promise<void>;
+  /** The pot's exit window in seconds (guardDelay, read from the pot), or null if the read failed. */
+  exitWindowOf(pot: Address): Promise<number | null>;
 }
 
 const KIND_TEXT: Record<number, string> = {
@@ -36,20 +39,15 @@ export function kindText(kind: number): string {
   return KIND_TEXT[kind] ?? `vote type ${kind}`;
 }
 
-const MONTHS = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
+export { utcText };
 
-/** "14:05 UTC on 2 Nov 2026" */
-export function utcText(unixSeconds: bigint | number): string {
-  const d = new Date(Number(unixSeconds) * 1000);
-  const hh = String(d.getUTCHours()).padStart(2, "0");
-  const mm = String(d.getUTCMinutes()).padStart(2, "0");
-  return `${hh}:${mm} UTC on ${d.getUTCDate()} ${MONTHS[d.getUTCMonth()]} ${d.getUTCFullYear()}`;
-}
-
-/** What the group reads. Built only from the on-chain event, never from free text. */
-export function groupText(ev: VoteEvent): string {
+/**
+ * What the group reads. Built only from the on-chain event and the pot's exit window, never from free text.
+ * @param exitWindowSec the pot's guardDelay (null if it could not be read: the time is still given).
+ */
+export function groupText(ev: VoteEvent, exitWindowSec: number | null = null): string {
   if (ev.name === "ProposalQueued") {
-    return `A vote that was not made through this bot was queued: ${kindText(ev.kind)}. It can run after ${utcText(ev.eta)}. If you disagree, use /exit before then to take your exact share.`;
+    return `A vote that was not made through this bot was queued: ${kindText(ev.kind)}. ${waitText(exitWindowSec, ev.eta)}. If you disagree, use /exit before then to take your exact share.`;
   }
   return `A vote that was not made through this bot just executed: ${kindText(ev.kind)}. Check /pot.`;
 }
@@ -75,7 +73,10 @@ export async function onVoteEvent(
 ): Promise<"alerted" | "skipped"> {
   if (!a.isNew || a.known) return "skipped";
   const chat = await deps.chatOf(a.pot);
-  if (chat !== null) await deps.sendGroup(chat, groupText(a.event));
+  if (chat !== null) {
+    const window = a.event.name === "ProposalQueued" ? await deps.exitWindowOf(a.pot).catch(() => null) : null;
+    await deps.sendGroup(chat, groupText(a.event, window));
+  }
   await deps.sendOps(opsText(a.pot, a.event));
   return "alerted";
 }

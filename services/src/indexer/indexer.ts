@@ -79,6 +79,8 @@ const unknownVoteDeps: UnknownVoteDeps = {
   chatOf: async (pot) => (await db().query.pots.findFirst({ where: eq(schema.pots.address, pot) }))?.chatId ?? null,
   sendGroup: (chatId, text) => enqueueChatMessage(chatId, text),
   sendOps: (m) => postAlert(m),
+  // the pot's own setting, read now; a failed read still sends the alert, with the time only
+  exitWindowOf: async (pot) => Number((await publicClient().readContract({ address: pot, abi: potAbi, functionName: "config" }))[0]),
 };
 
 /** Alerts about a queued/executed vote the bot did not create; on a failed send the log is handled again next run. */

@@ -14,6 +14,7 @@ import { Q, startWorker } from "../queues";
 import { watchJobFailures } from "../keeper/jobAlerts";
 import { proposalCard, assertNoMiniApp } from "../bot/keyboards";
 import { humanPeriod } from "../core/proposal";
+import { passedWaitingLine } from "../core/waitText";
 import { RateLimited } from "../bot/rateLimit";
 
 export function renderCard(p: {
@@ -22,6 +23,8 @@ export function renderCard(p: {
   approvals: number;
   required: number;
   delaySeconds: number;
+  /** The group's exit window (pot guardDelay), read where the card is built. */
+  exitWindowSec: number;
   queuedEta?: number | null;
   stale?: boolean;
 }): string {
@@ -34,7 +37,7 @@ export function renderCard(p: {
       lines.push("Passed. Submitting...");
       break;
     case "queued":
-      lines.push(`Passed. Executes after ${p.queuedEta ? new Date(p.queuedEta * 1000).toUTCString() : "the exit window"}. Disagree? /exit takes your exact share any time.`);
+      lines.push(passedWaitingLine(p.exitWindowSec, p.queuedEta ?? null));
       break;
     case "executed":
       lines.push("Done.");
@@ -125,6 +128,7 @@ function cardDeps(api: Api): CardDeps {
         approvals: s.tally.approvals,
         required: s.tally.required,
         delaySeconds: s.tally.delaySeconds,
+        exitWindowSec: s.exitWindowSec,
         queuedEta: row.queuedEta,
         stale: s.stale,
       });

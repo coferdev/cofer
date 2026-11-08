@@ -4,6 +4,8 @@
  * send it twice. From that point on the member is told to check first.
  */
 
+import { refusalText } from "./refusals";
+
 export const MAYBE_SENT = "This may have gone through. Check /me or /pot in Telegram before trying again.";
 
 /** The normal message for an error before anything was handed off. */
@@ -26,11 +28,15 @@ function isPasskeyCancel(e: unknown): boolean {
 }
 
 /**
- * The message for a failed action. Once handed off: the check-first message. Before: our API's own
+ * The message for a failed action. A known contract refusal: its plain sentence (refusals.ts).
+ * Otherwise, once handed off: the check-first message. Before: our API's own
  * text, or fixed text. Errors raised in the browser (viem, ZeroDev, the bundler) are never shown as
  * is: their text can hold service addresses and is not written for members.
  */
 export function failureText(e: unknown, handedOff: boolean): string {
+  // a known contract refusal (core/refusals.ts) means the call was refused: nothing went through
+  const refused = refusalText(e);
+  if (refused) return refused;
   if (handedOff) return MAYBE_SENT;
   if (e instanceof ServerSaid) return retryText(e.message);
   if (isPasskeyCancel(e)) return PASSKEY_CANCELLED;
@@ -47,3 +53,6 @@ export function isHandOff(body: unknown): boolean {
     return false;
   }
 }
+
+/** Shown once the passkey (or wallet) has been used and the transaction is on its way. */
+export const SENDING_TEXT = "Sending... this can take up to a minute. Keep this page open.";

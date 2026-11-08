@@ -202,7 +202,9 @@ export const appRouter = t.router({
     sign: authed.input(z.object({ id: zHex, signer: zAddr, signature: zHex })).mutation(({ ctx, input }) =>
       wrap(async () => {
         const tl = await addSignature(ctx.deps, { id: input.id, tgId: ctx.session.tg, signer: input.signer, signature: input.signature });
-        return { approvals: tl.approvals, required: tl.required, ready: tl.ready, delaySeconds: tl.delaySeconds };
+        // a passed vote without every member waits the group's exit window (swaps included) from about now
+        const waitsUntil = tl.ready && !tl.unanimous && tl.exitWindowSec > 0 ? Math.floor(Date.now() / 1000) + tl.exitWindowSec : null;
+        return { approvals: tl.approvals, required: tl.required, ready: tl.ready, delaySeconds: tl.delaySeconds, exitWindowSec: tl.exitWindowSec, waitsUntil };
       }),
     ),
   }),

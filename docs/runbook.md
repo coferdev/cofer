@@ -149,6 +149,52 @@ passkey is created:
   the group account from the explorer's "Write contract" page; it always pays the destination. Paying
   the gas is the only cost.
 
+## Member help: when a passed vote runs, and what the signer page says
+
+**Passed votes that wait.** A vote that passes without every member waits the group's exit window
+(the pot's own setting, read when the text is built). The vote card, the signer page and the group
+message for a vote made outside the bot all say it the same way, with the real window and time:
+
+> Passed. It will be done in 6 hours, at 11:06 UTC on 8 Nov 2026. Disagree? /exit takes your exact share any time.
+
+The signer page says "Passed. It will be done in ..." without the last sentence; the dashboard
+proposal row shows "It will be done in ...". A vote every member approved runs at once: its card says
+"Done." The time is in UTC and rounded up to the next minute.
+
+**Sending.** After the passkey (or wallet) is used for a deposit, exit, claim, spend or card load,
+the page shows "Sending... this can take up to a minute. Keep this page open." and the button stays
+off so it cannot be tapped twice. If a member closes the page at that point, the action may still
+go through: ask them to check `/me` or `/pot` before trying again.
+
+**Spend over the allowance.** Before the passkey is asked for, the page reads what is left of the
+member's allowance from the group account. An amount above it is refused with, for example, "That
+is more than your allowance. You have 12.5 USDG left this day." (or "this week" / "this period").
+Nothing is signed. If that read fails, the page carries on; the contract refuses an amount over
+the allowance anyway.
+
+**Refusals.** When the group account refuses an action, the page shows a plain sentence instead of
+an error code. They are all in `services/src/core/refusals.ts`:
+
+| Contract error (selector) | What the member reads |
+|---|---|
+| `AllowanceExceeded` (`0xc45cb513`) | That is more than your allowance has left. Nothing was sent. |
+| `NoAllowance` (`0xebf59ac8`) | You have no allowance in this group. The group can give you one with a vote. Nothing was sent. |
+| `InsufficientBalance` (`0xf4d678b8`) | The group account does not hold enough for this right now. Nothing was sent. |
+| `NotMember` (`0x291fc442`) | Your key is not a member of this group. Nothing was sent. |
+| `ZeroAmount` (`0x1f2a2005`) | Enter an amount above 0. Nothing was sent. |
+| `BadParam` (`0xde17a3af`) | That address or amount is not valid. Nothing was sent. |
+| `DepositsClosed` (`0x1a8ade30`) | Deposits are closed for this group right now. Exiting is always open. Nothing was sent. |
+| `DepositPriceTooOld` (`0x25301041`) | Deposits are closed until the stock price updates (markets closed). Exiting is always open. |
+| `StalePrice`, `BadPrice` (factory) | A price this group needs is not available right now. Try again later. Nothing was sent. |
+| `InsufficientShares` (`0x39996567`) | You have fewer shares than this exit asks for. Check /me in Telegram. Nothing was sent. |
+| `NothingOwed` (`0x797dba54`) | Nothing is set aside for you in this group. |
+| `TransferFailed` (`0x39f1c8d9`) | A token could not be sent right now (its issuer may have paused it). Nothing was sent. Try again later. |
+| `TransferFromFailed` (`0x6e1c8d15`) | The USDG could not be taken from your key. Check that your key holds enough USDG. Nothing was sent. |
+
+Anything else shows "Something went wrong. You can try again." (or, once the action was handed
+off, "This may have gone through. Check /me or /pot in Telegram before trying again."). The full
+error is only in that browser's console.
+
 ## Contacts
 
 Fill these in before launch, and keep them current.

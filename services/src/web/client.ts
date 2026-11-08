@@ -17,7 +17,9 @@ import { toPasskeyValidator, PasskeyValidatorContractVersion } from "@zerodev/pa
 import { toWebAuthnKey, WebAuthnMode } from "@zerodev/webauthn-key";
 import { coferPotAbi } from "../chain/abi";
 import { signerProblem } from "../core/signerCheck";
-import { failureText, isHandOff, ServerSaid } from "../core/retryText";
+import { failureText, isHandOff, SENDING_TEXT, ServerSaid } from "../core/retryText";
+import { spendAllowanceRefusal } from "../core/refusals";
+import { waitText } from "../core/waitText";
 import { capRefusal, navReadFailureText, roomText } from "../core/betaCap";
 import { DEPOSITS_CLOSED_TEXT, readDepositGate } from "../core/depositGate";
 import { isUsdgUpdating } from "../core/priceUpdating";
@@ -101,7 +103,9 @@ async function passkeyAccount(mode: WebAuthnMode) {
     // marks the hand-off as the user operation leaves for the bundler (after the passkey has signed it)
     bundlerTransport: http(cfg.bundlerUrl, {
       onFetchRequest: (_req, init) => {
-        if (isHandOff(init.body)) handedOff = true;
+        if (!isHandOff(init.body)) return;
+        handedOff = true;
+        say(SENDING_TEXT); // the passkey has been used; the button stays off until this ends
       },
     }),
     paymaster: createZeroDevPaymasterClient({ chain, transport: http(cfg.paymasterUrl) }),
@@ -130,6 +134,7 @@ async function getSigner(register = false): Promise<Signer> {
         for (const c of calls) {
           handedOff = true;
           last = await wallet.sendTransaction({ account: address!, to: c.to, data: c.data, chain });
+          say(SENDING_TEXT);
         }
         return last;
       },
@@ -278,13 +283,19 @@ async function main() {
   const act = $("action") as HTMLButtonElement;
   // the button stays off while working and after success; an error is shown and the button comes back for a retry.
   // For a money action, an error after the hand-off asks the member to check before trying again.
+  // `busy` keeps it off while sending, so nothing else on the page (e.g. the exit form) can turn it back on.
+  let busy = false;
   const guard = (fn: () => Promise<void>, money = false) => async () => {
+    if (busy) return;
+    busy = true;
     act.disabled = true;
     handedOff = false;
     try {
       await ensureSession();
       await fn();
+      busy = false;
     } catch (e) {
+      busy = false;
       showFailure(e, money && handedOff);
       act.disabled = false;
     }
@@ -328,7 +339,7 @@ async function main() {
         const s = await memberSigner();
         const signature = await s.signTypedData(typedData(envelope)); // built by this page, never the server's object
         const r = await trpc<any>("proposal.sign", { id: ex.ref, signer: s.address, signature }, true);
-        say(r.ready ? (r.delaySeconds > 0 ? "Passed. It executes after the exit window." : "Passed. Executing now.") : `Signed. ${r.approvals}/${r.required}.`);
+        say(r.ready ? (r.waitsUntil ? `Passed. ${waitText(r.exitWindowSec, r.waitsUntil)}.` : "Passed. Executing now.") : `Signed. ${r.approvals}/${r.required}.`);
       });
     act.textContent = "Check this vote";
     act.onclick = guard(async () => {
@@ -412,6 +423,7 @@ async function main() {
       act.onclick = guard(async () => {
         // nothing about the destination may change between the summary and the signature
         if (dest.open !== snapshot.open || typed.value !== snapshot.typed || confirmed.checked !== snapshot.confirmed) {
+          busy = false; // nothing was signed: back to step 1
           reset();
           throw new Stop("The address changed. Check your exit again.");
         }
@@ -428,6 +440,7 @@ async function main() {
     });
     // As the member types: the format and the known contracts are checked at once; the rest on "Check my exit".
     const refresh = () => {
+      if (busy) return; // sending: the button stays off
       if (!dest.open) {
         shown.textContent = "";
         act.disabled = false;
@@ -440,7 +453,7 @@ async function main() {
     };
     // any change after the summary goes back to step 1
     const reset = () => {
-      if (done) return;
+      if (done || busy) return;
       $("body").textContent = intro;
       act.textContent = "Check my exit";
       act.onclick = check;
@@ -479,6 +492,23 @@ async function main() {
       say(`Claimed ${done.length} token${done.length === 1 ? "" : "s"}. tx ${done.join(", ")}${left ? `\n${left} could not be claimed yet (the token may still be paused). Try /claim again later.` : ""}`);
     }, true);
   } else if (ex.purpose === "sign" && ex.ref.startsWith("spend:")) {
+    // the linked key comes from our API (no passkey needed), then the pot's own memberInfo
+    const readSpendRefusal = async (amount: bigint): Promise<string | null> => {
+      try {
+        const me = await trpc<{ address: string | null } | undefined>("me.get", {});
+        if (!me?.address || !isAddress(me.address)) return null;
+        const m = (await publicClient.readContract({ address: pot, abi: coferPotAbi, functionName: "memberInfo", args: [me.address] })) as {
+          allowance: bigint;
+          period: number;
+          periodStart: bigint;
+          spent: bigint;
+        };
+        const state = { allowance: m.allowance, period: Number(m.period), periodStart: Number(m.periodStart), spent: m.spent };
+        return spendAllowanceRefusal(amount, state, Math.floor(Date.now() / 1000));
+      } catch {
+        return null; // read failed: continue as before
+      }
+    };
     $("title").textContent = "Spend from your allowance";
     $("amount").hidden = false;
     $("to").hidden = false;
@@ -486,7 +516,12 @@ async function main() {
     act.onclick = guard(async () => {
       const amount = BigInt(Math.round(Number(($("amount") as HTMLInputElement).value) * 1e6));
       const to = ($("to") as HTMLInputElement).value as Address;
+      // before the passkey is asked for: an amount above what is left of the allowance is refused here
+      // (same math as the pot). If this read fails, the contract and the gas sponsor still refuse it.
+      const refusal = await readSpendRefusal(amount);
+      if (refusal) throw new Stop(refusal);
       const s = await memberSigner();
+      say("Confirm with your passkey...");
       const data = encodeFunctionData({ abi: coferPotAbi, functionName: "spend", args: [to, amount, "0x0000000000000000000000000000000000000000000000000000000000000000"] });
       const tx = await s.send!([{ to: pot, data }]);
       say(`Sent. tx ${tx}`);
@@ -500,6 +535,7 @@ async function main() {
       const s = await memberSigner();
       const q = await trpc<any>("card.quote", { pot, amountUsdg: amount.toString() }, true);
       const data = encodeFunctionData({ abi: coferPotAbi, functionName: "spend", args: [q.fundingAddress, BigInt(q.amountUsdg), q.memo] });
+      say("Confirm with your passkey...");
       const tx = await s.send!([{ to: pot, data }]);
       const st = await trpc<any>("card.confirm", { orderId: q.orderId, spendTx: tx }, true);
       say(`Card order ${st.status}. Load fee ${Number(q.loadFeeUsdg) / 1e6} USDG.`);

@@ -47,6 +47,38 @@ export function hoursText(seconds: number): string {
   return `${Math.round(seconds / 60)} minutes`;
 }
 
+// Same wording as services/src/core/waitText.ts (the vote card and the signer page); keep the two in step.
+const MONTHS = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+const unit = (n: number, word: string) => `${n} ${word}${n === 1 ? '' : 's'}`;
+
+/** A length of time in plain words: "6 hours", "30 minutes", "1 day 2 hours". Exact, never rounded. */
+export function durationWords(seconds: number): string {
+  let s = Math.max(0, Math.floor(seconds));
+  if (s === 0) return '0 minutes';
+  const days = Math.floor(s / 86400);
+  s -= days * 86400;
+  const hours = Math.floor(s / 3600);
+  s -= hours * 3600;
+  const minutes = Math.floor(s / 60);
+  s -= minutes * 60;
+  const parts: string[] = [];
+  if (days) parts.push(unit(days, 'day'));
+  if (hours) parts.push(unit(hours, 'hour'));
+  if (minutes) parts.push(unit(minutes, 'minute'));
+  if (s) parts.push(unit(s, 'second'));
+  return parts.join(' ');
+}
+
+/**
+ * "It will be done in 6 hours, at 11:06 UTC on 8 Nov 2026" for an approved vote waiting the exit
+ * window. `exitWindowSec` is the group's own setting; the time is rounded up to the next minute.
+ */
+export function waitText(exitWindowSec: number, executeAfter: string): string {
+  const d = new Date(Math.ceil(Date.parse(executeAfter) / 60_000) * 60_000);
+  const at = `${String(d.getUTCHours()).padStart(2, '0')}:${String(d.getUTCMinutes()).padStart(2, '0')} UTC on ${d.getUTCDate()} ${MONTHS[d.getUTCMonth()]} ${d.getUTCFullYear()}`;
+  return `It will be done in ${durationWords(exitWindowSec)}, at ${at}`;
+}
+
 type Assets = Record<string, { symbol: string; decimals: number }>;
 
 function amountOf(raw: string | null | undefined, asset: string | null | undefined, assets: Assets): string {

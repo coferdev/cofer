@@ -4,7 +4,7 @@ import { formatAmount, formatBps, maxAmount, ratio } from '../src/lib/money';
 import { parseConfig } from '../src/lib/dash-config';
 import { ApiError, apiClient } from '../src/lib/dash-api';
 import { clearSession, isLive, linkFromHash, loadSession, saveSession } from '../src/lib/dash-session';
-import { describeActivity, memberLabel, retryDelay, POLL_MS } from '../src/lib/dash-text';
+import { describeActivity, durationWords, memberLabel, retryDelay, POLL_MS, waitText } from '../src/lib/dash-text';
 import { readFileSync } from 'node:fs';
 
 describe('decimals: amounts are formatted from integers, never via JavaScript numbers', () => {
@@ -239,5 +239,21 @@ describe('action buttons hand off to the signer page; the dashboard never signs'
     const results = await Promise.all([1, 2].map(() => openSignerTab(async () => `https://sign.test/s/link${++n}.x`, w)));
     expect(results).toEqual([{ ok: true }, { ok: true }]);
     expect(new Set(w.tabs.map((t) => t.location.href)).size).toBe(2);
+  });
+});
+
+describe('proposal row: when an approved vote will be done', () => {
+  const at = new Date(Date.UTC(2026, 10, 8, 11, 6)).toISOString();
+  test('same wording as the vote card, with the group exit window', () => {
+    expect(waitText(21600, at)).toBe('It will be done in 6 hours, at 11:06 UTC on 8 Nov 2026');
+    expect(waitText(1800, at)).toBe('It will be done in 30 minutes, at 11:06 UTC on 8 Nov 2026');
+    expect(waitText(172800, at)).toBe('It will be done in 2 days, at 11:06 UTC on 8 Nov 2026');
+    expect(durationWords(86400 + 7200)).toBe('1 day 2 hours');
+    expect(waitText(21600, new Date(Date.UTC(2026, 10, 8, 11, 6, 1)).toISOString())).toBe('It will be done in 6 hours, at 11:07 UTC on 8 Nov 2026');
+  });
+  test('the row uses the group setting, not a fixed number, and the old text is gone', () => {
+    const src = readFileSync(new URL('../src/cofer-store.tsx', import.meta.url), 'utf8');
+    expect(src).toContain("{x.executeAfter ? ` · ${waitText(p.rules.exitWindowSec, x.executeAfter)}` : ''}");
+    expect(src).not.toContain('exit window until');
   });
 });

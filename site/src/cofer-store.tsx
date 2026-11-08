@@ -13,7 +13,7 @@ import { ApiError, apiClient, type Availability, type DashAction, type PotSummar
 import { openSignerTab, type OpenResult } from '@/lib/dash-open';
 import { addressUrl, botUrl, parseConfig, txUrl, type DashConfig } from '@/lib/dash-config';
 import { clearSession, isLive, linkFromHash, loadSession, saveSession, type Session } from '@/lib/dash-session';
-import { describeActivity, hoursText, POLL_MS, periodText, retryDelay, shortAddress } from '@/lib/dash-text';
+import { describeActivity, hoursText, POLL_MS, periodText, retryDelay, shortAddress, waitText } from '@/lib/dash-text';
 import { formatAmount, formatBps } from '@/lib/money';
 
 export type Phase = 'starting' | 'no-config' | 'signing-in' | 'signed-out' | 'loading' | 'ready' | 'wrong-network';
@@ -475,7 +475,7 @@ export function Workspace() {
                   <small>
                     {x.stateText}
                     {x.state === 'pending' && x.status !== 'queued' ? ` · ${x.approvals} of ${x.required} approvals${x.signedByYou ? ' · you approved' : ''}` : ''}
-                    {x.executeAfter ? ` · exit window until ${new Date(x.executeAfter).toLocaleString()}` : ''}
+                    {x.executeAfter ? ` · ${waitText(p.rules.exitWindowSec, x.executeAfter)}` : ''}
                   </small>
                 </div>
                 <div className="proposal-actions">

@@ -142,6 +142,8 @@ export async function getSignable(deps: Pick<ProposalDeps, "db" | "client">, id:
     typedData: serializeTypedData(env),
     tally: t,
     stale: env.epoch !== rules.epoch,
+    /** The group's exit window (pot guardDelay, read now), for "It will be done in ...". */
+    exitWindowSec: rules.guardDelay,
   };
 }
 
@@ -153,7 +155,7 @@ export async function getSignable(deps: Pick<ProposalDeps, "db" | "client">, id:
 export async function addSignature(
   deps: ProposalDeps,
   args: { id: Hex; tgId: number; signer: Address; signature: Hex },
-): Promise<Tally> {
+): Promise<Tally & { exitWindowSec: number }> {
   const { db, client } = deps;
   const row = await db.query.proposals.findFirst({ where: eq(schema.proposals.id, args.id) });
   if (!row) throw new ProposalError("unknown proposal");
@@ -191,7 +193,7 @@ export async function addSignature(
     await deps.enqueueRelay(args.id);
   }
   await deps.notify(args.id);
-  return t;
+  return { ...t, exitWindowSec: rules.guardDelay };
 }
 
 /** Calldata for CoferPot.execute, built only from counted (member, non-revoked) votes. */
