@@ -54,6 +54,15 @@ const schema = z.object({
 
   OPS_CHAT_ID: z.string().regex(/^-?\d+$/).transform(Number).optional(), // private chat for keeper alerts (find it with /chatid); unset = log only
   ALERT_BOT_TOKEN: z.string().min(1).optional(), // secret: a separate bot that sends alerts to OPS_CHAT_ID (unset = the main bot, via the notifier); never logged
+  // team bot on the alert bot (update schedule, pinned launch board, staff commands): mainnet only, see teambot/settings.ts
+  TEAMBOT_ENABLED: z
+    .enum(["0", "1"])
+    .default("0")
+    .transform((v) => v === "1"), // "1" only on the mainnet service; anything else = off
+  TEAMBOT_DATA_DIR: z.string().min(1).optional(), // private folder on the server, outside the repo: updates.json, config.json, posters/, state
+  TEAMBOT_GITHUB_TOKEN: z.string().min(1).optional(), // secret: lets the team bot see and publish draft releases; never logged
+  TEAMBOT_GITHUB_MODE: z.enum(["publish", "check", "off"]).default("publish"), // publish drafts at their hour | only check the release exists | skip GitHub
+  TEAMBOT_TEST_CHAT_ID: z.string().regex(/^-?\d+$/).transform(Number).optional(), // a test group for "cofer-release test N"; never the staff group
   HEALTHCHECK_PING_URL: z.string().url().optional(), // secret-ish: pinged every 5 min while healthy (e.g. healthchecks.io); never logged
   STOCK_API_BASE: z.string().url().default("https://api.robinhood.com/rhj"),
   CARD_ADAPTER: z.enum(["off", "stub", "provider"]).default("off"), // stub is testnet-only (see cards/select.ts)

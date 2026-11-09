@@ -17,7 +17,7 @@ they never hold member funds.
 | Relayer | `services/src/relayer/` | Submits `CoferPot.execute()` (permissionless) and pays its gas. | Relayer key (gas only) |
 | Indexer | `services/src/indexer/` | Reads chain logs (pots, factory, fee router) into Postgres; alerts on votes the bot did not create and on admin changes (queued feed, adapter and fee changes also go to every group). See [alerts.md](alerts.md). | Nothing |
 | Post-deploy check | `services/scripts/check-deploy.ts` | Read-only: compares live code with the local build and live roles and settings with `contracts/deployments/4663.json`; fails on any mismatch. | Nothing |
-| Keeper | `services/src/keeper/` | Scheduled jobs and staff alerts (feeds, relayer balance, indexer lag, failed votes and jobs, owner/guardian drift, RPC, errors, disk and memory). See [alerts.md](alerts.md). | Optional alerts bot token |
+| Keeper | `services/src/keeper/` | Scheduled jobs and staff alerts (feeds, relayer balance, indexer lag, failed votes and jobs, owner/guardian drift, RPC, errors, disk and memory). See [alerts.md](alerts.md). On mainnet, also the team bot on the alert bot (launch updates, pinned board, staff commands; [teambot.md](teambot.md)). | Optional alerts bot token |
 | Notifier | `services/src/notifier/` | One card per vote in the group, edited in place; at most 18 messages a minute per group. | Nothing |
 | Member key | Member's device | Kernel v3.1 smart account with a passkey (or a browser wallet). Signs votes; sends deposits, exits, spends and claims as userOps. | The member's seat |
 

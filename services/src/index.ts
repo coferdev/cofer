@@ -3,7 +3,8 @@
  *   api      Hono (tRPC signer API, signer page, Telegram webhook)
  *   bot      long-polling bot (development only; production uses the api webhook)
  *   indexer  log watcher -> Postgres projections
- *   keeper   relay worker + scheduled jobs (expire, sweep, stocks, holdings, feeds, ops, health)
+ *   keeper   relay worker + scheduled jobs (expire, sweep, stocks, holdings, feeds, ops, health),
+ *            plus the team bot on the alert bot where TEAMBOT_ENABLED=1 on mainnet (teambot/start.ts)
  *   notifier Telegram card posts/edits
  *   all      everything in one process (small deployments)
  */
@@ -19,6 +20,7 @@ import { selectCardAdapter } from "./cards/select";
 import { dashboardData } from "./dashboard/data";
 import { countErrorsWith, logError } from "./core/errors";
 import { recordError } from "./keeper/serverHealth";
+import { maybeStartTeambot } from "./teambot/start";
 
 async function main() {
   const e = env();
@@ -56,6 +58,7 @@ async function main() {
     startKeeper();
     startRelayer();
     console.log("[keeper] + [relayer] up");
+    if (maybeStartTeambot(e)) console.log("[teambot] up");
   }
   if (run("notifier")) {
     startNotifier(bot.api);
