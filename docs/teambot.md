@@ -28,7 +28,8 @@ Times are always UTC · Moscow · New York.
 
 1. Its checks run (below).
 2. Its GitHub release `update-NN` is published, if it is still a draft.
-3. Two copy-ready posts: the square poster with the Telegram text, then the wide poster with the X
+3. A heading in bold: **Tech Updates: Update NN Released**.
+4. Two copy-ready posts: the square poster with the Telegram text, then the wide poster with the X
    text and its character count. Copy them to the channel and to X.
 
 Update 1 is preceded by **🟢 COFER IS LAUNCHED**, and the last one is followed by **🏁 ALL 55 UPDATES ARE LIVE**.
@@ -88,7 +89,7 @@ On the server only, through the `cofer-release` shortcut (set-up below):
 |---|---|
 | `cofer-release preflight` | checks every update now and prints what is missing |
 | `cofer-release preflight --post` | the same, and reports it to the staff group |
-| `cofer-release test 14` | sends update 14's two posts to the test group only (never the staff group) |
+| `cofer-release test 14` | sends update 14's heading and two posts to the test group only (never the staff group) |
 | `cofer-release arm "2026-11-30 18:00"` | sets the launch time, in UTC. It can change until the first update is out |
 | `cofer-release disarm` | clears the launch time before launch |
 | `cofer-release pause "reason"` | stops new updates |

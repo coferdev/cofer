@@ -89,6 +89,11 @@ export function preflightText(bad: [Update, string[]][], total: number): string 
 /** Under the square poster: ready to paste into the Telegram channel. */
 export const tgCopy = (book: Book, u: Update) => `Update ${pad(u.n)} of ${book.total}\n\n${u.telegram}\n\nGitHub: ${relUrl(book, u.n)}`;
 
+/** Sent just before an update's two posts. */
+export function headingText(n: number): string {
+  return `<b>Tech Updates: Update ${pad(n)} Released</b>`;
+}
+
 /** Under the wide poster: ready to paste into X, with its length. */
 export function xCopy(u: Update): string {
   const text = `Update ${pad(u.n)}: ${u.x}`;

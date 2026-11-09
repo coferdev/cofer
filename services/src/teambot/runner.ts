@@ -49,6 +49,7 @@ import {
   videosText,
   videoUsage,
   xCopy,
+  headingText,
   type HealthRow,
 } from "./messages";
 import { dueNow, held, loadState, nextDue, released, saveState, us, type State } from "./state";
@@ -128,6 +129,10 @@ export function createTeambot(d: TeambotDeps) {
     if (u.n === 1 && !st.launchedPosted) {
       await say(launchedText(st, book));
       st.launchedPosted = true;
+      save();
+    }
+    if (!s.head && !s.tg) {
+      s.head = await say(headingText(u.n));
       save();
     }
     if (!s.tg) {

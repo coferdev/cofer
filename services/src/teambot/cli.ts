@@ -10,7 +10,7 @@
  *   release 15               let a held update go (its checks run again first)
  *   verify 23                mark a RECHECK update as checked
  *   preflight [--post]       check every update now; --post also reports to the staff group
- *   test 14                  send update 14's two posts to TEAMBOT_TEST_CHAT_ID only
+ *   test 14                  send update 14's heading and two posts to TEAMBOT_TEST_CHAT_ID only
  *   status                   print where things stand
  *
  * The first seven are handed to the running bot (a file in TEAMBOT_DATA_DIR/inbox) and this waits
@@ -20,7 +20,7 @@ import fs from "node:fs";
 import path from "node:path";
 import { pad, posterPath, type Book } from "./data";
 import { gate, type GateDeps } from "./gate";
-import { boardText, plainText, preflightText, tgCopy, xCopy } from "./messages";
+import { boardText, headingText, plainText, preflightText, tgCopy, xCopy } from "./messages";
 import { CONTROL_COMMANDS, inboxDir, type Control } from "./runner";
 import { held, loadState } from "./state";
 import type { Tg } from "./telegram";
@@ -96,6 +96,7 @@ export async function runCli(args: string[], d: CliDeps): Promise<number> {
         d.out("Usage: cofer-release test 14");
         return 1;
       }
+      await d.tg.send(d.testChat, headingText(u.n));
       await d.tg.photo(d.testChat, posterPath(book, u.n, "square"), tgCopy(book, u));
       await d.tg.photo(d.testChat, posterPath(book, u.n, "wide"), xCopy(u));
       d.out(`Sent update ${u.n}'s two posts to the test group.`);

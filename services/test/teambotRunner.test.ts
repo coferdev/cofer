@@ -115,7 +115,7 @@ describe("arming and the hourly release", () => {
     expect(await arm(bot, "tomorrow")).toBe('Could not read that time. Use: cofer-release arm "2026-11-30 18:00" (UTC).');
   });
 
-  test("update 1 at its hour: gate, draft published, LAUNCHED, then the two copy-ready posts", async () => {
+  test("update 1 at its hour: gate, draft published, LAUNCHED, the heading, then the two copy-ready posts", async () => {
     const { bot, t, g, clock, book } = setup();
     await arm(bot);
     t.sent.length = 0;
@@ -125,17 +125,19 @@ describe("arming and the hourly release", () => {
     clock.now = T0;
     await bot.releaseTick();
     expect(g.s.published).toEqual([1001]);
-    expect(t.sent.map((x) => x.m)).toEqual(["send", "photo", "photo"]);
+    expect(t.sent.map((x) => x.m)).toEqual(["send", "send", "photo", "photo"]);
     expect(t.sent[0]!.text).toStartWith("🟢 <b>COFER IS LAUNCHED</b>");
-    expect(t.sent[1]).toMatchObject({ m: "photo", chat: CHAT, file: "update-01-square.png", text: tgCopy(book, book.byN.get(1)!), html: false });
-    expect(t.sent[2]).toMatchObject({ m: "photo", chat: CHAT, file: "update-01-wide.png", text: xCopy(book.byN.get(1)!), html: false });
+    expect(t.sent[1]).toMatchObject({ m: "send", chat: CHAT, text: "<b>Tech Updates: Update 01 Released</b>" });
+    expect(t.sent[2]).toMatchObject({ m: "photo", chat: CHAT, file: "update-01-square.png", text: tgCopy(book, book.byN.get(1)!), html: false });
+    expect(t.sent[3]).toMatchObject({ m: "photo", chat: CHAT, file: "update-01-wide.png", text: xCopy(book.byN.get(1)!), html: false });
+    expect(bot.st.u[1]!.head).toBe(t.sent[1]!.id);
     expect(bot.st.u[1]!.state).toBe("released");
     // update 2 waits for its own hour
     await bot.releaseTick();
-    expect(t.sent).toHaveLength(3);
+    expect(t.sent).toHaveLength(4);
     clock.now = T0 + H;
     await bot.releaseTick();
-    expect(t.sent.slice(3).map((x) => x.file)).toEqual(["update-02-square.png", "update-02-wide.png"]); // no second LAUNCHED
+    expect(t.sent.slice(4).map((x) => x.file ?? x.text)).toEqual(["<b>Tech Updates: Update 02 Released</b>", "update-02-square.png", "update-02-wide.png"]); // no second LAUNCHED
   });
 
   test("a release that is already published is not published again; GitHub check mode never publishes", async () => {
@@ -202,6 +204,27 @@ describe("restarts never double-post", () => {
     expect(again.st.u[1]!.state).toBe("released");
   });
 
+  test("cut off after the heading: the heading is not sent again after the restart, the two posts follow", async () => {
+    const a = setup();
+    await arm(a.bot);
+    a.t.sent.length = 0;
+    a.clock.now = T0;
+    a.t.s.failPhoto = "square";
+    await a.bot.releaseTick().catch(() => {});
+    const saved = loadState(a.dir);
+    expect(saved.u[1]!.head).toBeGreaterThan(0);
+    expect(saved.u[1]!.tg).toBeUndefined();
+    saved.u[1]!.state = "posting";
+    saved.u[1]!.reason = null;
+    fs.writeFileSync(path.join(a.dir, "state.json"), JSON.stringify(saved));
+    a.t.s.failPhoto = "";
+    a.t.sent.length = 0;
+    const again = a.make();
+    await again.releaseTick();
+    expect(a.t.sent.map((x) => [x.m, x.file])).toEqual([["photo", "update-01-square.png"], ["photo", "update-01-wide.png"]]);
+    expect(again.st.u[1]!.state).toBe("released");
+  });
+
   test("the board is posted and pinned once, and edited in place after a restart", async () => {
     const a = setup();
     await a.bot.boardTick(true);
@@ -231,7 +254,7 @@ describe("the gate holds an update, and the next stays on time", () => {
     expect(t.sent).toHaveLength(1); // one message per real change
     clock.now = T0 + 2 * H;
     await bot.releaseTick();
-    expect(t.sent.slice(1).map((x) => x.file)).toEqual(["update-03-square.png", "update-03-wide.png"]);
+    expect(t.sent.slice(1).map((x) => x.file ?? x.text)).toEqual(["<b>Tech Updates: Update 03 Released</b>", "update-03-square.png", "update-03-wide.png"]);
     expect(bot.held().map((u) => u.n)).toEqual([2]);
   });
 
@@ -248,7 +271,7 @@ describe("the gate holds an update, and the next stays on time", () => {
     await bot.applyControl({ id: "r2", cmd: "release", arg: "1" });
     t.sent.length = 0;
     await bot.releaseTick();
-    expect(t.sent.map((x) => x.file ?? x.text!.split("\n")[0])).toEqual(["🟢 <b>COFER IS LAUNCHED</b>", "update-01-square.png", "update-01-wide.png"]);
+    expect(t.sent.map((x) => x.file ?? x.text!.split("\n")[0])).toEqual(["🟢 <b>COFER IS LAUNCHED</b>", "<b>Tech Updates: Update 01 Released</b>", "update-01-square.png", "update-01-wide.png"]);
   });
 
   test("not VERIFIED until marked checked from the server", async () => {

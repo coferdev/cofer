@@ -100,12 +100,13 @@ describe("preflight", () => {
 });
 
 describe("test posts", () => {
-  test("sent to the test group only", async () => {
+  test("the heading and the two posts, sent to the test group only", async () => {
     const s = setup();
     expect(await runCli(["test", "2"], s.deps)).toBe(0);
-    expect(s.sent.map((x) => [x.chat, x.file])).toEqual([
-      [TEST_CHAT, "update-02-square.png"],
-      [TEST_CHAT, "update-02-wide.png"],
+    expect(s.sent.map((x) => [x.m, x.chat, x.file ?? x.text])).toEqual([
+      ["send", TEST_CHAT, "<b>Tech Updates: Update 02 Released</b>"],
+      ["photo", TEST_CHAT, "update-02-square.png"],
+      ["photo", TEST_CHAT, "update-02-wide.png"],
     ]);
     expect(s.out).toEqual(["Sent update 2's two posts to the test group."]);
   });

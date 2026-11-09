@@ -14,6 +14,7 @@ export interface UpdateState {
   reason?: string | null;
   at?: string; // when it was released or held (ISO)
   verified?: boolean; // marked checked from the server
+  head?: number; // message id of the heading sent before the two posts, once sent
   tg?: number; // message id of the Telegram post (square poster), once sent
   x?: number; // message id of the X post (wide poster), once sent
 }
