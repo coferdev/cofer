@@ -193,7 +193,7 @@ describe("large outflow: the keeper check", () => {
     expect(await checkLargeOutflow(a.d)).toBe((6_000n * U).toString());
     expect(a.since()).toBe(1_800_000_000 - 3600);
     expect(a.sent).toHaveLength(1);
-    expect(a.sent[0]).toStartWith("[cofer alert] large-outflow\n6,000 USDG worth left 1 group account in the last hour (Trip fund).");
+    expect(a.sent[0]).toStartWith("🟡 ALERT · large-outflow\n\nWhat happened: 6,000 USDG worth left 1 group account in the last hour (Trip fund).");
     expect(a.sent[0]).toContain("\nWho acts: Dev checks it is real activity.");
 
     await checkLargeOutflow({ ...a.d }); // still above: no second post
@@ -201,7 +201,7 @@ describe("large outflow: the keeper check", () => {
 
     const quiet = deps([]);
     await checkLargeOutflow({ ...quiet.d, alerts: a.d.alerts }); // the hour moved on
-    expect(a.sent[1]).toStartWith("[cofer alert] large-outflow: Cleared");
+    expect(a.sent[1]).toStartWith("🟢 CLEARED · large-outflow");
     expect(a.open.size).toBe(0);
   });
 

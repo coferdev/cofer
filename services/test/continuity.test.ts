@@ -17,7 +17,8 @@ import { multiplierContinuity, type ContinuityDeps } from "../src/keeper/keeper"
 import type { AlertDeps } from "../src/keeper/alerts";
 
 /** The "what happened" line of a posted alert. */
-const body = (t: string) => t.split("\n")[1];
+/** What happened, without its label (third line, after the name line and the blank line). */
+const body = (t: string) => t.split("\n")[2]!.replace(/^What happened: /, "");
 
 const ONE = 10n ** 18n;
 const H = 3600;
@@ -98,7 +99,7 @@ describe("multiplier continuity alert (M8 gate)", () => {
     expect(r.sent.map(body)).toEqual([
       "TSLA: the multiplier changed 1 → 2 (expected about 2.00×) but the price feed moved 1.01×. Values for TSLA may be wrong (a split counted twice or not at all). Check before trusting them.",
     ]);
-    expect(r.sent[0]).toStartWith("[cofer alert] split-mismatch-TSLA\n");
+    expect(r.sent[0]).toStartWith("🟡 ALERT · split-mismatch-TSLA\n");
     expect(r.sent[0]).toContain("Who acts: Dev checks.");
     expect(r.open.has(KEY)).toBe(true);
   });
@@ -144,7 +145,7 @@ describe("multiplier continuity alert (M8 gate)", () => {
   test("an open alert is not repeated, and clears once the multiplier catches up", async () => {
     const r = await replay([{ answer: 500_00000000n }, { answer: 501_00000000n }, {}, { multiplier: 2n * ONE }, { answer: 503_00000000n }]);
     expect(r.sent.length).toBe(2);
-    expect(r.sent[1]).toBe("[cofer alert] split-mismatch-TSLA: Cleared (price and multiplier agree again).");
+    expect(r.sent[1]).toBe("🟢 CLEARED · split-mismatch-TSLA (price and multiplier agree again)");
     expect(r.open.size).toBe(0);
   });
 
@@ -154,7 +155,7 @@ describe("multiplier continuity alert (M8 gate)", () => {
     const r = await replay(steps);
     expect(r.sent.length).toBe(2);
     expect(body(r.sent[0]!)).toStartWith("TSLA: the price feed moved 0.56×");
-    expect(r.sent[1]).toBe("[cofer alert] split-mismatch-TSLA: Cleared (the new price has held for 24h, so it is now treated as normal).");
+    expect(r.sent[1]).toBe("🟢 CLEARED · split-mismatch-TSLA (the new price has held for 24h, so it is now treated as normal)");
     expect(r.stored!.mismatchSince).toBeNull();
   });
 

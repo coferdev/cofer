@@ -53,7 +53,7 @@ describe("a background job that keeps failing", () => {
     await s.fail(s.job("holdings"));
     await s.fail(s.job("holdings"));
     expect(s.sent.length).toBe(1);
-    expect(s.sent[0]).toBe('[cofer alert] job-failing\nBackground job "holdings" (cofer-keeper) has failed 3 times in a row. Last error: PostgresError: connect ECONNREFUSED <url>. See the log for details.\nWho acts: Dev checks.');
+    expect(s.sent[0]).toBe('🟡 ALERT · job-failing\n\nWhat happened: Background job "holdings" (cofer-keeper) has failed 3 times in a row. Last error: PostgresError: connect ECONNREFUSED <url>. See the log for details.\nWho acts: Dev checks.');
     expect(s.sent[0]).not.toContain("SECRETKEY123");
   });
 
@@ -63,7 +63,7 @@ describe("a background job that keeps failing", () => {
     await s.ok("stocks");
     await s.ok("stocks");
     expect(s.sent.length).toBe(2);
-    expect(s.sent[1]).toBe("[cofer alert] job-failing: Cleared (it succeeded again).");
+    expect(s.sent[1]).toBe("🟢 CLEARED · job-failing (it succeeded again)");
     expect(s.open.size).toBe(0);
   });
 
@@ -101,7 +101,7 @@ describe("a background job that keeps failing", () => {
     const s = setup();
     s.open.set(jobAlertKey("cofer-keeper", "holdings"), "[cofer alert] job-failing\nold alert\nWho acts: Dev checks.");
     await s.ok("holdings");
-    expect(s.sent).toEqual(["[cofer alert] job-failing: Cleared (it succeeded again)."]);
+    expect(s.sent).toEqual(["🟢 CLEARED · job-failing (it succeeded again)"]);
   });
 
   test("a long error is cut to keep the alert short", () => {

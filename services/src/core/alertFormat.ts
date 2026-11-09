@@ -1,10 +1,15 @@
 /**
  * The one format for every staff alert (see docs/alerts.md):
  *
- *   [cofer alert] price-stale-TSLA
- *   TSLA price is past its limit (14h old, limit 12h). Deposits and swaps that need it are refused.
+ *   🟡 ALERT · price-stale-TSLA
+ *
+ *   What happened: TSLA price is past its limit (14h old, limit 12h). Deposits and swaps that need it are refused.
  *   Who acts: Dev checks.
  *   https://explorer.example/tx/0x…
+ *
+ * An emergency (role-changed) starts with 🔴 instead of 🟡. When it ends: "🟢 CLEARED · price-stale-TSLA (the feed updated)".
+ * Alerts stored in the earlier format ("[cofer alert] name", "(EMERGENCY)") are still read by
+ * nameFromText and isEmergencyText, so ones open across the change clear and repeat as before.
  *
  * No full addresses: known ones become role names, tokens their symbol, anything else 0x1234…abcd.
  * Transaction and vote hashes are shortened the same way; a transaction is shown as an explorer
@@ -13,13 +18,20 @@
  */
 import { redact } from "./errors";
 
-export const ALERT_PREFIX = "[cofer alert]";
+/** First line of an alert: "🟡 ALERT · <name>" (🔴 for an emergency). */
+export const ALERT_HEAD = "ALERT ·";
+export const ALERT_DOT = "🟡";
+export const EMERGENCY_DOT = "🔴";
+export const CLEARED_HEAD = "🟢 CLEARED ·";
+/** The first line used before this format (still read from stored alerts). */
+const OLD_PREFIX = "[cofer alert]";
+const OLD_EMERGENCY = " (EMERGENCY)";
 
 /** Who acts, in the staff group's words. */
 export const WHO = {
   dev: "Dev checks.",
   topUp: "Top up the relayer.",
-  emergency: "Emergency: tell the owner and the dev at once.",
+  emergency: "Tell the owner and the dev at once.",
   none: "No action needed if this change was planned. If it was not, tell the owner and the dev at once.",
 } as const;
 
@@ -139,33 +151,44 @@ export interface FormatOptions {
 export function alertText(m: AlertMessage, o: FormatOptions = {}): string {
   const keep = o.keep ?? m.keep;
   const clean = (s: string) => scrubHex(redact(s), o.book, keep).trim();
-  const lines = [`${ALERT_PREFIX} ${m.name}${m.emergency ? " (EMERGENCY)" : ""}`, clean(m.what), `Who acts: ${clean(m.who)}`];
+  const lines = [`${m.emergency ? EMERGENCY_DOT : ALERT_DOT} ${ALERT_HEAD} ${m.name}`, "", `What happened: ${clean(m.what)}`, `Who acts: ${clean(m.who)}`];
   if (m.tx) lines.push(txLink(o.explorer, m.tx));
   return lines.join("\n");
 }
 
-/** The name in a stored alert's first line ("[cofer alert] role-changed (EMERGENCY)" -> "role-changed"), else null. */
+/**
+ * The name in a stored alert's first line, else null. Reads both formats:
+ * "🔴 ALERT · role-changed" and the earlier "[cofer alert] role-changed (EMERGENCY)" -> "role-changed".
+ */
 export function nameFromText(text: string): string | null {
   const first = text.split("\n")[0]!;
-  if (!first.startsWith(`${ALERT_PREFIX} `)) return null;
-  return first.slice(ALERT_PREFIX.length + 1).replace(/ \(EMERGENCY\)$/, "").trim() || null;
+  for (const dot of [ALERT_DOT, EMERGENCY_DOT]) {
+    const head = `${dot} ${ALERT_HEAD} `;
+    if (first.startsWith(head)) return first.slice(head.length).trim() || null;
+  }
+  if (first.startsWith(`${OLD_PREFIX} `)) {
+    const rest = first.slice(OLD_PREFIX.length + 1);
+    return (rest.endsWith(OLD_EMERGENCY) ? rest.slice(0, -OLD_EMERGENCY.length) : rest).trim() || null;
+  }
+  return null;
 }
 
-/** True if a stored alert is an emergency. */
+/** True if a stored alert is an emergency (🔴 first line, or "(EMERGENCY)" in the earlier format). */
 export function isEmergencyText(text: string): boolean {
-  return text.split("\n")[0]!.endsWith(" (EMERGENCY)");
+  const first = text.split("\n")[0]!;
+  return first.startsWith(`${EMERGENCY_DOT} ${ALERT_HEAD} `) || (first.startsWith(`${OLD_PREFIX} `) && first.endsWith(OLD_EMERGENCY));
 }
 
-/** "[cofer alert] price-stale-TSLA: Cleared (the feed updated)." */
+/** "🟢 CLEARED · price-stale-TSLA (the feed updated)", or "🟢 CLEARED · job-failing" with no note. */
 export function clearedText(name: string, note?: string): string {
   const why = note ? ` (${scrubHex(redact(note)).trim()})` : "";
-  return `${ALERT_PREFIX} ${name}: Cleared${why}.`;
+  return `${CLEARED_HEAD} ${name}${why}`;
 }
 
 /** How often an open emergency is posted again (the owner's setting). Other alerts are never repeated. */
 export const EMERGENCY_REMIND_EVERY_SEC = 30 * 60;
 
-/** A reminder for an emergency that is still open, from its stored message: "Still open after 45m." after the name line. */
+/** A reminder for an emergency that is still open, from its stored message: "Still open after 45m." right under the first line. */
 export function reminderText(stored: string, openForSec: number): string {
   const mins = Math.max(0, Math.floor(openForSec / 60));
   const since = mins >= 120 ? `${Math.floor(mins / 60)}h ${mins % 60}m` : `${mins}m`;

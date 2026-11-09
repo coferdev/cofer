@@ -74,10 +74,10 @@ describe("relayer ETH: the ops job", () => {
     wei = parseEther("0.05");
     await checkRelayerFunds(deps);
     expect(sent.length).toBe(2);
-    expect(sent[0]).toStartWith("[cofer alert] relayer-low\nThe relayer's ETH is low: 0.004 ETH left");
+    expect(sent[0]).toStartWith("🟡 ALERT · relayer-low\n\nWhat happened: The relayer's ETH is low: 0.004 ETH left");
     expect(sent[0]).toContain(`Send ETH on Robinhood Chain to ${RELAYER}.`); // the one full address allowed
     expect(sent[0]).toEndWith("Who acts: Top up the relayer.");
-    expect(sent[1]).toBe("[cofer alert] relayer-low: Cleared.");
+    expect(sent[1]).toBe("🟢 CLEARED · relayer-low");
   });
 
   test("a failed balance read changes nothing and logs no URL", async () => {

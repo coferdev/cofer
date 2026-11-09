@@ -41,7 +41,7 @@ describe("emergency reminders", () => {
       f.tick(5 * MIN); // the keeper's ops job runs every 5 minutes
       await remindEmergencies(f.deps);
     }
-    expect(f.sent).toEqual([alertText({ name: "role-changed", what: "Still open after 30m.\nThe guardian was changed to 0x0000…0bad.", who: WHO.emergency, emergency: true })]);
+    expect(f.sent).toEqual(["🔴 ALERT · role-changed\nStill open after 30m.\n\nWhat happened: The guardian was changed to 0x0000…0bad.\nWho acts: Tell the owner and the dev at once."]);
     for (let i = 0; i < 6; i++) {
       f.tick(5 * MIN);
       await remindEmergencies(f.deps);

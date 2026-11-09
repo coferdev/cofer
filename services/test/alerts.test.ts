@@ -40,8 +40,8 @@ describe("alerts: once when a problem starts, once when it clears", () => {
     expect(await checkAlert("feed-stale:usdg", null, deps)).toBe("cleared");
     expect(await checkAlert("feed-stale:usdg", null, deps)).toBeNull();
     expect(sent).toEqual([
-      "[cofer alert] price-stale-USDG\nUSDG price feed is past its limit (25h old, limit 24h).\nWho acts: Dev checks.",
-      "[cofer alert] price-stale-USDG: Cleared.",
+      "🟡 ALERT · price-stale-USDG\n\nWhat happened: USDG price feed is past its limit (25h old, limit 24h).\nWho acts: Dev checks.",
+      "🟢 CLEARED · price-stale-USDG",
     ]);
   });
 
@@ -57,7 +57,7 @@ describe("alerts: once when a problem starts, once when it clears", () => {
     await checkAlert("feed-stale:nvda", msg("price-stale-NVDA", "NVDA stale."), deps);
     await checkAlert("feed-stale:tsla", null, deps);
     expect([...open.keys()]).toEqual(["feed-stale:nvda"]);
-    expect(sent).toEqual([alertText(msg("price-stale-TSLA", "TSLA stale.")), alertText(msg("price-stale-NVDA", "NVDA stale.")), "[cofer alert] price-stale-TSLA: Cleared."]);
+    expect(sent).toEqual([alertText(msg("price-stale-TSLA", "TSLA stale.")), alertText(msg("price-stale-NVDA", "NVDA stale.")), "🟢 CLEARED · price-stale-TSLA"]);
   });
 
   test("the message is built by the deps' formatter (the real one names known addresses)", async () => {
@@ -71,7 +71,7 @@ describe("alerts: once when a problem starts, once when it clears", () => {
     const { deps, open, sent } = fakeDeps();
     open.set("feed-stale:0x5fc5360d0400a0fd4f2af552add042d716f1d168", "USDG price feed is past its limit.");
     await checkAlert("feed-stale:0x5fc5360d0400a0fd4f2af552add042d716f1d168", null, deps);
-    expect(sent).toEqual(["[cofer alert] feed-stale:0x5fc5…d168: Cleared."]);
+    expect(sent).toEqual(["🟢 CLEARED · feed-stale:0x5fc5…d168"]);
   });
 });
 

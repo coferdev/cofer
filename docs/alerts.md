@@ -5,22 +5,24 @@ Pin this in the staff group.
 ## How to read an alert
 
 ```
-[cofer alert] price-stale-TSLA
-TSLA price feed is past its limit (97h old, limit 96h). Deposits and swaps that need it are refused until it updates. Exits are not affected.
+🟡 ALERT · price-stale-TSLA
+
+What happened: TSLA price feed is past its limit (97h old, limit 96h). Deposits and swaps that need it are refused until it updates. Exits are not affected.
 Who acts: Dev checks.
 https://robinhoodchain.blockscout.com/tx/0x…
 ```
 
-- First line: the alert's name. **(EMERGENCY)** after it means act now.
-- Then what happened, then who acts. A link, when there is one, opens the transaction on the block explorer.
+- First line: the alert's name. 🟡 is a normal alert. **🔴 means act now** (role-changed).
+- Then a blank line, what happened, and who acts. A link, when there is one, opens the transaction on the block explorer.
 - Addresses are shown by role (owner Safe, guardian, fee wallet, relayer, factory, fee router, swap adapter) or token symbol. Anything else is shortened, like 0x1234…abcd.
-- Each problem is posted once. When it ends you get one line: `[cofer alert] <name>: Cleared`.
-- An emergency is posted again every 30 minutes until it clears, with how long it has been open.
+- Each problem is posted once. When it ends you get one line: `🟢 CLEARED · <name>`, sometimes with the reason in brackets, like `🟢 CLEARED · vote-stuck (it executed)`.
+- A 🔴 alert is posted again every 30 minutes until it clears, with how long it has been open.
+- Alerts posted before this look (starting `[cofer alert]`) still clear and repeat normally.
 - If nothing is needed from anyone, nothing is posted.
 
 Members can always exit. No alert, pause or outage changes that.
 
-## Emergencies
+## Act now (🔴)
 
 | Name | What it means | Who acts |
 |---|---|---|

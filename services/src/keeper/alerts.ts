@@ -1,6 +1,6 @@
 /**
  * Staff alerts. Each problem has a key; an alert is sent once when the problem starts and once when
- * it clears ("[cofer alert] <name>: Cleared"), never on every keeper run. It always goes to the log,
+ * it clears ("🟢 CLEARED · <name>"), never on every keeper run. It always goes to the log,
  * and to the staff chat when OPS_CHAT_ID is set. Never to a group chat. Every message is built by
  * core/alertFormat.ts: a name, what happened, who acts, and no full addresses.
  *
@@ -152,7 +152,7 @@ function storedName(text: string, key: string): string {
  * Reports the current state of one problem: `problem` is its message while it holds, null when it
  * does not. Returns what was sent ("opened" / "cleared") or null when nothing changed. The first
  * message is kept unchanged while the problem lasts (one alert per problem).
- * `clearedNote` says why it cleared ("[cofer alert] vote-stuck: Cleared (it executed).").
+ * `clearedNote` says why it cleared ("🟢 CLEARED · vote-stuck (it executed)").
  * If delivery fails, the change is undone (so the next run sends it again) and the failure is
  * logged; it never throws, so one failed message does not stop the checks after it.
  */

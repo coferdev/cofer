@@ -171,7 +171,7 @@ describe("a failed delivery is tried again", () => {
     await logs(async () => expect(await checkAlert("k", null, flaky)).toBeNull());
     expect(open.get("k")).toBe(alertText(PROBLEM));
     expect(await checkAlert("k", null, flaky)).toBe("cleared");
-    expect(sent).toEqual([alertText(PROBLEM), "[cofer alert] job-failing: Cleared."]);
+    expect(sent).toEqual([alertText(PROBLEM), "🟢 CLEARED · job-failing"]);
   });
 });
 

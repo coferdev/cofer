@@ -50,7 +50,7 @@ describe("admin-change alerts", () => {
     expect(f.posts).toEqual([{ name: "admin-change", what: "Deposits are paused in every pot. Exits are not affected.", who: "Tell the groups. If nobody planned this pause, tell the owner and the dev at once.", tx: TX }]);
     expect(f.groups).toHaveLength(0);
     const text = alertText(f.posts[0]!, { explorer: "https://robinhoodchain.blockscout.com" });
-    expect(text).toStartWith("[cofer alert] admin-change\n");
+    expect(text).toStartWith("🟡 ALERT · admin-change\n");
     expect(text).toEndWith(`https://robinhoodchain.blockscout.com/tx/${TX}`);
   });
 
@@ -101,10 +101,10 @@ describe("admin-change alerts", () => {
     await onAdminEvent(f.deps, ev("SinksSet", { sinks: [FEE_WALLET, A(0xbad), FEE_WALLET, FEE_WALLET], bps: [8000, 1000, 500, 500] }, "feeRouter"), true);
     await onAdminEvent(f.deps, ev("FactorySet", { factory: A(0xbad) }, "feeRouter"), true);
     expect(f.opened.map(([k]) => k)).toEqual([ROLES_ALERT, ROLES_ALERT, adapterAlertKey(A(0xbad)), SINKS_ALERT, ROUTER_FACTORY_ALERT]);
-    for (const [, m] of f.opened) expect(m).toMatchObject({ name: "role-changed", emergency: true, who: "Emergency: tell the owner and the dev at once.", tx: TX });
+    for (const [, m] of f.opened) expect(m).toMatchObject({ name: "role-changed", emergency: true, who: "Tell the owner and the dev at once.", tx: TX });
     expect(f.posts).toHaveLength(0);
     const text = alertText(f.opened[0]![1], { book: addressBook({ guardian: GUARD_X }) });
-    expect(text).toStartWith("[cofer alert] role-changed (EMERGENCY)\nThe guardian was changed to 0x0000…0bad, which is not the expected guardian.");
+    expect(text).toStartWith("🔴 ALERT · role-changed\n\nWhat happened: The guardian was changed to 0x0000…0bad, which is not the expected guardian.");
     expect(text).not.toMatch(/0x[0-9a-fA-F]{40}/);
   });
 

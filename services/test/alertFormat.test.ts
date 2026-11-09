@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { addressBook, alertName, alertText, clearedText, nameOf, reminderText, scrubHex, shortHex, txLink, WHO } from "../src/core/alertFormat";
+import { addressBook, alertName, alertText, clearedText, isEmergencyText, nameFromText, nameOf, reminderText, scrubHex, shortHex, txLink, WHO } from "../src/core/alertFormat";
 import { parseEnv } from "../src/env";
 
 const OWNER = "0x5ACD09eAe4f160e2f2e2356e6eF0496EF6f0f064";
@@ -13,15 +13,35 @@ const FULL_ADDRESS = /0x[0-9a-fA-F]{40}/;
 const book = addressBook({ owner: OWNER, guardian: GUARDIAN, feeWallet: GUARDIAN, relayer: RELAYER }, { [TSLA]: "TSLA" });
 
 describe("alert format", () => {
-  test("starts with the prefix and name, then what happened, then who acts", () => {
+  test("yellow dot and name, a blank line, then what happened, then who acts", () => {
     const t = alertText({ name: "indexer-behind", what: "The indexer is 12m behind the chain.", who: WHO.dev });
-    expect(t).toBe("[cofer alert] indexer-behind\nThe indexer is 12m behind the chain.\nWho acts: Dev checks.");
+    expect(t).toBe("🟡 ALERT · indexer-behind\n\nWhat happened: The indexer is 12m behind the chain.\nWho acts: Dev checks.");
   });
 
-  test("an emergency is marked", () => {
+  test("an emergency gets a red dot, and the word EMERGENCY is not in the text", () => {
     const t = alertText({ name: "role-changed", what: "x", who: WHO.emergency, emergency: true });
-    expect(t.split("\n")[0]).toBe("[cofer alert] role-changed (EMERGENCY)");
-    expect(t).toContain("Who acts: Emergency: tell the owner and the dev at once.");
+    expect(t).toBe("🔴 ALERT · role-changed\n\nWhat happened: x\nWho acts: Tell the owner and the dev at once.");
+    expect(t.toLowerCase()).not.toContain("emergency");
+  });
+
+  test("the name and emergency mark are read back from the new format", () => {
+    const plain = alertText({ name: "price-stale-TSLA", what: "x", who: WHO.dev });
+    const red = alertText({ name: "role-changed", what: "x", who: WHO.emergency, emergency: true });
+    expect(nameFromText(plain)).toBe("price-stale-TSLA");
+    expect(nameFromText(red)).toBe("role-changed");
+    expect(isEmergencyText(plain)).toBe(false);
+    expect(isEmergencyText(red)).toBe(true);
+  });
+
+  test("alerts stored in the earlier format are still read", () => {
+    expect(nameFromText("[cofer alert] job-failing\nold alert\nWho acts: Dev checks.")).toBe("job-failing");
+    expect(nameFromText("[cofer alert] role-changed (EMERGENCY)\nThe guardian changed.")).toBe("role-changed");
+    expect(isEmergencyText("[cofer alert] role-changed (EMERGENCY)\nThe guardian changed.")).toBe(true);
+    expect(isEmergencyText("[cofer alert] job-failing\nold alert")).toBe(false);
+    expect(nameFromText("something else")).toBeNull();
+    expect(isEmergencyText("something else (EMERGENCY)")).toBe(false);
+    // an old open emergency still gets its reminder line under its first line
+    expect(reminderText("[cofer alert] role-changed (EMERGENCY)\nThe guardian changed.", 30 * 60)).toBe("[cofer alert] role-changed (EMERGENCY)\nStill open after 30m.\nThe guardian changed.");
   });
 
   test("known addresses become role names or symbols, case-insensitively", () => {
@@ -60,10 +80,10 @@ describe("alert format", () => {
   });
 
   test("cleared and reminder lines", () => {
-    expect(clearedText("price-stale-TSLA", "the feed updated")).toBe("[cofer alert] price-stale-TSLA: Cleared (the feed updated).");
-    expect(clearedText("job-failing")).toBe("[cofer alert] job-failing: Cleared.");
+    expect(clearedText("price-stale-TSLA", "the feed updated")).toBe("🟢 CLEARED · price-stale-TSLA (the feed updated)");
+    expect(clearedText("job-failing")).toBe("🟢 CLEARED · job-failing");
     const stored = alertText({ name: "role-changed", what: "The guardian changed.", who: WHO.emergency, emergency: true });
-    expect(reminderText(stored, 45 * 60)).toBe("[cofer alert] role-changed (EMERGENCY)\nStill open after 45m.\nThe guardian changed.\nWho acts: Emergency: tell the owner and the dev at once.");
+    expect(reminderText(stored, 45 * 60)).toBe("🔴 ALERT · role-changed\nStill open after 45m.\n\nWhat happened: The guardian changed.\nWho acts: Tell the owner and the dev at once.");
     expect(reminderText(stored, 2 * 3600 + 5 * 60)).toContain("Still open after 2h 5m.");
   });
 

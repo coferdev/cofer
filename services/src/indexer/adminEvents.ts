@@ -4,7 +4,7 @@
  *    expected one, and every admin event from history (first start, or a block more than
  *    HISTORY_AGE_SEC old while the indexer catches up)
  *  - one short info line ("admin-change"): a change that matches the expected roles and settings
- *  - role-changed (EMERGENCY): an owner, guardian, fee sink, swap adapter or router factory that is
+ *  - role-changed (emergency, 🔴): an owner, guardian, fee sink, swap adapter or router factory that is
  *    not the expected one. Owner and guardian share the keeper's role check alert, which also
  *    clears it; the others clear when a later event puts the expected value back (or removes the adapter).
  * Changes QUEUED behind the 48h timelock (feed, swap adapter, swap fee) are also announced in every

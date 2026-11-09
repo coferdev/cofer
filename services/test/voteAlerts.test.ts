@@ -82,7 +82,7 @@ describe("when a vote alert clears", () => {
     };
     const n = await clearVoteAlerts({ open: async () => [...open.keys()], proposal: async (id) => rows[id], alerts, now: () => NOW });
     expect(n).toBe(2);
-    expect(sent).toEqual(["[cofer alert] vote-stuck: Cleared (it executed).", "[cofer alert] vote-stuck: Cleared (its deadline has passed)."]);
+    expect(sent).toEqual(["🟢 CLEARED · vote-stuck (it executed)", "🟢 CLEARED · vote-stuck (its deadline has passed)"]);
     expect([...open.keys()]).toEqual([voteAlertKey("0xa2")]);
   });
 });

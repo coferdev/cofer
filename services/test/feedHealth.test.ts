@@ -117,7 +117,7 @@ describe("feed health: the keeper job", () => {
       { asset: "TSLA", ageSec: H },
     ]);
     expect(r1.sent).toEqual([
-      "[cofer alert] price-stale-USDG\nUSDG price feed is past its limit (25h old, limit 24h). Deposits and swaps that need it are refused until it updates. Exits are not affected.\nWho acts: Dev checks.",
+      "🟡 ALERT · price-stale-USDG\n\nWhat happened: USDG price feed is past its limit (25h old, limit 24h). Deposits and swaps that need it are refused until it updates. Exits are not affected.\nWho acts: Dev checks.",
     ]);
 
     const r2 = run({ [USDG]: () => feed(25 * H + 15 * 60), [TSLA]: () => feed(H, 4 * DAY) }, opened);
@@ -126,7 +126,7 @@ describe("feed health: the keeper job", () => {
 
     const r3 = run({ [USDG]: () => feed(10 * 60), [TSLA]: () => feed(H, 4 * DAY) }, opened);
     await r3.done;
-    expect(r3.sent).toEqual(["[cofer alert] price-stale-USDG: Cleared."]);
+    expect(r3.sent).toEqual(["🟢 CLEARED · price-stale-USDG"]);
     expect(opened.size).toBe(0);
   });
 
@@ -140,7 +140,7 @@ describe("feed health: the keeper job", () => {
     const r2 = run({ [USDG]: () => feed(DAY + 5 * 60 + 1), [TSLA]: () => feed(H, 4 * DAY) }, opened);
     await r2.done;
     expect(r2.sent).toEqual([
-      "[cofer alert] price-stale-USDG\nUSDG price feed is past its limit (24h 5m old, limit 24h). Deposits and swaps that need it are refused until it updates. Exits are not affected.\nWho acts: Dev checks.",
+      "🟡 ALERT · price-stale-USDG\n\nWhat happened: USDG price feed is past its limit (24h 5m old, limit 24h). Deposits and swaps that need it are refused until it updates. Exits are not affected.\nWho acts: Dev checks.",
     ]);
   });
 
@@ -149,7 +149,7 @@ describe("feed health: the keeper job", () => {
     const r = run({ [USDG]: () => feed(H), [TSLA]: () => feed(4 * DAY + 30, 4 * DAY) }, opened);
     await r.done;
     expect(r.sent).toHaveLength(1);
-    expect(r.sent[0]).toStartWith("[cofer alert] price-stale-TSLA\n");
+    expect(r.sent[0]).toStartWith("🟡 ALERT · price-stale-TSLA\n");
   });
 
   test("close to the limit: written to the log, never posted", async () => {
@@ -188,7 +188,7 @@ describe("feed health: the keeper job", () => {
       console.error = origError;
     }
     expect(opened.has(`feed-stale:${USDG.toLowerCase()}`)).toBe(true); // not cleared by the failed read
-    expect(r.sent.some((t) => t.startsWith("[cofer alert] price-stale-TSLA\nTSLA price feed is past its limit"))).toBe(true);
+    expect(r.sent.some((t) => t.startsWith("🟡 ALERT · price-stale-TSLA\n\nWhat happened: TSLA price feed is past its limit"))).toBe(true);
     expect(r.sent.join(" ")).not.toContain("SECRETKEY123");
   });
 

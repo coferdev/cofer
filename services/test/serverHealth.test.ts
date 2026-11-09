@@ -111,12 +111,12 @@ describe("server health: the keeper job", () => {
     await s.run(); // 5 minutes
     await s.run();
     expect(s.sent).toHaveLength(1);
-    expect(s.sent[0]).toStartWith("[cofer alert] rpc-down\nThe chain RPC has not answered for 5m.");
+    expect(s.sent[0]).toStartWith("🟡 ALERT · rpc-down\n\nWhat happened: The chain RPC has not answered for 5m.");
     expect(s.sent[0]).toEndWith("Who acts: Dev checks the RPC provider, and switches RHC_RPC_URL if it stays down.");
     expect(s.sent[0]).not.toContain("SECRETKEY123");
     st.rpcUp = true;
     await s.run();
-    expect(s.sent[1]).toBe("[cofer alert] rpc-down: Cleared (the chain RPC answers again).");
+    expect(s.sent[1]).toBe("🟢 CLEARED · rpc-down (the chain RPC answers again)");
   });
 
   test("a short RPC blip never alerts", async () => {
@@ -140,17 +140,17 @@ describe("server health: the keeper job", () => {
     st.errors = 25;
     st.memUsed = 0.95;
     await s.run();
-    expect(s.sent.map((t) => t.split("\n")[0])).toEqual(["[cofer alert] errors-spike", "[cofer alert] disk-low"]);
+    expect(s.sent.map((t) => t.split("\n")[0])).toEqual(["🟡 ALERT · errors-spike", "🟡 ALERT · disk-low"]);
     s.tick(5 * MIN);
     await s.run();
-    expect(s.sent.at(-1)!.split("\n")[0]).toBe("[cofer alert] memory-high");
+    expect(s.sent.at(-1)!.split("\n")[0]).toBe("🟡 ALERT · memory-high");
     for (const t of s.sent) {
       expect(t).toContain("\nWho acts: Dev ");
       expect(t).not.toMatch(FULL_ADDRESS);
     }
     Object.assign(st, healthy());
     await s.run();
-    expect(s.sent.slice(-3)).toEqual(["[cofer alert] errors-spike: Cleared.", "[cofer alert] disk-low: Cleared.", "[cofer alert] memory-high: Cleared."]);
+    expect(s.sent.slice(-3)).toEqual(["🟢 CLEARED · errors-spike", "🟢 CLEARED · disk-low", "🟢 CLEARED · memory-high"]);
   });
 
   test("one check that cannot run does not stop the others, and the job never throws", async () => {
@@ -164,7 +164,7 @@ describe("server health: the keeper job", () => {
     }
     expect(out.errors).toBeNull();
     expect(out.diskFree).toBe(0.05);
-    expect(s.sent.map((t) => t.split("\n")[0])).toEqual(["[cofer alert] disk-low"]);
+    expect(s.sent.map((t) => t.split("\n")[0])).toEqual(["🟡 ALERT · disk-low"]);
   });
 });
 
@@ -195,7 +195,7 @@ describe("during an RPC outage: one alert", () => {
     }
     a.trouble.on = false; // grace period over
     expect(await checkAlert("indexer-behind", lag, a.alerts)).toBe("opened");
-    expect(a.sent[0]).toStartWith("[cofer alert] indexer-behind\n");
+    expect(a.sent[0]).toStartWith("🟡 ALERT · indexer-behind\n");
     expect(RPC_GRACE_SEC).toBe(5 * MIN);
   });
 
