@@ -7,6 +7,12 @@ Security issues still open are listed in [SECURITY.md](SECURITY.md).
 
 Fixes from the 2026-11-01 review of `0.1.0` (commit `aba0779`). `contracts/src` has changed since the review (see "Contracts" below) and needs a re-audit and a new deploy before these changes are live.
 
+### Mainnet
+- Cofer is live on Robinhood Chain mainnet (chain 4663): factory, fee router, group account template and swap adapter deployed on 2026-11-06; addresses in contracts/deployments/4663.json.
+- Ownership of the factory and fee router moved to the team's 2-of-3 multisig on 2026-11-06 (two-step handover, accepted in one batch).
+- All four contracts verified on Sourcify (exact match): repo.sourcify.dev/4663/`<address>`.
+- Four Stock Tokens listed by the owner multisig: TSLA, NVDA, SPY, AAPL, each with a price feed and age limit (block 107573104).
+
 ### Contracts
 - **M-1:** a deposit is refused with `DepositPriceTooOld(asset, age)` while any held non-USDG asset's feed is more than 12 hours old (`CoferPot.MAX_DEPOSIT_PRICE_AGE`, read through the new `CoferFactory.priceUpdatedAt`). Groups holding stocks cannot deposit at weekends, on holidays and late at night; the USDG feed and exits are not affected. `/deposit` and the signer page say so before anything is signed. The 12 hours come from 14 days of feed history; the remaining after-hours risk is accepted in SECURITY.md.
 - **H-2:** every non-unanimous vote, swaps included, now waits `guardDelay` before it runs, so members who disagree can exit before a majority's swaps. Unanimous swaps still run at once; a queued swap's price checks run again when it executes. The bot explains the wait after `/buy` and `/sell` and suggests a higher `slip=` for queued swaps.
@@ -49,6 +55,7 @@ Fixes from the 2026-11-01 review of `0.1.0` (commit `aba0779`). `contracts/src` 
 - CI: every action is pinned to a commit SHA, the job token is read-only, and checkouts do not keep credentials.
 - Bun is pinned to 1.4.4 (`packageManager` in `services/package.json`, also used by CI); `@zerodev/*` are pinned to exact versions.
 - Installs: no package may run install scripts (`trustedDependencies: []` for Bun, `ignore-scripts` for npm in `contracts/`), and Bun skips package versions less than 3 days old. `contracts/package-lock.json` is now committed.
+- Staff alerts rewritten in plain words (what happened, who acts, whether exits are affected); documented in docs/alerts.md.
 
 ### Fixed
 - Vote cards are posted again. Every card was refused by Telegram with `BUTTON_DATA_INVALID` because its Approve / review and Details buttons carried the full proposal id (71 bytes; Telegram allows 64), so no card ever appeared in a group. The buttons now carry the id in a 43-character form (48 bytes), and a strict Telegram stand-in in the tests (`services/test/strictTelegram.ts`: button data, text length, https urls) fails any future message Telegram would refuse. `services/scripts/repost-card.ts` queues the card again for a vote whose card never appeared; it sends no transaction.
