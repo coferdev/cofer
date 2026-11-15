@@ -24,6 +24,7 @@ import { ECDSA_OWNER_ABI, walletAccountAddress } from "../core/accountKind";
 import { keyChoice, pagePath, type PageMode } from "../core/keyChoice";
 import { chainName, needsAddChain, WALLET_OFF_TEXT, wrongNetworkText } from "../core/walletChain";
 import { WALLET_LOSS_WARNING } from "../core/passkeyWarning";
+import { PASSKEY_BUTTON, SIGNUP_INTRO, SIGNUP_INTRO_PASSKEY, WALLET_BUTTON } from "../core/signupText";
 import { RHC } from "../chain/addresses";
 import { failureText, isHandOff, SENDING_TEXT, ServerSaid } from "../core/retryText";
 import { inAppBrowser, inAppText } from "../core/inAppBrowser";
@@ -384,7 +385,9 @@ async function main() {
   // sign-up on the passkey page: the second option opens the wallet page for the same link
   const offerWallet = () => {
     if (!choice.wallet || MODE !== "passkey") return;
+    walletBtn.textContent = WALLET_BUTTON;
     walletBtn.hidden = false;
+    $("walletNote").hidden = false; // the wallet option's own line, shown with its button
     walletBtn.onclick = () => location.assign(pagePath("wallet", cfg.token));
   };
   // Inside an app's built-in browser passkeys fail: stop before the button, so no passkey prompt
@@ -465,9 +468,14 @@ async function main() {
   if (ex.purpose === "onboard") {
     offerWallet();
     $("title").textContent = "Set up your key";
-    $("body").textContent = "Creates a passkey on this device. It controls your seat: votes, deposits and exits. Nobody else can use it.";
+    // both options: a neutral intro, one line saying either works, and "or" between the buttons
+    $("body").textContent = choice.wallet ? SIGNUP_INTRO : SIGNUP_INTRO_PASSKEY;
+    if (choice.wallet) {
+      $("choice").hidden = false;
+      $("or").hidden = false;
+    }
     $("keywarn").hidden = false; // shown before the passkey is created
-    act.textContent = "Create passkey";
+    act.textContent = PASSKEY_BUTTON;
     act.onclick = guard(async () => {
       say("Creating passkey...");
       const s = await getSigner(true);

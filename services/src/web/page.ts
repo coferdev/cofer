@@ -4,6 +4,7 @@ import { createHash } from "node:crypto";
 import { CONFIG_ELEMENT_ID, configJson } from "./pageConfig";
 import { EXIT_CONFIRM_TEXT, EXIT_NETWORK_WARNING, EXIT_SET_ASIDE_NOTE, EXIT_TOGGLE_TEXT } from "../core/exitDestination";
 import { PASSKEY_LOSS_WARNING } from "../core/passkeyWarning";
+import { SIGNUP_CHOICE, WALLET_SEAT_NOTE } from "../core/signupText";
 
 export interface PageCfg {
   chainId: number;
@@ -44,7 +45,11 @@ small{color:var(--muted)}
 #notice p{color:var(--muted);margin:0}
 .warn{color:var(--warn);font-size:14px;margin:8px 0}
 details{margin:12px 0}summary{cursor:pointer;color:var(--accent);font-weight:600}
-.addr{font-family:ui-monospace,Menlo,monospace;overflow-wrap:break-word;margin:4px 0}`;
+.addr{font-family:ui-monospace,Menlo,monospace;overflow-wrap:break-word;margin:4px 0}
+#choice{margin:16px 0 0;font-weight:600}
+.or{display:flex;align-items:center;gap:10px;color:var(--muted);font-size:14px;margin:14px 0 2px}
+.or::before,.or::after{content:"";flex:1;border-top:1px solid var(--muted);opacity:.4}
+.or[hidden]{display:none}`;
 
 const styleHash = createHash("sha256").update(PAGE_CSS, "utf8").digest("base64");
 
@@ -107,7 +112,6 @@ export function signerPage(token: string, cfg: PageCfg): string {
 <body><main><div class="card">
 <h1 id="title">Loading...</h1>
 <p id="body"></p>
-<p id="keywarn" class="warn" hidden>${esc(PASSKEY_LOSS_WARNING)}</p>
 <details id="dest" hidden><summary>${esc(EXIT_TOGGLE_TEXT)}</summary>
 <p class="warn">${esc(EXIT_NETWORK_WARNING)}</p>
 <input id="destAddr" placeholder="Destination 0x..." autocomplete="off" autocapitalize="off" spellcheck="false">
@@ -118,8 +122,11 @@ export function signerPage(token: string, cfg: PageCfg): string {
 </details>
 <input id="amount" inputmode="decimal" placeholder="Amount (USDG)" hidden>
 <input id="to" placeholder="Recipient 0x..." hidden>
+<p id="choice" hidden>${esc(SIGNUP_CHOICE)}</p>
 <button id="action">...</button>
-<div id="wallet"><button id="walletBtn" hidden>Connect wallet</button><p id="walletAddr" class="addr" hidden></p></div>
+<p id="keywarn" class="warn" hidden>${esc(PASSKEY_LOSS_WARNING)}</p>
+<p id="or" class="or" hidden>or</p>
+<div id="wallet"><button id="walletBtn" hidden>Connect wallet</button><p id="walletNote" class="warn" hidden>${esc(WALLET_SEAT_NOTE)}</p><p id="walletAddr" class="addr" hidden></p></div>
 <p id="status"></p>
 </div>
 <p><small>Votes count only when signed with your own key. Exiting with your exact share is always available.</small></p>
