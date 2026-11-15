@@ -3,7 +3,7 @@ import { trpcServer } from "@hono/trpc-server";
 import { webhookCallback, type Bot } from "grammy";
 import { appRouter, type ApiCtx } from "./router";
 import { verifyLink } from "../core/linkToken";
-import { signerPage, signerRpcUrl, SIGNER_CSP } from "../web/page";
+import { signerPage, signerRpcUrl, SIGNER_CSP, WALLET_CSP, type PageCfg } from "../web/page";
 import { env, type Env } from "../env";
 import { logError } from "../core/errors";
 import type { ProposalDeps } from "../services/proposals";
@@ -17,12 +17,31 @@ export async function buildSignerBundle(): Promise<string> {
 }
 
 /**
+ * The wallet window (Reown AppKit) as its own file, /assets/wallet.js, loaded only by the wallet page.
+ * Built only when REOWN_PROJECT_ID is set; a failed build turns Connect wallet off, never the passkey.
+ */
+export async function buildWalletBundle(): Promise<string> {
+  const out = await Bun.build({
+    entrypoints: [new URL("../web/wallet.ts", import.meta.url).pathname],
+    target: "browser",
+    format: "esm",
+    minify: true,
+    define: { "process.env.NODE_ENV": '"production"' },
+  });
+  if (!out.success) throw new Error(out.logs.map(String).join("\n"));
+  return await out.outputs[0]!.text();
+}
+
+/**
  * @param opts.env settings to use instead of the process environment (tests pass fixed values).
  * @param opts.dashboard the read-only dashboard API's data source; omitted = no dashboard routes.
+ * @param opts.walletJs the wallet bundle (buildWalletBundle); omitted or null = Connect wallet is off.
  */
-export function createServer(opts: { deps: ProposalDeps; cards: CardAdapter | null; bot?: Bot; signerJs: string; env?: Env; dashboard?: DashboardDeps }) {
+export function createServer(opts: { deps: ProposalDeps; cards: CardAdapter | null; bot?: Bot; signerJs: string; walletJs?: string | null; env?: Env; dashboard?: DashboardDeps }) {
   const e = opts.env ?? env();
   const pageRpc = signerRpcUrl(e);
+  // Connect wallet needs both the public Reown project ID and the built wallet file; otherwise it is off and the passkey works as before
+  const walletOn = !!(e.REOWN_PROJECT_ID && opts.walletJs);
   const app = new Hono();
 
   // Any other route error: plain text out, logged without URLs.
@@ -67,21 +86,35 @@ export function createServer(opts: { deps: ProposalDeps; cards: CardAdapter | nu
 
   app.get("/assets/signer.js", (c) => c.body(opts.signerJs, 200, { "content-type": "text/javascript; charset=utf-8", "cache-control": "public, max-age=300" }));
 
+  if (walletOn) {
+    const walletJs = opts.walletJs!;
+    app.get("/assets/wallet.js", (c) => c.body(walletJs, 200, { "content-type": "text/javascript; charset=utf-8", "cache-control": "public, max-age=300" }));
+  }
+
+  const pageCfg: PageCfg = {
+    chainId: e.CHAIN_ID,
+    rpcUrl: pageRpc, // never RHC_RPC_URL: the page is readable by every member
+    bundlerUrl: e.BUNDLER_URL ?? "",
+    paymasterUrl: e.PAYMASTER_URL ?? "",
+    passkeyServerUrl: e.PASSKEY_SERVER_URL ?? "",
+    usdg: e.USDG_ADDRESS,
+    factory: e.FACTORY_ADDRESS, // public; the page checks isPot before any vote is signed
+    adapter: e.ADAPTER_ADDRESS, // public; an exit may never be sent to it
+    walletOn,
+  };
+
+  // the passkey page: its policy is unchanged by Connect wallet (the wallet window never loads here)
   app.get("/s/:token", (c) => {
     c.header("content-security-policy", SIGNER_CSP);
     c.header("x-frame-options", "DENY");
-    return c.html(
-      signerPage(c.req.param("token"), {
-        chainId: e.CHAIN_ID,
-        rpcUrl: pageRpc, // never RHC_RPC_URL: the page is readable by every member
-        bundlerUrl: e.BUNDLER_URL ?? "",
-        paymasterUrl: e.PAYMASTER_URL ?? "",
-        passkeyServerUrl: e.PASSKEY_SERVER_URL ?? "",
-        usdg: e.USDG_ADDRESS,
-        factory: e.FACTORY_ADDRESS, // public; the page checks isPot before any vote is signed
-        adapter: e.ADAPTER_ADDRESS, // public; an exit may never be sent to it
-      }),
-    );
+    return c.html(signerPage(c.req.param("token"), { ...pageCfg, mode: "passkey" }));
+  });
+
+  // the wallet page: same shell, Connect wallet only. With Connect wallet off it keeps the strict policy and says so.
+  app.get("/w/:token", (c) => {
+    c.header("content-security-policy", walletOn ? WALLET_CSP : SIGNER_CSP);
+    c.header("x-frame-options", "DENY");
+    return c.html(signerPage(c.req.param("token"), { ...pageCfg, mode: "wallet", ...(walletOn ? { reownProjectId: e.REOWN_PROJECT_ID, walletJs: "/assets/wallet.js" } : {}) }));
   });
 
   return app;

@@ -61,7 +61,7 @@ describe("signer page: in-app stop runs before any passkey or link use", () => {
   const main = client.slice(client.indexOf("async function main()"));
 
   test("it is checked right after the read-only preview, before the button gets any action", () => {
-    const check = main.indexOf("const app = inAppBrowser(navigator.userAgent);");
+    const check = main.indexOf('const app = MODE === "passkey" ? inAppBrowser(navigator.userAgent) : null;');
     expect(check).toBeGreaterThan(main.indexOf('trpc<Preview>("session.preview"'));
     expect(check).toBeLessThan(main.indexOf("const guard = ")); // the guard spends the link (ensureSession) and asks for the passkey
     expect(check).toBeLessThan(main.indexOf("act.onclick"));
@@ -73,18 +73,19 @@ describe("old browser-wallet tickbox is gone", () => {
   const client = readFileSync(join(import.meta.dir, "..", "src", "web", "client.ts"), "utf8");
   const html = signerPage("tok", { chainId: 46630, rpcUrl: "https://r", bundlerUrl: "https://b", paymasterUrl: "https://p", passkeyServerUrl: "https://k", usdg: "0x1" });
 
-  test("no tickbox on the page, and an empty hidden spot is left for Connect wallet", () => {
+  test("no tickbox on the page; Connect wallet is a button, hidden until the page picks it", () => {
     expect(html).not.toContain("useWallet");
     expect(html).not.toContain("Use a browser wallet");
-    expect(html).toContain('<div id="wallet" hidden></div>');
+    expect(html).toContain('<button id="walletBtn" hidden>Connect wallet</button>');
   });
 
-  test("no raw-wallet branch in the page code: every key is the passkey account", () => {
-    for (const gone of ["useWallet", "window.ethereum", "createWalletClient", "sendTransaction", '"eoa"']) expect(client).not.toContain(gone);
+  test("no raw-wallet branch in the page code: a wallet only ever signs for its Kernel account, never sends itself", () => {
+    for (const gone of ["useWallet", "window.ethereum", "sendTransaction", '"eoa"']) expect(client).not.toContain(gone);
   });
 
-  test("sign-up always saves the kind kernel-passkey (the server checks it on-chain)", () => {
+  test("sign-up saves kernel-passkey from the passkey and kernel-ecdsa from a wallet, nothing else (the server checks both on-chain)", () => {
     expect(client).toContain('await trpc("me.link", { address: s.address, signature, kind: "kernel-passkey" }, true);');
-    expect(client.match(/kind: "(kernel-passkey|safe-webauthn|eoa)"/g)).toEqual(['kind: "kernel-passkey"']); // the only account kind the page sends
+    expect(client).toContain('await trpc("me.link", { address: s.address, signature, kind: "kernel-ecdsa" }, true);');
+    expect(client.match(/kind: "(kernel-passkey|kernel-ecdsa|safe-webauthn|eoa)"/g)).toEqual(['kind: "kernel-ecdsa"', 'kind: "kernel-passkey"']);
   });
 });

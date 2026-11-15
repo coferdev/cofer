@@ -37,6 +37,7 @@ import { EXIT_IN_PRIVATE_NOTE, EXIT_TEXT, exitMenu, type ExitPot } from "./exitL
 import { INVALID_HANDLE_TEXT, parseWho, pickMember } from "./resolveHandle";
 import { newpotAdminRefusal } from "./newpotAdmin";
 import { isUsdgUpdating, PRICE_UPDATING_TEXT } from "../core/priceUpdating";
+import { KEY_TEXT, keyWordOf } from "../core/signerCheck";
 
 export const DEFAULT_CONFIG = { guardDelay: 6 * 3600, maxSlipBps: 300, entrySpreadBps: 50, depositsOpen: true } as const;
 export const DEFAULT_THRESHOLD_BPS = 6000; // 3 of 5, 2 of 3, 3 of 4 ...
@@ -145,7 +146,7 @@ function onboardLinkCtx(ctx: Context) {
   return { ...linkCtx(ctx), chatId: ctx.from!.id };
 }
 
-export const ONBOARD_TEXT = "First set up your key (a passkey on your phone). Takes 20 seconds.";
+export const ONBOARD_TEXT = "First set up your key (a passkey on your phone, or your own wallet). Takes 20 seconds.";
 export const ONBOARD_SENT_BY_DM = "I sent you a private message to set up your key.";
 export const ONBOARD_DM_FIRST = "Open a private chat with me and send /start first, then try again.";
 
@@ -309,7 +310,7 @@ export function createBot(opts: { cardsOn: boolean }) {
     // the statement first, as plain text, for new and linked members alike; then the usual reply with the button
     await ctx.reply(NOTICE_TEXT);
     await ctx.reply(
-      "Cofer is a shared money account for your group chat, on Robinhood Chain.\n\nYou'll create a passkey on this phone. It's your key: votes and withdrawals need it, so nobody (including us) can move your share without you.",
+      "Cofer is a shared money account for your group chat, on Robinhood Chain.\n\nYou'll create a passkey on this phone, or connect your own wallet. It's your key: votes and withdrawals need it, so nobody (including us) can move your share without you.",
       { reply_markup: kb },
     );
   });
@@ -570,8 +571,10 @@ export function createBot(opts: { cardsOn: boolean }) {
     await ctx.answerCallbackQuery();
     const id = decodeProposalRef(ctx.match[1]!);
     if (!id) return;
-    if (!(await requireLinked(ctx))) return;
-    await ephemeral(ctx, "Review the exact action and sign with your passkey.", { label: "Review & sign", make: () => signerUrl(linkCtx(ctx), "sign", id) });
+    const u = await requireLinked(ctx);
+    if (!u) return;
+    // a wallet member (kernel-ecdsa) never reads about a passkey
+    await ephemeral(ctx, KEY_TEXT[keyWordOf(u.accountKind)].signPrompt, { label: "Review & sign", make: () => signerUrl(linkCtx(ctx), "sign", id) });
   });
 
   bot.callbackQuery(/^info:([A-Za-z0-9_-]{43})$/, async (ctx) => {

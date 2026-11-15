@@ -3,7 +3,7 @@ import { ContractFunctionExecutionError, ContractFunctionRevertedError, Contract
 import { appRouter, type ApiCtx } from "../src/api/router";
 import { signLink, verifyLink, type LinkClaims } from "../src/core/linkToken";
 import { signerPage } from "../src/web/page";
-import { isPasskeyRoot, KERNEL_ROOT_VALIDATOR_ABI, NOT_PASSKEY_ACCOUNT, PASSKEY_ROOT_VALIDATOR_ID } from "../src/core/accountKind";
+import { ECDSA_ROOT_VALIDATOR_ID, isPasskeyRoot, KERNEL_ROOT_VALIDATOR_ABI, NOT_PASSKEY_ACCOUNT, NOT_WALLET_ACCOUNT, PASSKEY_ROOT_VALIDATOR_ID } from "../src/core/accountKind";
 
 const secret = "x".repeat(40);
 const now = () => Math.floor(Date.now() / 1000);
@@ -13,7 +13,7 @@ function fakeDb() {
   const rows = new Map<string, { jti: string; usedAt: Date | null }>();
   let writes = 0;
   const db = {
-    query: { linkTokens: { findFirst: async () => [...rows.values()][0] } },
+    query: { linkTokens: { findFirst: async () => [...rows.values()][0] }, users: { findFirst: async () => undefined } },
     insert: () => ({
       values: (v: { jti: string; usedAt: Date }) => ({
         onConflictDoUpdate: () => ({
@@ -45,7 +45,7 @@ describe("one-time signer links", () => {
     const api = caller(f.db);
     const a = await api.session.preview({ token: link() });
     const b = await api.session.preview({ token: link() });
-    expect(a).toEqual({ used: false, purpose: "deposit", ref: "0x0000000000000000000000000000000000000001", proposal: null, linked: null });
+    expect(a).toEqual({ used: false, purpose: "deposit", ref: "0x0000000000000000000000000000000000000001", proposal: null, linked: null, kind: null });
     expect(b.used).toBe(false);
     expect(Object.keys(a)).not.toContain("session");
     expect(f.writes()).toBe(0);
@@ -80,16 +80,16 @@ const A = getAddress("0x00000000000000000000000000000000000000aa");
 const B = getAddress("0x00000000000000000000000000000000000000bb");
 
 /** In-memory stand-in for the users table (one Telegram user); the upsert keeps an existing different address. */
-function fakeUsers(address: string | null) {
-  let row: { tgId: number; address: string | null } | undefined = address === null ? undefined : { tgId: 7, address };
+function fakeUsers(address: string | null, accountKind: string | null = "kernel-passkey") {
+  let row: { tgId: number; address: string | null; accountKind?: string | null } | undefined = address === null ? undefined : { tgId: 7, address, accountKind };
   const db = {
     query: { users: { findFirst: async () => row }, linkTokens: { findFirst: async () => undefined } },
     insert: () => ({
-      values: (v: { tgId: number; address: string }) => ({
+      values: (v: { tgId: number; address: string; accountKind?: string }) => ({
         onConflictDoUpdate: () => ({
           returning: async () => {
             if (row?.address && row.address !== v.address) return [];
-            row = { tgId: v.tgId, address: v.address };
+            row = { tgId: v.tgId, address: v.address, accountKind: v.accountKind };
             return [{ address: v.address }];
           },
         }),
@@ -210,5 +210,48 @@ describe("the kernel-passkey label is saved only for a passkey account", () => {
     expect(err).toBeInstanceOf(Error);
     expect(String(err.message)).not.toContain(NOT_PASSKEY_ACCOUNT);
     expect(f.row()).toBeUndefined();
+  });
+});
+
+describe("wallet sign-up: kernel-ecdsa", () => {
+  const ecdsaRoot: RootRead = async () => ECDSA_ROOT_VALIDATOR_ID;
+
+  test("a Kernel account whose main key is the ECDSA validator (the member's wallet) is saved as kernel-ecdsa", async () => {
+    const f = fakeUsers(null);
+    expect(await signedIn(f.db, ecdsaRoot).me.link({ address: A, signature: "0x01", kind: "kernel-ecdsa" })).toEqual({ ok: true });
+    expect(f.row()).toEqual({ tgId: 7, address: A, accountKind: "kernel-ecdsa" });
+  });
+
+  test("never mixed: a passkey account cannot be saved as kernel-ecdsa, a wallet account cannot be saved as kernel-passkey", async () => {
+    const f = fakeUsers(null);
+    await expect(signedIn(f.db, passkeyRoot).me.link({ address: A, signature: "0x01", kind: "kernel-ecdsa" })).rejects.toThrow(NOT_WALLET_ACCOUNT);
+    await expect(signedIn(f.db, ecdsaRoot).me.link({ address: A, signature: "0x01", kind: "kernel-passkey" })).rejects.toThrow(NOT_PASSKEY_ACCOUNT);
+    expect(f.row()).toBeUndefined();
+  });
+
+  test("a plain wallet address (no Kernel account) is refused as kernel-ecdsa: the saved key is always the Kernel account", async () => {
+    const f = fakeUsers(null);
+    const empty: RootRead = async () => {
+      throw new ContractFunctionExecutionError(new ContractFunctionZeroDataError({ functionName: "rootValidator" }) as never, { abi: KERNEL_ROOT_VALIDATOR_ABI, functionName: "rootValidator", contractAddress: A as `0x${string}` });
+    };
+    await expect(signedIn(f.db, empty).me.link({ address: A, signature: "0x01", kind: "kernel-ecdsa" })).rejects.toThrow(NOT_WALLET_ACCOUNT);
+    expect(f.row()).toBeUndefined();
+  });
+
+  test("a passkey member cannot switch to a wallet: one key per Telegram account", async () => {
+    const f = fakeUsers(A, "kernel-passkey");
+    await expect(signedIn(f.db, ecdsaRoot).me.link({ address: B, signature: "0x01", kind: "kernel-ecdsa" })).rejects.toThrow("already has a Cofer key");
+    expect(f.row()).toEqual({ tgId: 7, address: A, accountKind: "kernel-passkey" });
+  });
+
+  test("the preview tells the page the saved kind (for every link), so it offers only that key", async () => {
+    for (const kind of ["kernel-ecdsa", "kernel-passkey"]) {
+      const api = caller(fakeUsers(A, kind).db);
+      expect((await api.session.preview({ token: link({ p: "deposit" }) })).kind).toBe(kind);
+      const onboard = await api.session.preview({ token: link({ p: "onboard", ref: "", chat: 7 }) });
+      expect(onboard.kind).toBe(kind);
+      expect(onboard.linked).toBe(A);
+    }
+    expect((await caller(fakeUsers(null).db).session.preview({ token: link({ p: "deposit" }) })).kind).toBeNull();
   });
 });

@@ -4,19 +4,27 @@
  *
  * Member key = ZeroDev Kernel v3.1 smart account with the passkey (WebAuthn) validator 0.0.3,
  * verified on-chain via the RIP-7212 P-256 precompile (live on Robinhood Chain). Gas is sponsored
- * by the paymaster. A "Connect wallet" option is planned; see getSigner.
+ * by the paymaster. Wallet members (kind "kernel-ecdsa") use the same Kernel v3.1 account type with
+ * their own wallet as the main ECDSA signer, also sponsored, on the wallet page (/w/:token, which
+ * loads /assets/wallet.js). The saved kind decides the page; the two are never mixed (core/keyChoice.ts).
  *
  * (U) Verify toWebAuthnKey's passkey-server flow and the validator address resolution against the
  *     pinned @zerodev versions during milestone M5 on RHC testnet 46630.
  */
 import "./buffer-polyfill";
-import { createPublicClient, encodeFunctionData, http, isAddress, type Address, type Hex } from "viem";
+import { createPublicClient, createWalletClient, custom, encodeFunctionData, http, isAddress, type Address, type Hex } from "viem";
 import { createKernelAccount, createKernelAccountClient, createZeroDevPaymasterClient } from "@zerodev/sdk";
 import { getEntryPoint, KERNEL_V3_1 } from "@zerodev/sdk/constants";
 import { toPasskeyValidator, PasskeyValidatorContractVersion } from "@zerodev/passkey-validator";
 import { toWebAuthnKey, WebAuthnMode } from "@zerodev/webauthn-key";
+import { signerToEcdsaValidator } from "@zerodev/ecdsa-validator";
 import { coferPotAbi } from "../chain/abi";
-import { signerProblem } from "../core/signerCheck";
+import { KEY_TEXT, NO_KEY, sameAddress, signerProblem, walletProblem } from "../core/signerCheck";
+import { ECDSA_OWNER_ABI, walletAccountAddress } from "../core/accountKind";
+import { keyChoice, pagePath, type PageMode } from "../core/keyChoice";
+import { chainName, needsAddChain, WALLET_OFF_TEXT, wrongNetworkText } from "../core/walletChain";
+import { WALLET_LOSS_WARNING } from "../core/passkeyWarning";
+import { RHC } from "../chain/addresses";
 import { failureText, isHandOff, SENDING_TEXT, ServerSaid } from "../core/retryText";
 import { inAppBrowser, inAppText } from "../core/inAppBrowser";
 import { spendAllowanceRefusal } from "../core/refusals";
@@ -41,13 +49,36 @@ import { chooseExitDestination, DEST_TEXT, destinationProblem, groupAddress, typ
 import { typedData, type ProposalEnvelope, type TokenMeta } from "../core/proposal";
 import { CONFIG_ELEMENT_ID } from "./pageConfig";
 
-type PageConfig = { chainId: number; rpcUrl: string; bundlerUrl: string; paymasterUrl: string; passkeyServerUrl: string; usdg: Address; factory?: Address; adapter?: Address; token: string };
+type PageConfig = {
+  chainId: number;
+  rpcUrl: string;
+  bundlerUrl: string;
+  paymasterUrl: string;
+  passkeyServerUrl: string;
+  usdg: Address;
+  factory?: Address;
+  adapter?: Address;
+  token: string;
+  /** "passkey" on /s/:token (default), "wallet" on /w/:token */
+  mode?: PageMode;
+  /** Connect wallet is set up on this server (Reown project ID and the wallet bundle) */
+  walletOn?: boolean;
+  /** public Reown project ID, on the wallet page only */
+  reownProjectId?: string;
+  /** the wallet file, on the wallet page only: always "/assets/wallet.js" (checked before loading) */
+  walletJs?: string;
+};
 
 // Settings come from a JSON data block (never executed), so the page needs no inline script (CSP script-src 'self').
 const cfg = JSON.parse(document.getElementById(CONFIG_ELEMENT_ID)!.textContent!) as PageConfig;
 
+const MODE: PageMode = cfg.mode === "wallet" ? "wallet" : "passkey";
+// every line that names the key follows the page: passkey words on /s/, wallet words on /w/
+const KEY = KEY_TEXT[MODE];
+
 // Passkeys do not work in Telegram's in-app browser, so phones get a hint to open the page in their browser.
 (() => {
+  if (MODE === "wallet") return; // the hint is about passkeys
   const n = navigator;
   const phone = /Android|iPhone|iPad|iPod|Mobile/i.test(n.userAgent) || (n.platform === "MacIntel" && n.maxTouchPoints > 1);
   if (!phone) return;
@@ -59,7 +90,7 @@ const cfg = JSON.parse(document.getElementById(CONFIG_ELEMENT_ID)!.textContent!)
 })();
 const chain = {
   id: cfg.chainId,
-  name: "Robinhood Chain",
+  name: chainName(cfg.chainId),
   nativeCurrency: { name: "Ether", symbol: "ETH", decimals: 18 },
   rpcUrls: { default: { http: [cfg.rpcUrl] } },
 } as const;
@@ -83,16 +114,11 @@ async function trpc<T>(path: string, input: unknown, mutation = false): Promise<
   return json.result.data as T;
 }
 
-async function passkeyAccount(mode: WebAuthnMode) {
-  const webAuthnKey = await toWebAuthnKey({ passkeyName: "Cofer", passkeyServerUrl: cfg.passkeyServerUrl, mode });
-  const validator = await toPasskeyValidator(publicClient, {
-    webAuthnKey,
-    entryPoint,
-    kernelVersion: KERNEL_V3_1,
-    validatorContractVersion: PasskeyValidatorContractVersion.V0_0_3_PATCHED,
-  });
-  const account = await createKernelAccount(publicClient, { plugins: { sudo: validator }, entryPoint, kernelVersion: KERNEL_V3_1 });
-  const client = createKernelAccountClient({
+type KernelAccount = Awaited<ReturnType<typeof createKernelAccount>>;
+
+/** The sponsored bundler client for a Kernel account (passkey or wallet: same bundler, same paymaster). */
+function kernelClient(account: KernelAccount) {
+  return createKernelAccountClient({
     account,
     chain,
     // marks the hand-off as the user operation leaves for the bundler (after the passkey has signed it)
@@ -106,7 +132,18 @@ async function passkeyAccount(mode: WebAuthnMode) {
     paymaster: createZeroDevPaymasterClient({ chain, transport: http(cfg.paymasterUrl) }),
     client: publicClient,
   });
-  return { account, client };
+}
+
+async function passkeyAccount(mode: WebAuthnMode) {
+  const webAuthnKey = await toWebAuthnKey({ passkeyName: "Cofer", passkeyServerUrl: cfg.passkeyServerUrl, mode });
+  const validator = await toPasskeyValidator(publicClient, {
+    webAuthnKey,
+    entryPoint,
+    kernelVersion: KERNEL_V3_1,
+    validatorContractVersion: PasskeyValidatorContractVersion.V0_0_3_PATCHED,
+  });
+  const account = await createKernelAccount(publicClient, { plugins: { sudo: validator }, entryPoint, kernelVersion: KERNEL_V3_1 });
+  return { account, client: kernelClient(account) };
 }
 
 type Signer = {
@@ -117,12 +154,15 @@ type Signer = {
 };
 
 /**
- * The member's key. Today only the passkey (Kernel v3.1 smart account, gas sponsored).
- * Spot for the planned "Connect wallet" option: it will return a Signer here, on the same Kernel
- * account, so every action below keeps working unchanged. Not built yet.
+ * The member's passkey (Kernel v3.1 smart account, gas sponsored). Never called on the wallet page.
  */
 async function getSigner(register = false): Promise<Signer> {
   const { account, client } = await passkeyAccount(register ? WebAuthnMode.Register : WebAuthnMode.Login);
+  return kernelSigner(account, client);
+}
+
+/** Signing and sending for a Kernel account; identical for the passkey and the wallet. */
+function kernelSigner(account: KernelAccount, client: ReturnType<typeof kernelClient>): Signer {
   return {
     address: account.address,
     signTypedData: (td) => account.signTypedData(td),
@@ -157,8 +197,71 @@ function showFailure(e: unknown, handedOff: boolean) {
   say(e instanceof Stop ? e.message : failureText(e, handedOff, navigator.onLine));
 }
 
+type WalletModule = typeof import("./wallet");
+let walletModule: Promise<WalletModule> | undefined;
+/** The wallet code (Reown AppKit) is its own file, fetched only on the wallet page. */
+function loadWallet(): Promise<WalletModule> {
+  if (MODE !== "wallet" || !cfg.walletOn || !cfg.reownProjectId || cfg.walletJs !== "/assets/wallet.js") return Promise.reject(new Stop(WALLET_OFF_TEXT, "wallet page without a Reown project ID"));
+  // the path comes from the page settings, so the bundler leaves it as a separate file (same origin: CSP script-src 'self')
+  walletModule ??= import(cfg.walletJs ?? "") as Promise<WalletModule>;
+  return walletModule;
+}
+
+/** Connects the member's wallet (opens the wallet window if needed) and puts it on the page's network. */
+async function connectWallet() {
+  const w = await loadWallet();
+  const { address: owner, provider } = await w.connect({ projectId: cfg.reownProjectId!, chainId: cfg.chainId, chainName: chain.name, rpcUrl: cfg.rpcUrl });
+  const wallet = createWalletClient({ account: owner, chain, transport: custom(provider) });
+  if ((await wallet.getChainId()) !== chain.id) {
+    try {
+      await wallet.switchChain({ id: chain.id });
+    } catch (e) {
+      if (!needsAddChain(e)) throw e;
+      await wallet.addChain({ chain }); // the wallet does not know the network yet: add it, then switch
+      await wallet.switchChain({ id: chain.id });
+    }
+    if ((await wallet.getChainId()) !== chain.id) throw new Stop(wrongNetworkText(chain.id), "wallet stayed on another network");
+  }
+  const shown = $("walletAddr");
+  shown.textContent = `Wallet: ${owner}`;
+  shown.hidden = false;
+  return { owner, wallet, w };
+}
+
+/**
+ * A wallet member's key: a Kernel v3.1 account with the connected wallet as its main ECDSA signer,
+ * gas sponsored like the passkey. `linked` (the saved account) is passed for every action: the wallet
+ * must be the one that owns it (read on-chain), else the member is told which wallet to use.
+ * Without `linked` (sign-up) the account is the wallet's own address from the factory (index 0),
+ * the same on every visit.
+ */
+async function walletSigner(linked?: Address): Promise<Signer> {
+  const { owner, wallet, w } = await connectWallet();
+  if (linked) {
+    const expected = await publicClient.readContract({ address: RHC.ZERODEV_ECDSA_VALIDATOR_KERNEL_3_1, abi: ECDSA_OWNER_ABI, functionName: "ecdsaValidatorStorage", args: [linked] });
+    const problem = walletProblem(expected, owner);
+    if (problem) {
+      await w.disconnect(); // the next tap opens the wallet window again, to pick the right one
+      throw new Stop(problem, `connected ${owner}, account ${linked} is owned by ${expected}`);
+    }
+  }
+  const validator = await signerToEcdsaValidator(publicClient, { signer: wallet, entryPoint, kernelVersion: KERNEL_V3_1 });
+  const account = await createKernelAccount(publicClient, { plugins: { sudo: validator }, entryPoint, kernelVersion: KERNEL_V3_1, ...(linked ? { address: linked } : {}) });
+  // the saved key is always this wallet's own Kernel account (pure address, index 0), never the wallet itself
+  const own = await walletAccountAddress(owner);
+  if (!sameAddress(account.address, own) || (linked && !sameAddress(linked, own))) {
+    throw new Stop(signerProblem(linked ?? own, account.address, "wallet", owner) ?? CALL_MISMATCH_TEXT, `wallet account ${account.address} is not ${own}`);
+  }
+  return kernelSigner(account, kernelClient(account));
+}
+
 /** Signer for a member action: the picked key must be the one linked to this Telegram user. Nothing is signed or sent before this check. */
 async function memberSigner(): Promise<Signer> {
+  if (MODE === "wallet") {
+    const me = await trpc<{ address: string | null; accountKind?: string | null } | undefined>("me.get", {});
+    if (!me?.address || !isAddress(me.address)) throw new Stop(NO_KEY);
+    return walletSigner(me.address);
+  }
   const s = await getSigner();
   const me = await trpc<{ address: string | null } | undefined>("me.get", {});
   const problem = signerProblem(me?.address, s.address);
@@ -256,6 +359,8 @@ type Preview = {
   ref: string;
   proposal: { summary: string; approvals: number; required: number; stale: boolean } | null;
   linked: string | null;
+  /** the saved kind of this Telegram user's key ("kernel-passkey", "kernel-ecdsa", ...), or null */
+  kind: string | null;
 };
 
 async function main() {
@@ -263,13 +368,48 @@ async function main() {
   const ex = await trpc<Preview>("session.preview", { token: cfg.token });
   if (ex.used) throw new Stop("link already used; tap the button in Telegram again");
   const act = $("action") as HTMLButtonElement;
+  const walletBtn = $("walletBtn") as HTMLButtonElement;
+  // The saved kind decides the page (core/keyChoice.ts): a wallet member never sees the passkey,
+  // a passkey member never sees Connect wallet. Moving to the other page reads the link only.
+  const choice = keyChoice({ mode: MODE, purpose: ex.purpose, kind: ex.kind, walletOn: !!cfg.walletOn });
+  if (choice.redirect) {
+    act.hidden = true;
+    location.replace(pagePath(choice.redirect, cfg.token));
+    return;
+  }
+  if (choice.walletOff) {
+    act.hidden = true;
+    throw new Stop(WALLET_OFF_TEXT, "wallet page while Connect wallet is off on this server");
+  }
+  // sign-up on the passkey page: the second option opens the wallet page for the same link
+  const offerWallet = () => {
+    if (!choice.wallet || MODE !== "passkey") return;
+    walletBtn.hidden = false;
+    walletBtn.onclick = () => location.assign(pagePath("wallet", cfg.token));
+  };
   // Inside an app's built-in browser passkeys fail: stop before the button, so no passkey prompt
   // runs and the one-time link is not used up (it still works in the phone's own browser).
-  const app = inAppBrowser(navigator.userAgent);
+  const app = MODE === "passkey" ? inAppBrowser(navigator.userAgent) : null;
   if (app !== null) {
     $("title").textContent = "Open in your browser";
+    offerWallet(); // sign-up may still pick Connect wallet, which signs in the wallet's own app
     act.hidden = true;
     throw new Stop(inAppText(app), `in-app browser: ${app || "unknown app"}`);
+  }
+  // wallet page, member actions: Connect wallet first (the action button also connects if needed)
+  if (MODE === "wallet" && ex.purpose !== "onboard") {
+    walletBtn.hidden = false;
+    walletBtn.onclick = async () => {
+      walletBtn.disabled = true;
+      try {
+        await connectWallet();
+        say("Wallet connected.");
+      } catch (e) {
+        showFailure(e, false);
+      } finally {
+        walletBtn.disabled = false;
+      }
+    };
   }
   // the button stays off while working and after success; an error is shown and the button comes back for a retry.
   // For a money action, an error after the hand-off asks the member to check before trying again.
@@ -299,7 +439,31 @@ async function main() {
     return;
   }
 
+  if (ex.purpose === "onboard" && MODE === "wallet") {
+    // never a passkey here, and never a wallet added to a passkey account: a new Kernel account owned by this wallet
+    $("title").textContent = "Set up your key";
+    $("body").textContent = "Connects your own wallet. It controls your seat: votes, deposits and exits. Gas is paid for you. Nobody else can use it.";
+    $("keywarn").textContent = WALLET_LOSS_WARNING;
+    $("keywarn").hidden = false;
+    act.textContent = "Connect wallet";
+    act.onclick = guard(async () => {
+      say("Connecting your wallet...");
+      const s = await walletSigner();
+      // deploy the account (sponsored) so ERC-1271 votes verify on-chain from day one
+      say(KEY.confirm);
+      await s.send([{ to: s.address, data: "0x" }]);
+      const { message } = await trpc<{ message: string }>("me.linkMessage", {});
+      say("Sign the message in your wallet to link it to your Telegram account...");
+      const signature = await s.signMessage(message);
+      // the server checks on-chain that this account's main key is the ECDSA validator
+      await trpc("me.link", { address: s.address, signature, kind: "kernel-ecdsa" }, true);
+      say(`Done. Your key: ${s.address}. Go back to Telegram.`);
+    });
+    return;
+  }
+
   if (ex.purpose === "onboard") {
+    offerWallet();
     $("title").textContent = "Set up your key";
     $("body").textContent = "Creates a passkey on this device. It controls your seat: votes, deposits and exits. Nobody else can use it.";
     $("keywarn").hidden = false; // shown before the passkey is created
@@ -326,7 +490,7 @@ async function main() {
     // Two taps: first the page checks the vote and shows its own summary of the exact bytes; only then the passkey.
     const approve = (envelope: ProposalEnvelope) =>
       guard(async () => {
-        say("Waiting for your passkey...");
+        say(KEY.waiting);
         const s = await memberSigner();
         const signature = await s.signTypedData(typedData(envelope)); // built by this page, never the server's object
         const r = await trpc<any>("proposal.sign", { id: ex.ref, signer: s.address, signature }, true);
@@ -338,7 +502,7 @@ async function main() {
       const v = await verifyVote(ex.ref as Hex);
       $("body").textContent = `You are signing:\n${v.summary}\n\nThe bot showed: ${pv.summary}\n\n${tally}`;
       say("Checked. Read it, then approve.");
-      act.textContent = "Approve with my passkey";
+      act.textContent = KEY.approve;
       act.onclick = approve(v.envelope);
       act.disabled = false;
     });
@@ -378,7 +542,7 @@ async function main() {
       const s = await memberSigner();
       const approve = encodeFunctionData({ abi: [{ type: "function", name: "approve", stateMutability: "nonpayable", inputs: [{ type: "address" }, { type: "uint256" }], outputs: [{ type: "bool" }] }], args: [pot, amount] });
       const deposit = encodeFunctionData({ abi: coferPotAbi, functionName: "deposit", args: [amount] });
-      say("Confirm with your passkey...");
+      say(KEY.confirm);
       const tx = await s.send!([{ to: cfg.usdg, data: approve }, { to: pot, data: deposit }]);
       say(`Deposited. tx ${tx}`);
     }, true);
@@ -421,7 +585,7 @@ async function main() {
         const calls = exitCalls(shownExit);
         const v = checkExitCalls(calls, shownExit);
         if (!v.ok) throw new Stop(EXIT_MISMATCH_TEXT, `exit check failed: ${v.problem}`);
-        say("Confirm with your passkey...");
+        say(KEY.confirm);
         const tx = await s.send!(calls);
         done = true; // the button stays off
         act.onclick = null;
@@ -471,7 +635,7 @@ async function main() {
       const done: Hex[] = [];
       let firstError: unknown;
       for (const a of owed) {
-        say(owed.length > 1 ? `Confirm claim ${done.length + 1} of ${owed.length} with your passkey...` : "Confirm with your passkey...");
+        say(owed.length > 1 ? KEY.claim(done.length + 1, owed.length) : KEY.confirm);
         try {
           done.push(await s.send!([{ to: pot, data: encodeFunctionData({ abi: coferPotAbi, functionName: "claimOwed", args: [a, s.address] }) }]));
         } catch (e) {
@@ -512,7 +676,7 @@ async function main() {
       const refusal = await readSpendRefusal(amount);
       if (refusal) throw new Stop(refusal);
       const s = await memberSigner();
-      say("Confirm with your passkey...");
+      say(KEY.confirm);
       const data = encodeFunctionData({ abi: coferPotAbi, functionName: "spend", args: [to, amount, "0x0000000000000000000000000000000000000000000000000000000000000000"] });
       const tx = await s.send!([{ to: pot, data }]);
       say(`Sent. tx ${tx}`);
@@ -526,7 +690,7 @@ async function main() {
       const s = await memberSigner();
       const q = await trpc<any>("card.quote", { pot, amountUsdg: amount.toString() }, true);
       const data = encodeFunctionData({ abi: coferPotAbi, functionName: "spend", args: [q.fundingAddress, BigInt(q.amountUsdg), q.memo] });
-      say("Confirm with your passkey...");
+      say(KEY.confirm);
       const tx = await s.send!([{ to: pot, data }]);
       const st = await trpc<any>("card.confirm", { orderId: q.orderId, spendTx: tx }, true);
       say(`Card order ${st.status}. Load fee ${Number(q.loadFeeUsdg) / 1e6} USDG.`);

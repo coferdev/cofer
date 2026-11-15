@@ -34,6 +34,9 @@ const schema = z.object({
   BUNDLER_URL: z.string().url().optional(), // ZeroDev or Alchemy (member userOps from the signer site)
   PAYMASTER_URL: z.string().url().optional(),
   PASSKEY_SERVER_URL: z.string().url().optional(), // ZeroDev passkey server (signer site)
+  // Reown (WalletConnect) project ID for Connect wallet on the signer site. Public (sent to the wallet page).
+  // Unset = Connect wallet is off and the passkey works as before; the api role says so at start-up.
+  REOWN_PROJECT_ID: z.string().regex(/^[0-9a-f]{32}$/, "REOWN_PROJECT_ID must be the 32-character project ID from the Reown dashboard").optional(),
   BOT_MODE: z.enum(["webhook", "polling"]).default("webhook"),
   // read-only dashboard origin (testnet https://testdashboard.getcofer.com, mainnet https://dashboard.getcofer.com);
   // unset = no "Open dashboard" button. An https origin with no path (plain http only for localhost, for local testing)

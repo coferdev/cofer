@@ -53,7 +53,7 @@ export const users = pgTable("users", {
   tgId: bigint("tg_id", { mode: "number" }).primaryKey(),
   username: text("username"),
   address: text("address").unique(), // member smart account (Kernel + passkey) or EOA
-  accountKind: text("account_kind"), // "kernel-passkey" | "safe-webauthn" | "eoa"
+  accountKind: text("account_kind"), // "kernel-passkey" (passkey only) | "kernel-ecdsa" (Connect wallet only) | legacy "safe-webauthn" | "eoa"
   region: text("region"), // self-declared ISO-3166 alpha-2
   linkedAt: timestamp("linked_at", { withTimezone: true }),
 });

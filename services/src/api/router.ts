@@ -15,7 +15,7 @@ import { Kind } from "../core/proposal";
 import { previewExit } from "../core/shares";
 import type { CardAdapter } from "../cards/CardAdapter";
 import { errorKind, RPC_UNREACHABLE_TEXT, userMessage } from "../core/errors";
-import { isPasskeyRoot, KERNEL_ROOT_VALIDATOR_ABI, NOT_PASSKEY_ACCOUNT } from "../core/accountKind";
+import { KERNEL_ROOT_VALIDATOR_ABI, rootMatches, WRONG_KIND_TEXT } from "../core/accountKind";
 
 export interface ApiCtx {
   deps: ProposalDeps;
@@ -105,13 +105,12 @@ export const appRouter = t.router({
         const p = await wrap(() => getSignable(ctx.deps, claims.ref as Hex));
         proposal = { summary: p.summary, approvals: p.tally.approvals, required: p.tally.required, stale: p.stale };
       }
-      // the sign-up page needs this before any passkey is created, so a second sign-up never makes a new one
-      let linked: string | null = null;
-      if (claims.p === "onboard") {
-        const user = await ctx.deps.db.query.users.findFirst({ where: eq(schema.users.tgId, claims.tg) });
-        linked = user?.address ?? null;
-      }
-      return { used, purpose: claims.p, ref: claims.ref, proposal, linked };
+      const user = await ctx.deps.db.query.users.findFirst({ where: eq(schema.users.tgId, claims.tg) });
+      // the sign-up page needs this before any key is created, so a second sign-up never makes a new one
+      const linked: string | null = claims.p === "onboard" ? (user?.address ?? null) : null;
+      // the saved kind decides which page and key the member gets (passkey or Connect wallet, never both)
+      const kind: string | null = user?.address ? (user.accountKind ?? null) : null;
+      return { used, purpose: claims.p, ref: claims.ref, proposal, linked, kind };
     }),
     /** Exchange a one-time bot link for a 1h session (link is single-use via jti). */
     exchange: t.procedure.input(z.object({ token: z.string() })).mutation(async ({ ctx, input }) => {
@@ -133,13 +132,14 @@ export const appRouter = t.router({
     get: authed.query(async ({ ctx }) => ctx.deps.db.query.users.findFirst({ where: eq(schema.users.tgId, ctx.session.tg) })),
     /** Bind the member key to this Telegram account. verifyMessage supports ERC-1271/6492 accounts. */
     link: authed
-      .input(z.object({ address: zAddr, signature: zHex, kind: z.enum(["kernel-passkey", "safe-webauthn", "eoa"]) }))
+      .input(z.object({ address: zAddr, signature: zHex, kind: z.enum(["kernel-passkey", "kernel-ecdsa", "safe-webauthn", "eoa"]) }))
       .mutation(async ({ ctx, input }) => {
         const message = linkMessage(ctx.session.tg, ctx.session.jti);
         const ok = await (ctx.deps.client as PublicClient).verifyMessage({ address: input.address, message, signature: input.signature });
         if (!ok) throw new TRPCError({ code: "BAD_REQUEST", message: "signature does not match" });
-        // "kernel-passkey" is saved only for an account whose main key is the passkey validator (read on-chain)
-        if (input.kind === "kernel-passkey") {
+        // "kernel-passkey" / "kernel-ecdsa" are saved only for an account whose main key matches (read on-chain):
+        // the passkey validator, or the ECDSA validator (the member's wallet). The label can never lie.
+        if (input.kind === "kernel-passkey" || input.kind === "kernel-ecdsa") {
           let root: string | undefined;
           try {
             root = await (ctx.deps.client as PublicClient).readContract({ address: input.address, abi: KERNEL_ROOT_VALIDATOR_ABI, functionName: "rootValidator" });
@@ -148,7 +148,7 @@ export const appRouter = t.router({
             const noAnswer = e instanceof BaseError && !!e.walk((x) => x instanceof ContractFunctionZeroDataError);
             if (errorKind(e) === "rpc" && !noAnswer) throw e;
           }
-          if (!isPasskeyRoot(root)) throw new TRPCError({ code: "BAD_REQUEST", message: NOT_PASSKEY_ACCOUNT });
+          if (!rootMatches(input.kind, root)) throw new TRPCError({ code: "BAD_REQUEST", message: WRONG_KIND_TEXT[input.kind] });
         }
         // one key per Telegram account: linking the same address again is fine (a retry), a different one is refused
         const keyTaken = (linked: string) =>

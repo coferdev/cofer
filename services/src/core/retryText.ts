@@ -14,6 +14,7 @@ export function retryText(error: string): string {
 }
 
 export const PASSKEY_CANCELLED = "The passkey prompt was cancelled. You can try again.";
+export const WALLET_CANCELLED = "The request was cancelled in your wallet. Nothing was sent. You can try again.";
 export const PASSKEY_UNSUPPORTED =
   "This browser or device can't use passkeys. Open the link in Safari or Chrome on a phone or computer that supports passkeys. Nothing was sent.";
 export const PASSKEY_DOMAIN_REFUSED = "Passkeys are not allowed on this web address yet. This is a setting on our side, not your device. Nothing was sent. Try again later.";
@@ -24,7 +25,7 @@ export const BROWSER_FAILED = "Something went wrong. You can try again.";
 /** Error text sent by our own API. The API only sends fixed text, so this is safe to show. */
 export class ServerSaid extends Error {}
 
-type ErrLike = { name?: unknown; message?: unknown; status?: unknown; cause?: unknown };
+type ErrLike = { name?: unknown; message?: unknown; status?: unknown; code?: unknown; cause?: unknown };
 
 /** The error and up to 7 causes under it (libraries wrap the browser's own error). */
 function chain(e: unknown): ErrLike[] {
@@ -37,10 +38,12 @@ function chain(e: unknown): ErrLike[] {
  * What kind of browser-side failure this is, read from the WebAuthn error names (kept by the passkey
  * library when it wraps them) and from fetch failures. Never from text we show.
  */
-function browserCause(e: unknown, online: boolean): "offline" | "cancelled" | "domain" | "unsupported" | "network" | null {
+function browserCause(e: unknown, online: boolean): "offline" | "walletCancelled" | "cancelled" | "domain" | "unsupported" | "network" | null {
   if (!online) return "offline";
   const errs = chain(e);
   const has = (...names: string[]) => errs.some((x) => names.includes(String(x.name)));
+  // the member said no in their wallet (EIP-1193 code 4001; viem names it UserRejectedRequestError)
+  if (errs.some((x) => x.code === 4001) || has("UserRejectedRequestError")) return "walletCancelled";
   // a closed or refused passkey prompt
   if (has("NotAllowedError", "AbortError")) return "cancelled";
   // the site's address does not match the passkey's domain (rpId), or the page is not on https
@@ -71,6 +74,8 @@ export function failureText(e: unknown, handedOff: boolean, online = true): stri
     case "offline":
     case "network":
       return OFFLINE_TEXT;
+    case "walletCancelled":
+      return WALLET_CANCELLED;
     case "cancelled":
       return PASSKEY_CANCELLED;
     case "domain":

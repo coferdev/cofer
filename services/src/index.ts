@@ -11,7 +11,7 @@
 import { env } from "./env";
 import { assertFactoryUsdg, factoryAddress, publicClient } from "./chain/clients";
 import { createBot, proposalDeps } from "./bot/bot";
-import { createServer, buildSignerBundle } from "./api/server";
+import { createServer, buildSignerBundle, buildWalletBundle } from "./api/server";
 import { startIndexer } from "./indexer/indexer";
 import { startKeeper, scheduleKeeper } from "./keeper/keeper";
 import { startRelayer } from "./relayer/relayer";
@@ -38,7 +38,18 @@ async function main() {
     const dashboard = e.DASHBOARD_URL
       ? dashboardData({ client: publicClient(), factory: factoryAddress(), usdg: e.USDG_ADDRESS, chainId: e.CHAIN_ID, secret: e.LINK_SECRET, signerUrl: e.PUBLIC_URL })
       : undefined;
-    const app = createServer({ deps: proposalDeps(), cards, bot, signerJs: await buildSignerBundle(), dashboard });
+    // Connect wallet: only with REOWN_PROJECT_ID. Missing, or a failed build, turns it off with a clear line; the passkey never depends on it.
+    let walletJs: string | null = null;
+    if (!e.REOWN_PROJECT_ID) {
+      console.log("[api] REOWN_PROJECT_ID is not set: Connect wallet is off. Passkey sign-up and signing work as before. Wallet members (kernel-ecdsa) see that Connect wallet is not available.");
+    } else {
+      walletJs = await buildWalletBundle().catch((err) => {
+        logError("api wallet bundle (Connect wallet is off; passkeys work as before)", err);
+        return null;
+      });
+      if (walletJs) console.log("[api] Connect wallet is on");
+    }
+    const app = createServer({ deps: proposalDeps(), cards, bot, signerJs: await buildSignerBundle(), walletJs, dashboard });
     Bun.serve({ port: e.PORT, fetch: app.fetch });
     if (e.BOT_MODE === "webhook") {
       await bot.api.setWebhook(`${e.PUBLIC_URL}/tg/webhook`, {

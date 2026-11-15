@@ -149,6 +149,31 @@ passkey is created:
   the group account from the explorer's "Write contract" page; it always pays the destination. Paying
   the gas is the only cost.
 
+## Connect wallet (second sign-up option)
+
+Members choose at sign-up: a passkey, or their own wallet through Connect wallet (Reown AppKit). The
+choice is saved as the key's kind and decides everything after: a passkey member (`kernel-passkey`)
+only ever sees the passkey page (`/s/<link>`); a wallet member (`kernel-ecdsa`) only ever sees the
+wallet page (`/w/<link>`) and Connect wallet. Both are the same kind of Kernel v3.1 account with gas
+paid by the paymaster; for a wallet member the wallet is the account's main signer, and the saved
+key is the account's address, not the wallet's. A wallet is never added to a passkey account, and a
+member cannot switch kinds (one key per Telegram account).
+
+- **Setting:** `REOWN_PROJECT_ID=YOUR_REOWN_PROJECT_ID` in the api server's environment (from
+  dashboard.reown.com; public, it reaches the wallet page). Add the signer site's domain to the Reown
+  project's allowed domains. Unset: start-up logs "Connect wallet is off", sign-up shows only the
+  passkey, and a wallet member's link says "Connect wallet is not available right now. Nothing was
+  sent. Try again later." Passkeys are never affected.
+- **Wrong wallet:** the page says "That's not the wallet you signed up with. Connect the wallet
+  0x... and try again. Nothing was sent." with the exact wallet to use.
+- **Cancelled in the wallet:** "The request was cancelled in your wallet. Nothing was sent. You can
+  try again."
+- **Wrong network:** the page asks the wallet to switch to Robinhood Chain (or Robinhood Chain
+  Testnet) and adds the network if the wallet does not know it. If the wallet refuses: "Your wallet
+  is on a different network. Switch it to Robinhood Chain and try again. Nothing was sent."
+- **Lost wallet:** like a lost passkey: nobody, including the studio, can reach that key or its share.
+  The wallet sign-up screen says so before the wallet is connected.
+
 ## Member help: when a passed vote runs, and what the signer page says
 
 **Passed votes that wait.** A vote that passes without every member waits the group's exit window

@@ -16,6 +16,14 @@ export interface PageCfg {
   factory?: string;
   /** The swap adapter (public): an exit may never be sent to it, also while it is still queued on-chain. */
   adapter?: string;
+  /** "passkey" for /s/:token (default), "wallet" for /w/:token */
+  mode?: "passkey" | "wallet";
+  /** Connect wallet is set up on this server (REOWN_PROJECT_ID and the wallet bundle) */
+  walletOn?: boolean;
+  /** the public Reown project ID; sent on the wallet page only */
+  reownProjectId?: string;
+  /** the wallet file's path; sent on the wallet page only */
+  walletJs?: "/assets/wallet.js";
 }
 
 /** The page's only <style> block. The CSP allows exactly this text by its sha256 hash. */
@@ -43,6 +51,25 @@ const styleHash = createHash("sha256").update(PAGE_CSS, "utf8").digest("base64")
 /** Only /assets/signer.js runs: no inline script is allowed (settings travel in a JSON data block). */
 export const SIGNER_CSP = `default-src 'self'; script-src 'self'; style-src 'sha256-${styleHash}'; connect-src *; frame-ancestors 'none'`;
 
+/**
+ * The wallet page only (/w/:token): the passkey page keeps SIGNER_CSP unchanged. Scripts are still
+ * only the site's own files (signer.js, wallet.js). Opened only as far as the wallet window needs:
+ *  - style-src 'unsafe-inline': AppKit writes its theme into <style> tags at run time (no fixed hash);
+ *  - img-src / font-src: wallet logos and the window's font from Reown;
+ *  - connect-src wss:: the WalletConnect relay (spelled out, as some browsers do not match ws by "*");
+ *  - frame-src: WalletConnect's domain check (Verify) runs in a hidden frame.
+ */
+export const WALLET_CSP = [
+  "default-src 'self'",
+  "script-src 'self'",
+  "style-src 'self' 'unsafe-inline'",
+  "img-src 'self' data: blob: https://api.web3modal.org https://*.walletconnect.com https://*.walletconnect.org https://*.reown.com",
+  "font-src 'self' https://fonts.reown.com",
+  "connect-src * wss:",
+  "frame-src https://verify.walletconnect.org https://verify.walletconnect.com",
+  "frame-ancestors 'none'",
+].join("; ");
+
 const esc = (s: string) => s.replace(/[<>&"']/g, (c) => `&#${c.charCodeAt(0)};`);
 
 /** Public chain RPCs (no key). The only kind of RPC address the page gets by default. */
@@ -65,8 +92,9 @@ export function signerRpcUrl(e: { CHAIN_ID: number; RHC_RPC_URL: string; SIGNER_
 }
 
 /**
- * The page shell. #wallet (empty, hidden) is the spot for the planned "Connect wallet" option, next
- * to the passkey button; nothing uses it yet.
+ * The page shell, for both pages. #walletBtn (hidden until the page picks it, core/keyChoice.ts) is
+ * Connect wallet: on the passkey page only at sign-up (it opens the wallet page), on the wallet page
+ * for every action. A passkey member never sees it.
  */
 export function signerPage(token: string, cfg: PageCfg): string {
   const boot = configJson({ ...cfg, token });
@@ -90,8 +118,8 @@ export function signerPage(token: string, cfg: PageCfg): string {
 </details>
 <input id="amount" inputmode="decimal" placeholder="Amount (USDG)" hidden>
 <input id="to" placeholder="Recipient 0x..." hidden>
-<div id="wallet" hidden></div>
 <button id="action">...</button>
+<div id="wallet"><button id="walletBtn" hidden>Connect wallet</button><p id="walletAddr" class="addr" hidden></p></div>
 <p id="status"></p>
 </div>
 <p><small>Votes count only when signed with your own key. Exiting with your exact share is always available.</small></p>

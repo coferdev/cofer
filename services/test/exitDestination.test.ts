@@ -210,7 +210,13 @@ describe("a single call to the account itself (key setup) must be exactly the en
 
 describe("no link can carry a destination", () => {
   test("the page script never reads the address bar, a query string, the referrer or the fragment", () => {
-    const client = read("services/src/web/client.ts");
+    let client = read("services/src/web/client.ts");
+    // the only uses of location are two writes that open the other page (passkey / wallet) for the same link,
+    // built from the server's own settings (cfg.token), never read from the address bar
+    for (const write of ["location.replace(pagePath(choice.redirect, cfg.token));", 'location.assign(pagePath("wallet", cfg.token));']) {
+      expect(client).toContain(write);
+      client = client.replace(write, "");
+    }
     expect(client).not.toMatch(/\blocation\b|URLSearchParams|document\.URL|document\.referrer|\.hash\b|searchParams/);
   });
 

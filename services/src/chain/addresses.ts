@@ -20,6 +20,8 @@ export const RHC = {
   ENTRYPOINT_V07: getAddress("0x0000000071727De22E5E9d8BAf0edAc6f37da032"),
   KERNEL_V3_1_FACTORY: getAddress("0xaac5D4240AF87249B3f71BC8E4A2cae074A3E419"),
   ZERODEV_PASSKEY_VALIDATOR_0_0_3: getAddress("0x7ab16Ff354AcB328452F1D445b3Ddee9a91e9e69"),
+  // Kernel v3.1 ECDSA validator (@zerodev/ecdsa-validator 5.4.9, ">=0.3.1"); same code on 4663 and 46630, checked 2026-11-15
+  ZERODEV_ECDSA_VALIDATOR_KERNEL_3_1: getAddress("0x845ADb2C711129d4f3966735eD98a9F09fC4cE57"),
   RIP7212_P256: getAddress("0x0000000000000000000000000000000000000100"),
 } as const satisfies Record<string, Address | number>;
 

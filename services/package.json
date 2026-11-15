@@ -23,7 +23,11 @@
   },
   "dependencies": {
     "@hono/trpc-server": "^0.4.0",
+    "@reown/appkit": "1.8.24",
+    "@reown/appkit-adapter-wagmi": "1.8.24",
     "@trpc/server": "^11.0.0",
+    "@wagmi/core": "3.6.7",
+    "@zerodev/ecdsa-validator": "5.4.9",
     "@zerodev/passkey-validator": "5.6.0",
     "@zerodev/sdk": "5.5.11",
     "@zerodev/webauthn-key": "5.5.0",
@@ -35,6 +39,7 @@
     "ioredis": "^5.4.0",
     "postgres": "^3.4.0",
     "viem": "2.57.11",
+    "wagmi": "3.7.9",
     "zod": "^3.25.0"
   },
   "devDependencies": {
