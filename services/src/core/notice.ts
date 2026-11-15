@@ -27,7 +27,7 @@ export function noticeText(cap: bigint | null = BETA_DEPOSIT_CAP_USDG, network: 
     "",
     `Cofer is a shared money account for your Telegram group, on ${network}.`,
     "",
-    `• Your key: when you set up, Cofer creates an address for you on ${network}, protected by your passkey (Face ID or fingerprint). There is no seed phrase. This bot never holds your keys or your money.`,
+    `• Your key: when you set up, Cofer creates an address for you on ${network}, protected by your own key. There is no seed phrase. This bot never holds your keys or your money.`,
     `• ${network} only: send USDG to that address on ${network} only. Money sent on any other network will not arrive.`,
     "• Leaving is always open: any member can /exit at any time and get their exact share. Nobody can block it, not even us.",
     `• Where it goes: your exit goes to your own Cofer address, or to a different address you type. That must be a wallet that supports ${network}. Many exchange deposit addresses do not.`,
