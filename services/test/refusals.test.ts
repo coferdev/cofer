@@ -130,10 +130,9 @@ describe("progress while sending", () => {
     expect(SENDING_TEXT).toBe("Sending... this can take up to a minute. Keep this page open.");
   });
 
-  test("it appears once the passkey has been used (the user operation leaves for the bundler), and on the wallet path", () => {
+  test("it appears once the passkey has been used (the user operation leaves for the bundler)", () => {
     expect(client).toContain("if (!isHandOff(init.body)) return;\n        handedOff = true;\n        say(SENDING_TEXT);");
-    expect(client).toContain("last = await wallet.sendTransaction({ account: address!, to: c.to, data: c.data, chain });\n          say(SENDING_TEXT);");
-    // every action that sends a transaction goes through s.send (passkey or wallet), so each gets the line
+    // every action that sends a transaction goes through s.send (the passkey account), so each gets the line
     for (const branch of ['ex.purpose === "deposit"', 'ex.purpose === "exit"', 'ex.purpose === "claim"', 'ex.purpose === "sign" && ex.ref.startsWith("spend:")', 'ex.purpose === "card"']) {
       expect(client.indexOf(branch)).toBeGreaterThan(-1);
     }

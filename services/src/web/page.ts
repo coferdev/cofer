@@ -64,6 +64,10 @@ export function signerRpcUrl(e: { CHAIN_ID: number; RHC_RPC_URL: string; SIGNER_
   return url;
 }
 
+/**
+ * The page shell. #wallet (empty, hidden) is the spot for the planned "Connect wallet" option, next
+ * to the passkey button; nothing uses it yet.
+ */
 export function signerPage(token: string, cfg: PageCfg): string {
   const boot = configJson({ ...cfg, token });
   return `<!doctype html>
@@ -86,7 +90,7 @@ export function signerPage(token: string, cfg: PageCfg): string {
 </details>
 <input id="amount" inputmode="decimal" placeholder="Amount (USDG)" hidden>
 <input id="to" placeholder="Recipient 0x..." hidden>
-<label><input type="checkbox" id="useWallet" class="check"> <small>Use a browser wallet instead of a passkey</small></label>
+<div id="wallet" hidden></div>
 <button id="action">...</button>
 <p id="status"></p>
 </div>

@@ -6,7 +6,7 @@
 import { initTRPC, TRPCError } from "@trpc/server";
 import { z } from "zod";
 import { and, eq, isNull, or, sql } from "drizzle-orm";
-import { getAddress, type Address, type Hex, type PublicClient } from "viem";
+import { BaseError, ContractFunctionZeroDataError, getAddress, type Address, type Hex, type PublicClient } from "viem";
 import { schema, type DB } from "../db/client";
 import { potAbi } from "../chain/clients";
 import { signLink, verifyLink, newJti, onboardLinkProblem, DASHBOARD_PURPOSES, type LinkClaims } from "../core/linkToken";
@@ -14,7 +14,8 @@ import { addSignature, createProposal, getSignable, ProposalError, readRules, ty
 import { Kind } from "../core/proposal";
 import { previewExit } from "../core/shares";
 import type { CardAdapter } from "../cards/CardAdapter";
-import { RPC_UNREACHABLE_TEXT, userMessage } from "../core/errors";
+import { errorKind, RPC_UNREACHABLE_TEXT, userMessage } from "../core/errors";
+import { isPasskeyRoot, KERNEL_ROOT_VALIDATOR_ABI, NOT_PASSKEY_ACCOUNT } from "../core/accountKind";
 
 export interface ApiCtx {
   deps: ProposalDeps;
@@ -137,6 +138,18 @@ export const appRouter = t.router({
         const message = linkMessage(ctx.session.tg, ctx.session.jti);
         const ok = await (ctx.deps.client as PublicClient).verifyMessage({ address: input.address, message, signature: input.signature });
         if (!ok) throw new TRPCError({ code: "BAD_REQUEST", message: "signature does not match" });
+        // "kernel-passkey" is saved only for an account whose main key is the passkey validator (read on-chain)
+        if (input.kind === "kernel-passkey") {
+          let root: string | undefined;
+          try {
+            root = await (ctx.deps.client as PublicClient).readContract({ address: input.address, abi: KERNEL_ROOT_VALIDATOR_ABI, functionName: "rootValidator" });
+          } catch (e) {
+            // a revert or an empty answer (a plain wallet, another contract) is refused below; a chain we cannot reach is a retry
+            const noAnswer = e instanceof BaseError && !!e.walk((x) => x instanceof ContractFunctionZeroDataError);
+            if (errorKind(e) === "rpc" && !noAnswer) throw e;
+          }
+          if (!isPasskeyRoot(root)) throw new TRPCError({ code: "BAD_REQUEST", message: NOT_PASSKEY_ACCOUNT });
+        }
         // one key per Telegram account: linking the same address again is fine (a retry), a different one is refused
         const keyTaken = (linked: string) =>
           new TRPCError({ code: "CONFLICT", message: `this Telegram account already has a Cofer key (${linked}); replacing a key is not supported yet` });

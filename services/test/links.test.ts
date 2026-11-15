@@ -1,8 +1,9 @@
 import { describe, expect, test } from "bun:test";
-import { getAddress } from "viem";
+import { ContractFunctionExecutionError, ContractFunctionRevertedError, ContractFunctionZeroDataError, getAddress, HttpRequestError } from "viem";
 import { appRouter, type ApiCtx } from "../src/api/router";
 import { signLink, verifyLink, type LinkClaims } from "../src/core/linkToken";
 import { signerPage } from "../src/web/page";
+import { isPasskeyRoot, KERNEL_ROOT_VALIDATOR_ABI, NOT_PASSKEY_ACCOUNT, PASSKEY_ROOT_VALIDATOR_ID } from "../src/core/accountKind";
 
 const secret = "x".repeat(40);
 const now = () => Math.floor(Date.now() / 1000);
@@ -98,9 +99,13 @@ function fakeUsers(address: string | null) {
   return { db, row: () => row };
 }
 
-function signedIn(db: unknown) {
+/** rootValidator() as the chain answers it: by default a Kernel account whose main key is the passkey validator. */
+type RootRead = () => Promise<string>;
+const passkeyRoot: RootRead = async () => PASSKEY_ROOT_VALIDATOR_ID;
+
+function signedIn(db: unknown, rootValidator: RootRead = passkeyRoot) {
   const session: LinkClaims = { tg: 7, chat: -100, p: "session", ref: "", exp: now() + 3600, jti: "s1" };
-  const deps = { db, client: { verifyMessage: async () => true } } as unknown as ApiCtx["deps"];
+  const deps = { db, client: { verifyMessage: async () => true, readContract: rootValidator } } as unknown as ApiCtx["deps"];
   return appRouter.createCaller({ deps, cards: {} as ApiCtx["cards"], secret, session });
 }
 
@@ -151,5 +156,59 @@ describe("signer page phone notice", () => {
     expect(srcs).toEqual(["/assets/signer.js"]);
     expect(html).not.toMatch(/<link[^>]+stylesheet/i);
     expect(html).not.toMatch(/@import|https?:\/\/[^"]*\.(css|js)\b/i);
+  });
+});
+
+describe("the kernel-passkey label is saved only for a passkey account", () => {
+  const readErr = (cause: Error) =>
+    new ContractFunctionExecutionError(cause as never, { abi: KERNEL_ROOT_VALIDATOR_ABI, functionName: "rootValidator", contractAddress: A as `0x${string}` });
+
+  test("the expected root key is the validator type byte 0x01 then the passkey validator 0.0.3", () => {
+    expect(PASSKEY_ROOT_VALIDATOR_ID).toBe("0x017ab16Ff354AcB328452F1D445b3Ddee9a91e9e69");
+    expect(isPasskeyRoot(PASSKEY_ROOT_VALIDATOR_ID.toLowerCase())).toBe(true);
+    expect(isPasskeyRoot("0x00" + PASSKEY_ROOT_VALIDATOR_ID.slice(4))).toBe(false); // wrong type byte
+    expect(isPasskeyRoot(undefined)).toBe(false);
+  });
+
+  test("a Kernel account whose main key is the passkey validator is saved as kernel-passkey", async () => {
+    const f = fakeUsers(null);
+    expect(await signedIn(f.db).me.link({ address: A, signature: "0x01", kind: "kernel-passkey" })).toEqual({ ok: true });
+    expect(f.row()?.address).toBe(A);
+  });
+
+  test("a Kernel account with another main key (for example a wallet signer) is refused, nothing saved", async () => {
+    const f = fakeUsers(null);
+    const ecdsaRoot: RootRead = async () => "0x01845ADb2C711129d4f3966735eD98a9F09fC4cE57";
+    await expect(signedIn(f.db, ecdsaRoot).me.link({ address: A, signature: "0x01", kind: "kernel-passkey" })).rejects.toThrow(NOT_PASSKEY_ACCOUNT);
+    expect(f.row()).toBeUndefined();
+  });
+
+  test("a plain wallet (no contract: the read comes back empty) is refused under kernel-passkey, nothing saved", async () => {
+    const f = fakeUsers(null);
+    const empty: RootRead = async () => {
+      throw readErr(new ContractFunctionZeroDataError({ functionName: "rootValidator" }));
+    };
+    await expect(signedIn(f.db, empty).me.link({ address: A, signature: "0x01", kind: "kernel-passkey" })).rejects.toThrow(NOT_PASSKEY_ACCOUNT);
+    expect(f.row()).toBeUndefined();
+  });
+
+  test("another contract that reverts on rootValidator() is refused, nothing saved", async () => {
+    const f = fakeUsers(null);
+    const reverts: RootRead = async () => {
+      throw readErr(new ContractFunctionRevertedError({ abi: KERNEL_ROOT_VALIDATOR_ABI, functionName: "rootValidator" }));
+    };
+    await expect(signedIn(f.db, reverts).me.link({ address: A, signature: "0x01", kind: "kernel-passkey" })).rejects.toThrow(NOT_PASSKEY_ACCOUNT);
+    expect(f.row()).toBeUndefined();
+  });
+
+  test("a chain we cannot reach is not a refusal: fixed retry text, nothing saved", async () => {
+    const f = fakeUsers(null);
+    const down: RootRead = async () => {
+      throw readErr(new HttpRequestError({ url: "https://rpc.example/KEY", details: "fetch failed" }));
+    };
+    const err = await signedIn(f.db, down).me.link({ address: A, signature: "0x01", kind: "kernel-passkey" }).catch((e) => e);
+    expect(err).toBeInstanceOf(Error);
+    expect(String(err.message)).not.toContain(NOT_PASSKEY_ACCOUNT);
+    expect(f.row()).toBeUndefined();
   });
 });

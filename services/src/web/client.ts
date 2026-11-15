@@ -4,13 +4,13 @@
  *
  * Member key = ZeroDev Kernel v3.1 smart account with the passkey (WebAuthn) validator 0.0.3,
  * verified on-chain via the RIP-7212 P-256 precompile (live on Robinhood Chain). Gas is sponsored
- * by the paymaster. Members can also use an injected EOA wallet.
+ * by the paymaster. A "Connect wallet" option is planned; see getSigner.
  *
  * (U) Verify toWebAuthnKey's passkey-server flow and the validator address resolution against the
  *     pinned @zerodev versions during milestone M5 on RHC testnet 46630.
  */
 import "./buffer-polyfill";
-import { createPublicClient, createWalletClient, custom, encodeFunctionData, http, isAddress, type Address, type Hex } from "viem";
+import { createPublicClient, encodeFunctionData, http, isAddress, type Address, type Hex } from "viem";
 import { createKernelAccount, createKernelAccountClient, createZeroDevPaymasterClient } from "@zerodev/sdk";
 import { getEntryPoint, KERNEL_V3_1 } from "@zerodev/sdk/constants";
 import { toPasskeyValidator, PasskeyValidatorContractVersion } from "@zerodev/passkey-validator";
@@ -18,6 +18,7 @@ import { toWebAuthnKey, WebAuthnMode } from "@zerodev/webauthn-key";
 import { coferPotAbi } from "../chain/abi";
 import { signerProblem } from "../core/signerCheck";
 import { failureText, isHandOff, SENDING_TEXT, ServerSaid } from "../core/retryText";
+import { inAppBrowser, inAppText } from "../core/inAppBrowser";
 import { spendAllowanceRefusal } from "../core/refusals";
 import { waitText } from "../core/waitText";
 import { capRefusal, navReadFailureText, roomText } from "../core/betaCap";
@@ -39,12 +40,6 @@ import {
 import { chooseExitDestination, DEST_TEXT, destinationProblem, groupAddress, type BlockedAddresses } from "../core/exitDestination";
 import { typedData, type ProposalEnvelope, type TokenMeta } from "../core/proposal";
 import { CONFIG_ELEMENT_ID } from "./pageConfig";
-
-declare global {
-  interface Window {
-    ethereum?: { request: (a: { method: string; params?: unknown[] }) => Promise<unknown> };
-  }
-}
 
 type PageConfig = { chainId: number; rpcUrl: string; bundlerUrl: string; paymasterUrl: string; passkeyServerUrl: string; usdg: Address; factory?: Address; adapter?: Address; token: string };
 
@@ -73,7 +68,7 @@ const entryPoint = getEntryPoint("0.7");
 const $ = (id: string) => document.getElementById(id)!;
 const say = (t: string) => ($("status").textContent = t);
 
-// Set once the current attempt has handed something to the bundler or the wallet. From then on it may land on-chain.
+// Set once the current attempt has handed a user operation to the bundler. From then on it may land on-chain.
 let handedOff = false;
 
 let session = "";
@@ -118,28 +113,15 @@ type Signer = {
   address: Address;
   signTypedData: (td: any) => Promise<Hex>;
   signMessage: (m: string) => Promise<Hex>;
-  send?: (calls: { to: Address; data: Hex }[]) => Promise<Hex>;
+  send: (calls: { to: Address; data: Hex }[]) => Promise<Hex>;
 };
 
+/**
+ * The member's key. Today only the passkey (Kernel v3.1 smart account, gas sponsored).
+ * Spot for the planned "Connect wallet" option: it will return a Signer here, on the same Kernel
+ * account, so every action below keeps working unchanged. Not built yet.
+ */
 async function getSigner(register = false): Promise<Signer> {
-  if ((document.getElementById("useWallet") as HTMLInputElement | null)?.checked && window.ethereum) {
-    const wallet = createWalletClient({ chain, transport: custom(window.ethereum) });
-    const [address] = await wallet.requestAddresses();
-    return {
-      address: address!,
-      signTypedData: (td) => wallet.signTypedData({ account: address!, ...td }),
-      signMessage: (m) => wallet.signMessage({ account: address!, message: m }),
-      send: async (calls) => {
-        let last: Hex = "0x";
-        for (const c of calls) {
-          handedOff = true;
-          last = await wallet.sendTransaction({ account: address!, to: c.to, data: c.data, chain });
-          say(SENDING_TEXT);
-        }
-        return last;
-      },
-    };
-  }
   const { account, client } = await passkeyAccount(register ? WebAuthnMode.Register : WebAuthnMode.Login);
   return {
     address: account.address,
@@ -172,7 +154,7 @@ class Stop extends Error {
 function showFailure(e: unknown, handedOff: boolean) {
   const logged = e instanceof Stop ? e.detail : e;
   if (logged !== undefined) console.error("[cofer signer]", logged);
-  say(e instanceof Stop ? e.message : failureText(e, handedOff));
+  say(e instanceof Stop ? e.message : failureText(e, handedOff, navigator.onLine));
 }
 
 /** Signer for a member action: the picked key must be the one linked to this Telegram user. Nothing is signed or sent before this check. */
@@ -281,6 +263,14 @@ async function main() {
   const ex = await trpc<Preview>("session.preview", { token: cfg.token });
   if (ex.used) throw new Stop("link already used; tap the button in Telegram again");
   const act = $("action") as HTMLButtonElement;
+  // Inside an app's built-in browser passkeys fail: stop before the button, so no passkey prompt
+  // runs and the one-time link is not used up (it still works in the phone's own browser).
+  const app = inAppBrowser(navigator.userAgent);
+  if (app !== null) {
+    $("title").textContent = "Open in your browser";
+    act.hidden = true;
+    throw new Stop(inAppText(app), `in-app browser: ${app || "unknown app"}`);
+  }
   // the button stays off while working and after success; an error is shown and the button comes back for a retry.
   // For a money action, an error after the hand-off asks the member to check before trying again.
   // `busy` keeps it off while sending, so nothing else on the page (e.g. the exit form) can turn it back on.
@@ -318,10 +308,11 @@ async function main() {
       say("Creating passkey...");
       const s = await getSigner(true);
       // deploy the account (sponsored) so ERC-1271 votes verify on-chain from day one
-      if (s.send) await s.send([{ to: s.address, data: "0x" }]);
+      await s.send([{ to: s.address, data: "0x" }]);
       const { message } = await trpc<{ message: string }>("me.linkMessage", {});
       const signature = await s.signMessage(message);
-      await trpc("me.link", { address: s.address, signature, kind: s.send ? "kernel-passkey" : "eoa" }, true);
+      // the server checks on-chain that this account's main key is the passkey validator
+      await trpc("me.link", { address: s.address, signature, kind: "kernel-passkey" }, true);
       say(`Done. Your key: ${s.address}. Go back to Telegram.`);
     });
     return;
@@ -460,7 +451,7 @@ async function main() {
       say("");
       refresh();
     };
-    for (const [el, ev] of [[typed, "input"], [confirmed, "change"], [dest, "toggle"], [$("useWallet"), "change"]] as const) el.addEventListener(ev, reset);
+    for (const [el, ev] of [[typed, "input"], [confirmed, "change"], [dest, "toggle"]] as const) el.addEventListener(ev, reset);
     reset();
   } else if (ex.purpose === "claim") {
     $("title").textContent = "Claim a set-aside token";
