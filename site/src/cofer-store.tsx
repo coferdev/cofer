@@ -342,7 +342,7 @@ export function Workspace() {
           <span className="workspace-kicker">GROUP ACCOUNT</span>
           <h2>{p.title}</h2>
           <p>
-            Live from {cfg.chainName}. Buttons open the signer page, where you review and sign with your passkey; proposals are made in the group chat.{' '}
+            Live from {cfg.chainName}. Buttons open the signer page, where you review and sign with your key; proposals are made in the group chat.{' '}
             <a href={botUrl(cfg)}>Open in Telegram</a>
           </p>
         </div>

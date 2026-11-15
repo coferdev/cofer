@@ -526,7 +526,7 @@ function HowItWorks() {
           title={'Your group. *One account.*'}
           collaboration={{ title: 'A shared account', description: 'Members contribute and receive shares based on the account’s value.' }}
           reports={{ title: 'Decisions together', description: 'Members review and sign proposals with their own keys.' }}
-          integrations={{ title: 'The account flow', description: 'A proposed flow from chat to review, signing and an on-chain account.', tools: ['Chat', 'Review', 'Passkey', 'Account'] }}
+          integrations={{ title: 'The account flow', description: 'A proposed flow from chat to review, signing and an on-chain account.', tools: ['Chat', 'Review', 'Sign', 'Account'] }}
           insights={{ title: 'Account activity', description: 'Follow the group account across contributions and decisions.', values: [12, 20, 18, 27, 24, 31, 29, 34, 32, 36, 39, 42], forecastFrom: 10 }}
         />
       </div>

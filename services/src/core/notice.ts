@@ -27,11 +27,11 @@ export function noticeText(cap: bigint | null = BETA_DEPOSIT_CAP_USDG, network: 
     "",
     `Cofer is a shared money account for your Telegram group, on ${network}.`,
     "",
-    `• Your key: when you set up, Cofer creates an address for you on ${network}, protected by your own key. There is no seed phrase. This bot never holds your keys or your money.`,
+    `• Your key: when you set up, Cofer creates an address for you on ${network}, protected by your own key. Cofer never asks you for a seed phrase. This bot never holds your keys or your money.`,
     `• ${network} only: send USDG to that address on ${network} only. Money sent on any other network will not arrive.`,
     "• Leaving is always open: any member can /exit at any time and get their exact share. Nobody can block it, not even us.",
     `• Where it goes: your exit goes to your own Cofer address, or to a different address you type. That must be a wallet that supports ${network}. Many exchange deposit addresses do not.`,
-    "• Your passkey is your key. There is no recovery: if you lose it and have no backup, you lose access to your money, like a lost seed phrase. Make sure your phone or browser backs up your passkeys.",
+    "• Nobody can recover your key, not even us. If you lose your passkey or your wallet, you lose access to your money. With a passkey: make sure your phone or browser backs it up (iCloud Keychain or Google Password Manager). With a wallet: keep a backup of its recovery phrase.",
     beta,
   ].join("\n");
 }

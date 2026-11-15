@@ -124,11 +124,11 @@ rephrasing it. This is the staff copy; a test keeps it equal to what the bot sen
 >
 > Cofer is a shared money account for your Telegram group, on Robinhood Chain.
 >
-> • Your key: when you set up, Cofer creates an address for you on Robinhood Chain, protected by your own key. There is no seed phrase. This bot never holds your keys or your money.
+> • Your key: when you set up, Cofer creates an address for you on Robinhood Chain, protected by your own key. Cofer never asks you for a seed phrase. This bot never holds your keys or your money.
 > • Robinhood Chain only: send USDG to that address on Robinhood Chain only. Money sent on any other network will not arrive.
 > • Leaving is always open: any member can /exit at any time and get their exact share. Nobody can block it, not even us.
 > • Where it goes: your exit goes to your own Cofer address, or to a different address you type. That must be a wallet that supports Robinhood Chain. Many exchange deposit addresses do not.
-> • Your passkey is your key. There is no recovery: if you lose it and have no backup, you lose access to your money, like a lost seed phrase. Make sure your phone or browser backs up your passkeys.
+> • Nobody can recover your key, not even us. If you lose your passkey or your wallet, you lose access to your money. With a passkey: make sure your phone or browser backs it up (iCloud Keychain or Google Password Manager). With a wallet: keep a backup of its recovery phrase.
 > • Cofer is in beta: each group is limited to 5,000 USDG while we test. Stocks can lose value. This is software for a group to manage its own money, not financial advice.
 
 ## Member help: lost passkeys and exits to another address
