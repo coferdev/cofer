@@ -98,8 +98,8 @@ export function signerRpcUrl(e: { CHAIN_ID: number; RHC_RPC_URL: string; SIGNER_
 
 /**
  * The page shell, for both pages. #walletBtn (hidden until the page picks it, core/keyChoice.ts) is
- * Connect wallet: on the passkey page only at sign-up (it opens the wallet page), on the wallet page
- * for every action. A passkey member never sees it.
+ * Connect wallet: on the passkey page only at sign-up (it opens the wallet page; shown first, above
+ * "or" and the passkey button), on the wallet page for every action. A passkey member never sees it.
  */
 export function signerPage(token: string, cfg: PageCfg): string {
   const boot = configJson({ ...cfg, token });
@@ -123,10 +123,10 @@ export function signerPage(token: string, cfg: PageCfg): string {
 <input id="amount" inputmode="decimal" placeholder="Amount (USDG)" hidden>
 <input id="to" placeholder="Recipient 0x..." hidden>
 <p id="choice" hidden>${esc(SIGNUP_CHOICE)}</p>
+<div id="wallet"><button id="walletBtn" hidden>Connect wallet</button><p id="walletNote" class="warn" hidden>${esc(WALLET_SEAT_NOTE)}</p><p id="walletAddr" class="addr" hidden></p></div>
+<p id="or" class="or" hidden>or</p>
 <button id="action">...</button>
 <p id="keywarn" class="warn" hidden>${esc(PASSKEY_LOSS_WARNING)}</p>
-<p id="or" class="or" hidden>or</p>
-<div id="wallet"><button id="walletBtn" hidden>Connect wallet</button><p id="walletNote" class="warn" hidden>${esc(WALLET_SEAT_NOTE)}</p><p id="walletAddr" class="addr" hidden></p></div>
 <p id="status"></p>
 </div>
 <p><small>Votes count only when signed with your own key. Exiting with your exact share is always available.</small></p>

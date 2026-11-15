@@ -468,7 +468,7 @@ async function main() {
   if (ex.purpose === "onboard") {
     offerWallet();
     $("title").textContent = "Set up your key";
-    // both options: a neutral intro, one line saying either works, and "or" between the buttons
+    // both options: a neutral intro, one line saying either works, the wallet first, "or", then the passkey
     $("body").textContent = choice.wallet ? SIGNUP_INTRO : SIGNUP_INTRO_PASSKEY;
     if (choice.wallet) {
       $("choice").hidden = false;

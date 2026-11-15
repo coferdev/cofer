@@ -14,8 +14,8 @@ describe("sign-up choice: exact words", () => {
   test("the line above the buttons, the two labels, the intro and the wallet line", () => {
     expect(SIGNUP_CHOICE).toBe("Choose one way to set up your key. Either works.");
     expect(PASSKEY_BUTTON).toBe("Set up with a passkey");
-    expect(WALLET_BUTTON).toBe("Set up with a wallet");
-    expect(SIGNUP_INTRO).toBe("Your key controls your seat: votes, deposits and exits. Nobody else can use it. Set it up with a passkey on this device, or with your own wallet.");
+    expect(WALLET_BUTTON).toBe("Connect wallet");
+    expect(SIGNUP_INTRO).toBe("Your key controls your seat: votes, deposits and exits. Nobody else can use it. Set it up with your own wallet, or with a passkey on this device.");
     expect(WALLET_SEAT_NOTE).toBe("The wallet you connect controls your seat, so you must keep access to that wallet.");
   });
 
@@ -26,14 +26,14 @@ describe("sign-up choice: exact words", () => {
 });
 
 describe("sign-up choice: layout", () => {
-  test("order: choice line, passkey button, passkey warning, or, wallet button, wallet line; all start hidden", () => {
+  test("order: choice line, wallet button, wallet line, or, passkey button, passkey warning; all start hidden", () => {
     const parts = [
       `<p id="choice" hidden>${SIGNUP_CHOICE}</p>`,
-      '<button id="action">...</button>',
-      `<p id="keywarn" class="warn" hidden>${PASSKEY_LOSS_WARNING}</p>`,
-      '<p id="or" class="or" hidden>or</p>',
       '<button id="walletBtn" hidden>Connect wallet</button>',
       `<p id="walletNote" class="warn" hidden>${WALLET_SEAT_NOTE}</p>`,
+      '<p id="or" class="or" hidden>or</p>',
+      '<button id="action">...</button>',
+      `<p id="keywarn" class="warn" hidden>${PASSKEY_LOSS_WARNING}</p>`,
     ];
     let at = -1;
     for (const p of parts) {
@@ -41,6 +41,11 @@ describe("sign-up choice: layout", () => {
       expect(i).toBeGreaterThan(at);
       at = i;
     }
+  });
+
+  test("each warning sits directly under its own button, nothing in between", () => {
+    expect(html).toContain(`<button id="walletBtn" hidden>Connect wallet</button><p id="walletNote" class="warn" hidden>${WALLET_SEAT_NOTE}</p>`);
+    expect(html).toContain(`<button id="action">...</button>\n<p id="keywarn" class="warn" hidden>${PASSKEY_LOSS_WARNING}</p>`);
   });
 
   test("the divider is a line with \"or\" in the middle, and stays hidden until shown", () => {
