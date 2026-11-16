@@ -373,6 +373,8 @@ type Preview = {
 async function main() {
   // read-only: opening the page (also in Telegram's in-app browser) does not use up the link
   const ex = await trpc<Preview>("session.preview", { token: cfg.token });
+  // the footer line under the card is for member actions; the sign-up page (any state) leaves it out
+  if (ex.purpose === "onboard") $("foot").hidden = true;
   if (ex.used) throw new Stop("link already used; tap the button in Telegram again");
   const act = $("action") as HTMLButtonElement;
   const walletBtn = $("walletBtn") as HTMLButtonElement;

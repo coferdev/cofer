@@ -156,7 +156,7 @@ export function signerPage(token: string, cfg: PageCfg): string {
 <p id="keywarn" class="warn" hidden>${esc(PASSKEY_LOSS_WARNING)}</p>
 <p id="status"></p>
 </div>
-<p class="foot"><small>Votes count only when signed with your own key. Exiting with your exact share is always available.</small></p>
+<p class="foot" id="foot"><small>Votes count only when signed with your own key. Exiting with your exact share is always available.</small></p>
 </main>
 <div id="notice" role="dialog" aria-modal="true" aria-labelledby="notice-title" hidden><div class="card">
 <h1 id="notice-title">Open in your browser (recommended)</h1>

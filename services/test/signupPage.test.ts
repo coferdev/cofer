@@ -63,3 +63,17 @@ describe("sign-up choice: layout", () => {
     expect(client).not.toContain('"Create passkey"');
   });
 });
+
+describe("sign-up page: no footer line", () => {
+  test("the footer line is hidden on every sign-up state (also link used, already linked and inside Telegram), right after the preview", () => {
+    const hide = client.indexOf('if (ex.purpose === "onboard") $("foot").hidden = true;');
+    expect(hide).toBeGreaterThan(client.indexOf('const ex = await trpc<Preview>("session.preview"'));
+    expect(hide).toBeLessThan(client.indexOf("if (ex.used) throw new Stop"));
+    expect(hide).toBeLessThan(client.indexOf("const app = MODE === \"passkey\" ? inAppBrowser(navigator.userAgent) : null;"));
+    expect(client.match(/\$\("foot"\)/g)).toHaveLength(1); // hidden only there: every other page keeps it
+  });
+
+  test("the line itself is unchanged in the shared page, so other pages still show it", () => {
+    expect(html).toContain('<p class="foot" id="foot"><small>Votes count only when signed with your own key. Exiting with your exact share is always available.</small></p>');
+  });
+});

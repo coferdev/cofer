@@ -72,7 +72,7 @@ describe("the website's look", () => {
   test("the brand line and the footer class are the only markup added; wording and order are unchanged", () => {
     const html = signerPage("tok", { chainId: 46630, rpcUrl: "https://r", bundlerUrl: "", paymasterUrl: "", passkeyServerUrl: "", usdg: "0x1" });
     expect(html).toContain('<p class="brand">COFER</p>');
-    expect(html).toContain('<p class="foot"><small>Votes count only when signed with your own key. Exiting with your exact share is always available.</small></p>');
+    expect(html).toContain('<p class="foot" id="foot"><small>Votes count only when signed with your own key. Exiting with your exact share is always available.</small></p>');
     expect(html).not.toMatch(/\sstyle=/);
   });
 
