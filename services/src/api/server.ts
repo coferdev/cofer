@@ -1,3 +1,4 @@
+import { readFileSync } from "node:fs";
 import { Hono } from "hono";
 import { trpcServer } from "@hono/trpc-server";
 import { webhookCallback, type Bot } from "grammy";
@@ -15,6 +16,17 @@ export async function buildSignerBundle(): Promise<string> {
   if (!out.success) throw new Error(out.logs.map(String).join("\n"));
   return await out.outputs[0]!.text();
 }
+
+/**
+ * The signer pages' fonts (Geist and Geist Mono, SIL Open Font License, src/web/fonts/LICENSE),
+ * served from this server: no outside font service, and the pages' policy needs no font host.
+ * Only these two fixed names exist; nothing is read from the request path.
+ */
+const fontFile = (name: string) => new Uint8Array(readFileSync(new URL(`../web/fonts/${name}`, import.meta.url)));
+export const SIGNER_FONTS: Record<string, Uint8Array<ArrayBuffer>> = {
+  "geist.woff2": fontFile("geist.woff2"),
+  "geist-mono.woff2": fontFile("geist-mono.woff2"),
+};
 
 /**
  * The wallet window (Reown AppKit) as its own file, /assets/wallet.js, loaded only by the wallet page.
@@ -85,6 +97,11 @@ export function createServer(opts: { deps: ProposalDeps; cards: CardAdapter | nu
   }
 
   app.get("/assets/signer.js", (c) => c.body(opts.signerJs, 200, { "content-type": "text/javascript; charset=utf-8", "cache-control": "public, max-age=300" }));
+  app.get("/assets/fonts/:name", (c) => {
+    const font = Object.hasOwn(SIGNER_FONTS, c.req.param("name")) ? SIGNER_FONTS[c.req.param("name")] : undefined;
+    if (!font) return c.text("Not found", 404);
+    return c.body(font, 200, { "content-type": "font/woff2", "cache-control": "public, max-age=604800" });
+  });
 
   if (walletOn) {
     const walletJs = opts.walletJs!;

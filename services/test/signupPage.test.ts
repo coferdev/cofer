@@ -49,7 +49,7 @@ describe("sign-up choice: layout", () => {
   });
 
   test("the divider is a line with \"or\" in the middle, and stays hidden until shown", () => {
-    expect(PAGE_CSS).toContain('.or::before,.or::after{content:"";flex:1;border-top:1px solid var(--muted);opacity:.4}');
+    expect(PAGE_CSS).toContain('.or::before,.or::after{content:"";flex:1;border-top:1px dashed #3d3d40}');
     expect(PAGE_CSS).toContain(".or[hidden]{display:none}"); // display:flex must not undo the hidden attribute
   });
 

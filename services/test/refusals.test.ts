@@ -148,7 +148,7 @@ describe("progress while sending", () => {
   });
 
   test("success texts are unchanged", () => {
-    for (const t of ["say(`Deposited. tx ${tx}`);", "say(`Exited. tx ${tx}`);", "say(`Sent. tx ${tx}`);", "say(`Card order ${st.status}. Load fee ${Number(q.loadFeeUsdg) / 1e6} USDG.`);"]) {
+    for (const t of ['say(`Deposited. tx ${tx}`, "ok");', 'say(`Exited. tx ${tx}`, "ok");', 'say(`Sent. tx ${tx}`, "ok");', 'say(`Card order ${st.status}. Load fee ${Number(q.loadFeeUsdg) / 1e6} USDG.`, "ok");']) {
       expect(client).toContain(t);
     }
   });

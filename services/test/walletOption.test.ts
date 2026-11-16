@@ -191,7 +191,7 @@ describe("security policy: the passkey page is unchanged, the wallet page opens 
       "script-src 'self'",
       "style-src 'self' 'unsafe-inline'",
       "img-src 'self' data: blob: https://api.web3modal.org https://*.walletconnect.com https://*.walletconnect.org https://*.reown.com",
-      "font-src 'self' https://fonts.reown.com",
+      "font-src 'self'",
       "connect-src * wss:",
       "frame-src https://verify.walletconnect.org https://verify.walletconnect.com",
       "frame-ancestors 'none'",

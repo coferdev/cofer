@@ -98,7 +98,13 @@ const chain = {
 const publicClient = createPublicClient({ chain, transport: http(cfg.rpcUrl) });
 const entryPoint = getEntryPoint("0.7");
 const $ = (id: string) => document.getElementById(id)!;
-const say = (t: string) => ($("status").textContent = t);
+/** Shows a status line. `tone` styles a finished action ("ok") or a failure ("error"); progress lines have none. */
+const say = (t: string, tone?: "ok" | "error") => {
+  const s = $("status");
+  s.textContent = t;
+  if (tone) s.dataset.tone = tone;
+  else delete s.dataset.tone;
+};
 
 // Set once the current attempt has handed a user operation to the bundler. From then on it may land on-chain.
 let handedOff = false;
@@ -195,7 +201,7 @@ class Stop extends Error {
 function showFailure(e: unknown, handedOff: boolean) {
   const logged = e instanceof Stop ? e.detail : e;
   if (logged !== undefined) console.error("[cofer signer]", logged);
-  say(e instanceof Stop ? e.message : failureText(e, handedOff, navigator.onLine));
+  say(e instanceof Stop ? e.message : failureText(e, handedOff, navigator.onLine), "error");
 }
 
 type WalletModule = typeof import("./wallet");
@@ -406,7 +412,7 @@ async function main() {
       walletBtn.disabled = true;
       try {
         await connectWallet();
-        say("Wallet connected.");
+        say("Wallet connected.", "ok");
       } catch (e) {
         showFailure(e, false);
       } finally {
@@ -460,7 +466,7 @@ async function main() {
       const signature = await s.signMessage(message);
       // the server checks on-chain that this account's main key is the ECDSA validator
       await trpc("me.link", { address: s.address, signature, kind: "kernel-ecdsa" }, true);
-      say(`Done. Your key: ${s.address}. Go back to Telegram.`);
+      say(`Done. Your key: ${s.address}. Go back to Telegram.`, "ok");
     });
     return;
   }
@@ -485,7 +491,7 @@ async function main() {
       const signature = await s.signMessage(message);
       // the server checks on-chain that this account's main key is the passkey validator
       await trpc("me.link", { address: s.address, signature, kind: "kernel-passkey" }, true);
-      say(`Done. Your key: ${s.address}. Go back to Telegram.`);
+      say(`Done. Your key: ${s.address}. Go back to Telegram.`, "ok");
     });
     return;
   }
@@ -502,7 +508,7 @@ async function main() {
         const s = await memberSigner();
         const signature = await s.signTypedData(typedData(envelope)); // built by this page, never the server's object
         const r = await trpc<any>("proposal.sign", { id: ex.ref, signer: s.address, signature }, true);
-        say(r.ready ? (r.waitsUntil ? `Passed. ${waitText(r.exitWindowSec, r.waitsUntil)}.` : "Passed. Executing now.") : `Signed. ${r.approvals}/${r.required}.`);
+        say(r.ready ? (r.waitsUntil ? `Passed. ${waitText(r.exitWindowSec, r.waitsUntil)}.` : "Passed. Executing now.") : `Signed. ${r.approvals}/${r.required}.`, "ok");
       });
     act.textContent = "Check this vote";
     act.onclick = guard(async () => {
@@ -552,7 +558,7 @@ async function main() {
       const deposit = encodeFunctionData({ abi: coferPotAbi, functionName: "deposit", args: [amount] });
       say(KEY.confirm);
       const tx = await s.send!([{ to: cfg.usdg, data: approve }, { to: pot, data: deposit }]);
-      say(`Deposited. tx ${tx}`);
+      say(`Deposited. tx ${tx}`, "ok");
     }, true);
   } else if (ex.purpose === "exit") {
     // the link carries only the pot; the destination is never read from the link, the URL or the dashboard
@@ -597,7 +603,7 @@ async function main() {
         const tx = await s.send!(calls);
         done = true; // the button stays off
         act.onclick = null;
-        say(`Exited. tx ${tx}`);
+        say(`Exited. tx ${tx}`, "ok");
       }, true);
       act.disabled = false;
     });
@@ -652,7 +658,7 @@ async function main() {
       }
       if (done.length === 0) throw firstError;
       const left = owed.length - done.length;
-      say(`Claimed ${done.length} token${done.length === 1 ? "" : "s"}. tx ${done.join(", ")}${left ? `\n${left} could not be claimed yet (the token may still be paused). Try /claim again later.` : ""}`);
+      say(`Claimed ${done.length} token${done.length === 1 ? "" : "s"}. tx ${done.join(", ")}${left ? `\n${left} could not be claimed yet (the token may still be paused). Try /claim again later.` : ""}`, "ok");
     }, true);
   } else if (ex.purpose === "sign" && ex.ref.startsWith("spend:")) {
     // the linked key comes from our API (no passkey needed), then the pot's own memberInfo
@@ -687,7 +693,7 @@ async function main() {
       say(KEY.confirm);
       const data = encodeFunctionData({ abi: coferPotAbi, functionName: "spend", args: [to, amount, "0x0000000000000000000000000000000000000000000000000000000000000000"] });
       const tx = await s.send!([{ to: pot, data }]);
-      say(`Sent. tx ${tx}`);
+      say(`Sent. tx ${tx}`, "ok");
     }, true);
   } else if (ex.purpose === "card") {
     $("title").textContent = "Load a card (optional)";
@@ -701,7 +707,7 @@ async function main() {
       say(KEY.confirm);
       const tx = await s.send!([{ to: pot, data }]);
       const st = await trpc<any>("card.confirm", { orderId: q.orderId, spendTx: tx }, true);
-      say(`Card order ${st.status}. Load fee ${Number(q.loadFeeUsdg) / 1e6} USDG.`);
+      say(`Card order ${st.status}. Load fee ${Number(q.loadFeeUsdg) / 1e6} USDG.`, "ok");
     }, true);
   }
 }

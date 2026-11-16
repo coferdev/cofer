@@ -27,29 +27,54 @@ export interface PageCfg {
   walletJs?: "/assets/wallet.js";
 }
 
-/** The page's only <style> block. The CSP allows exactly this text by its sha256 hash. */
-export const PAGE_CSS = `:root{--bg:#f7f5f0;--fg:#1c1b19;--muted:#6b675f;--accent:#2f5d50;--card:#fff;--warn:#9a3412}
-@media (prefers-color-scheme:dark){:root{--bg:#141412;--fg:#ecebe6;--muted:#a19d94;--accent:#7fb7a4;--card:#1e1d1b;--warn:#fdba74}}
-body{margin:0;background:var(--bg);color:var(--fg);font:16px/1.5 system-ui,sans-serif}
-main{max-width:440px;margin:0 auto;padding:24px 16px}
-.card{background:var(--card);border-radius:14px;padding:20px}
-h1{font-size:20px;margin:0 0 8px}#body{white-space:pre-line;color:var(--muted)}
-input{width:100%;box-sizing:border-box;padding:10px;margin:8px 0;border-radius:8px;border:1px solid var(--muted);background:transparent;color:var(--fg)}
-button{width:100%;padding:12px;border:0;border-radius:10px;background:var(--accent);color:#fff;font-weight:600;margin-top:12px}
-#status{margin-top:12px;color:var(--muted);word-break:break-all}
+/**
+ * The page's only <style> block. The CSP allows exactly this text by its sha256 hash.
+ * The look follows the Cofer website: Geist and Geist Mono (served from this server, /assets/fonts),
+ * a black panel on grey, light pill buttons, small mono labels, monochrome. One fixed look (the site
+ * has no light/dark switch). Fonts load from 'self', so the passkey page's policy is unchanged.
+ */
+export const PAGE_CSS = `@font-face{font-family:Geist;src:url(/assets/fonts/geist.woff2) format("woff2");font-weight:100 900;font-display:swap}
+@font-face{font-family:"Geist Mono";src:url(/assets/fonts/geist-mono.woff2) format("woff2");font-weight:100 900;font-display:swap}
+:root{--page:#858584;--card:#080808;--line:#2e2e31;--panel:#1b1b1e;--field:#1d1d20;--fg:#eeeeec;--soft:#c9c9c6;--muted:#9b9b9f;--btn:#e4e4e1;--btn-fg:#111;--alert:#ffa7a7}
+*{box-sizing:border-box}
+body{margin:0;min-height:100vh;background:var(--page);color:var(--fg);font:15px/1.55 Geist,Arial,sans-serif;-webkit-font-smoothing:antialiased;-webkit-text-size-adjust:100%}
+main{max-width:480px;margin:0 auto;padding:40px 16px 40px}
+.card{background:var(--card);border:1px solid var(--line);border-radius:28px;padding:28px 24px 26px}
+.brand{display:flex;align-items:center;gap:8px;margin:0 0 22px;font:600 11px/1 "Geist Mono",monospace;letter-spacing:.14em;color:var(--muted)}
+.brand::before{content:"";width:8px;height:8px;background:var(--fg)}
+h1{font-size:26px;font-weight:600;letter-spacing:-.035em;line-height:1.15;margin:0 0 10px}
+#body{white-space:pre-line;color:var(--muted);font-size:14px;line-height:1.6;margin:0}
+input{width:100%;padding:12px 14px;margin:12px 0 0;border-radius:12px;border:1px solid #4a4a4d;background:var(--field);color:var(--fg);font:15px Geist,Arial,sans-serif}
+input::placeholder{color:#7d7d82}
+input:focus{outline:2px solid var(--fg);outline-offset:1px}
+button{width:100%;min-height:48px;padding:12px 18px;border:1px solid var(--btn);border-radius:999px;background:var(--btn);color:var(--btn-fg);font:500 15px Geist,Arial,sans-serif;margin-top:16px;cursor:pointer;transition:background .15s,opacity .15s}
+button:hover{background:#fff}
+button:disabled{opacity:.45;cursor:default}
+button:focus-visible{outline:2px solid var(--fg);outline-offset:3px}
+#status{margin:16px 0 0;font-size:14px;color:var(--soft);white-space:pre-line;overflow-wrap:anywhere}
+#status:empty{display:none}
+#status[data-tone]{padding:12px 14px;border-radius:14px;background:var(--panel);border:1px solid var(--line);color:var(--fg)}
+#status[data-tone=error]{border-left:3px solid var(--alert)}
+#status[data-tone=ok]{border-left:3px solid var(--fg)}
 small{color:var(--muted)}
-.check{width:auto}
-#notice{position:fixed;inset:0;background:rgba(0,0,0,.55);display:flex;align-items:center;justify-content:center;padding:16px;z-index:10}
+.check{width:auto;margin:0 6px 0 0;accent-color:var(--btn);vertical-align:-2px}
+label small{color:var(--soft)}
+.foot{margin:16px 8px 0;font-size:12px;line-height:1.55;color:#1c1c1c}
+.foot small{color:inherit}
+#notice{position:fixed;inset:0;background:rgba(0,0,0,.62);display:flex;align-items:center;justify-content:center;padding:16px;z-index:10}
 #notice[hidden]{display:none}
-#notice .card{max-width:400px;box-shadow:0 8px 32px rgba(0,0,0,.3)}
-#notice p{color:var(--muted);margin:0}
-.warn{color:var(--warn);font-size:14px;margin:8px 0}
-details{margin:12px 0}summary{cursor:pointer;color:var(--accent);font-weight:600}
-.addr{font-family:ui-monospace,Menlo,monospace;overflow-wrap:break-word;margin:4px 0}
-#choice{margin:16px 0 0;font-weight:600}
-.or{display:flex;align-items:center;gap:10px;color:var(--muted);font-size:14px;margin:14px 0 2px}
-.or::before,.or::after{content:"";flex:1;border-top:1px solid var(--muted);opacity:.4}
-.or[hidden]{display:none}`;
+#notice .card{max-width:400px;box-shadow:0 16px 60px rgba(0,0,0,.5)}
+#notice h1{font-size:22px}
+#notice p{color:var(--muted);font-size:14px;margin:0}
+.warn{color:var(--soft);font-size:13px;line-height:1.55;margin:12px 2px 0;padding:0 0 0 12px;border-left:2px solid #8a8a8e}
+details{margin:16px 0 0;padding:14px 16px;border:1px solid var(--line);border-radius:16px;background:var(--panel)}
+summary{cursor:pointer;color:var(--fg);font-weight:500}
+.addr{font:13px/1.5 "Geist Mono",monospace;color:var(--soft);overflow-wrap:anywhere;margin:8px 0 0}
+#choice{margin:22px 0 0;font-size:14px;font-weight:600;color:var(--fg)}
+.or{display:flex;align-items:center;gap:12px;color:var(--muted);font:11px "Geist Mono",monospace;letter-spacing:.12em;text-transform:uppercase;margin:18px 0 2px}
+.or::before,.or::after{content:"";flex:1;border-top:1px dashed #3d3d40}
+.or[hidden]{display:none}
+@media (max-width:480px){main{padding:16px 10px 28px}.card{border-radius:22px;padding:22px 18px 20px}h1{font-size:23px}.brand{margin-bottom:18px}}`;
 
 const styleHash = createHash("sha256").update(PAGE_CSS, "utf8").digest("base64");
 
@@ -60,7 +85,8 @@ export const SIGNER_CSP = `default-src 'self'; script-src 'self'; style-src 'sha
  * The wallet page only (/w/:token): the passkey page keeps SIGNER_CSP unchanged. Scripts are still
  * only the site's own files (signer.js, wallet.js). Opened only as far as the wallet window needs:
  *  - style-src 'unsafe-inline': AppKit writes its theme into <style> tags at run time (no fixed hash);
- *  - img-src / font-src: wallet logos and the window's font from Reown;
+ *  - img-src: wallet logos from Reown's wallet registry (EIP-6963 wallets bring their own data: icons);
+ *  - font-src 'self': the window uses the page's own self-hosted Geist (no font from Reown);
  *  - connect-src wss:: the WalletConnect relay (spelled out, as some browsers do not match ws by "*");
  *  - frame-src: WalletConnect's domain check (Verify) runs in a hidden frame.
  */
@@ -69,7 +95,7 @@ export const WALLET_CSP = [
   "script-src 'self'",
   "style-src 'self' 'unsafe-inline'",
   "img-src 'self' data: blob: https://api.web3modal.org https://*.walletconnect.com https://*.walletconnect.org https://*.reown.com",
-  "font-src 'self' https://fonts.reown.com",
+  "font-src 'self'",
   "connect-src * wss:",
   "frame-src https://verify.walletconnect.org https://verify.walletconnect.com",
   "frame-ancestors 'none'",
@@ -110,6 +136,7 @@ export function signerPage(token: string, cfg: PageCfg): string {
 <title>Cofer signer</title>
 <style>${PAGE_CSS}</style></head>
 <body><main><div class="card">
+<p class="brand">COFER</p>
 <h1 id="title">Loading...</h1>
 <p id="body"></p>
 <details id="dest" hidden><summary>${esc(EXIT_TOGGLE_TEXT)}</summary>
@@ -129,7 +156,7 @@ export function signerPage(token: string, cfg: PageCfg): string {
 <p id="keywarn" class="warn" hidden>${esc(PASSKEY_LOSS_WARNING)}</p>
 <p id="status"></p>
 </div>
-<p><small>Votes count only when signed with your own key. Exiting with your exact share is always available.</small></p>
+<p class="foot"><small>Votes count only when signed with your own key. Exiting with your exact share is always available.</small></p>
 </main>
 <div id="notice" role="dialog" aria-modal="true" aria-labelledby="notice-title" hidden><div class="card">
 <h1 id="notice-title">Open in your browser (recommended)</h1>

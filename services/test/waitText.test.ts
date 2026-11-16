@@ -70,7 +70,7 @@ describe("vote card", () => {
 describe("signer page", () => {
   test("a passed vote that waits gets the same wording, with the group's window and the time it runs", () => {
     const client = read("src", "web", "client.ts");
-    expect(client).toContain('say(r.ready ? (r.waitsUntil ? `Passed. ${waitText(r.exitWindowSec, r.waitsUntil)}.` : "Passed. Executing now.") : `Signed. ${r.approvals}/${r.required}.`);');
+    expect(client).toContain('say(r.ready ? (r.waitsUntil ? `Passed. ${waitText(r.exitWindowSec, r.waitsUntil)}.` : "Passed. Executing now.") : `Signed. ${r.approvals}/${r.required}.`, "ok");');
     expect(client).not.toContain("It executes after the exit window");
     // what the member reads, for 6 hours, 30 minutes and 2 days
     expect(`Passed. ${waitText(21600, ETA)}.`).toBe("Passed. It will be done in 6 hours, at 11:06 UTC on 8 Nov 2026.");
