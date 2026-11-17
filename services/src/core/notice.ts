@@ -1,6 +1,7 @@
 /**
- * The statement members read before they start (the owner's text). Shown as plain text on /start in
- * the private chat, above the key set-up button, and pointed to from /help. The staff copy is in
+ * The statement members read before they start (the owner's text), followed by the main commands.
+ * Shown as plain text on /start in the private chat, above the key set-up button, and pointed to from
+ * /help. The staff copy is in
  * docs/runbook.md. The beta limit and the network name come from the code, so they cannot drift.
  */
 import { BETA_DEPOSIT_CAP_USDG, usdgText } from "./betaCap";
@@ -13,6 +14,20 @@ export const NOTICE_SUBTITLE = '"Read This Statement"';
 
 /** The last line of /help. */
 export const NOTICE_POINTER = "Read the statement: send /start to me in a private chat.";
+
+/**
+ * The main commands, listed at the end of the statement. Each line says what the bot really does
+ * (services/src/bot/bot.ts): /start works only in a private chat; /me shows the member's share and
+ * allowance as a reply only they see; /newpot works only in a group and only for its creator or an
+ * admin (bot/newpotAdmin.ts); /exit works in the group and in a private chat, with no vote.
+ */
+export const NOTICE_COMMANDS: readonly string[] = [
+  "Main commands:",
+  "• /start: set up your key (send it to me in a private chat).",
+  "• /me: see your share and allowance in the group, shown only to you.",
+  "• /newpot: open the group account (a group admin sends it in the group chat).",
+  "• /exit: leave with your exact share at any time, in the group or here.",
+];
 
 /** The notice text; `cap` is the beta limit in USDG units (null: no limit). */
 export function noticeText(cap: bigint | null = BETA_DEPOSIT_CAP_USDG, network: string = NETWORK_NAME): string {
@@ -33,6 +48,8 @@ export function noticeText(cap: bigint | null = BETA_DEPOSIT_CAP_USDG, network: 
     `• Where it goes: your exit goes to your own Cofer address, or to a different address you type. That must be a wallet that supports ${network}. Many exchange deposit addresses do not.`,
     "• Nobody can recover your key, not even us. If you lose your passkey or your wallet, you lose access to your money. With a passkey: make sure your phone or browser backs it up (iCloud Keychain or Google Password Manager). With a wallet: keep a backup of its recovery phrase.",
     beta,
+    "",
+    ...NOTICE_COMMANDS,
   ].join("\n");
 }
 
