@@ -50,15 +50,18 @@ import {
   videoUsage,
   xCopy,
   headingText,
+  REPLY_ONLY,
   type HealthRow,
 } from "./messages";
 import { dueNow, held, loadState, nextDue, released, saveState, us, type State } from "./state";
-import type { Tg, TgUpdate } from "./telegram";
+import type { Tg, TgMessage, TgUpdate } from "./telegram";
 import { parseUtc, slotTime } from "./time";
 
 export const TICK_MS = 10_000;
 const BOARD_REFRESH_MS = 5 * 60_000;
 const SAME_COMMAND_MS = 5_000;
+/** A reply to the same message of ours is answered at most once in this time. */
+export const SAME_REPLY_MS = 30_000;
 export const CONTROL_COMMANDS = ["arm", "disarm", "pause", "resume", "hold", "release", "verify"] as const;
 export type ControlCommand = (typeof CONTROL_COMMANDS)[number];
 export const KNOWN = new Set(["help", "start", "status", "next", "schedule", "poster", "changelog", "roadmap", "contracts", "socials", "videos", "video", "health"]);
@@ -352,12 +355,33 @@ export function createTeambot(d: TeambotDeps) {
 
   let me: string | null = null;
   const lastCmd = new Map<string, number>();
-  /** One update from Telegram: answered only if it is one of our commands, in the staff group, from a person. */
+  const lastReply = new Map<number, number>();
+
+  /** A person replied (not with a command) to a message this bot sent, in the staff group. */
+  async function reply(m: TgMessage): Promise<void> {
+    const to = m.reply_to_message!;
+    if (!me || !to.from?.is_bot || to.from.username?.toLowerCase() !== me.toLowerCase()) return; // not one of ours
+    if (m.is_topic_message && to.message_id === m.message_thread_id) return; // just a message in a topic, not a reply
+    if (now() - (lastReply.get(to.message_id) ?? -Infinity) < SAME_REPLY_MS) return; // a busy thread: answer once
+    lastReply.set(to.message_id, now());
+    for (const [id, at] of lastReply) if (now() - at >= SAME_REPLY_MS) lastReply.delete(id);
+    try {
+      await say(REPLY_ONLY);
+    } catch (e) {
+      log("reply error", sentence(e));
+    }
+  }
+
+  /** One update from Telegram: answered only in the staff group, from a person: our commands, and replies to our messages. */
   async function handle(up: TgUpdate): Promise<void> {
     st.offset = up.update_id + 1;
     save();
     const m = up.message;
-    if (!m?.text || m.chat?.id !== chat || !m.text.startsWith("/") || m.from?.is_bot) return;
+    if (!m || m.chat?.id !== chat || m.from?.is_bot) return;
+    if (!m.text?.startsWith("/")) {
+      if (m.reply_to_message) await reply(m);
+      return;
+    }
     const [head, ...rest] = m.text.trim().split(/\s+/);
     const [cmd = "", at] = head!.slice(1).toLowerCase().split("@");
     if (at && (!me || at !== me.toLowerCase())) return; // a command for another bot

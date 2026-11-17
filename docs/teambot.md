@@ -81,6 +81,18 @@ They work in the staff group only. The bot ignores normal chat, commands meant f
 | `/health` | whether the sites answer |
 | `/help` | this list |
 
+## Replying to the bot
+
+Reply to any message the bot sent in the staff group, and it answers with one line:
+
+```
+I answer commands only: /status, /next, /schedule, /poster N, /changelog, /roadmap, /contracts, /socials, /videos, /health, /help.
+```
+
+It answers each message at most once every 30 seconds, however many people reply to it. Replies from
+bots and replies in other chats are ignored. A command sent as a reply (for example `/next`) runs as
+that command.
+
 ## Server commands
 
 On the server only, through the `cofer-release` shortcut (set-up below):

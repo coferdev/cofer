@@ -6,8 +6,8 @@ import { parseEnv } from "../src/env";
 import { makeBook, type Book, type Update } from "../src/teambot/data";
 import type { Release } from "../src/teambot/gate";
 import { githubClient, type GitHub } from "../src/teambot/github";
-import { tgCopy, xCopy } from "../src/teambot/messages";
-import { createTeambot, inboxDir, type Teambot } from "../src/teambot/runner";
+import { REPLY_ONLY, headingText, plainText, tgCopy, xCopy } from "../src/teambot/messages";
+import { createTeambot, inboxDir, SAME_REPLY_MS, type Teambot } from "../src/teambot/runner";
 import { maybeStartTeambot } from "../src/teambot/start";
 import { loadState } from "../src/teambot/state";
 import { telegramClient, type Tg, type TgUpdate } from "../src/teambot/telegram";
@@ -482,6 +482,84 @@ describe("staff-group commands", () => {
     await bot.handle(msg("/health"));
     expect(asked).toEqual(["https://site.example"]);
     expect(texts(t.sent)[0]).toMatch(/^<b>Health<\/b>\n\n✅ Website · 200 · \d+ ms\n\nUpdates: not armed\n/);
+  });
+});
+
+describe("replies to the bot's own messages", () => {
+  let uid = 5000;
+  const BOT = { is_bot: true, username: "cofer_alerts_bot" };
+  /** A person (or a bot) replying in a chat to a message with this text or caption. */
+  const replyTo = (to: { text?: string; caption?: string; from?: { is_bot?: boolean; username?: string }; id?: number }, o: { chat?: number; bot?: boolean; text?: string } = {}): TgUpdate => ({
+    update_id: uid++,
+    message: {
+      message_id: uid,
+      chat: { id: o.chat ?? CHAT },
+      from: { is_bot: !!o.bot },
+      text: o.text ?? "what is this?",
+      reply_to_message: { message_id: to.id ?? uid + 100000, chat: { id: o.chat ?? CHAT }, from: to.from ?? BOT, text: to.text, caption: to.caption },
+    },
+  });
+  const ready = async (o: Parameters<typeof setup>[0] = {}) => {
+    const s = setup(o);
+    await s.bot.setup();
+    return s;
+  };
+
+  test("whatever message of ours is replied to, the answer is the same one line", async () => {
+    const { bot, t, clock, book } = await ready();
+    await arm(bot);
+    clock.now = T0;
+    await bot.releaseTick();
+    t.sent.length = 0;
+    const u1 = book.byN.get(1)!;
+    const ours = [
+      { text: plainText(headingText(1)) },
+      { caption: tgCopy(book, u1) },
+      { caption: xCopy(u1) },
+      { text: "🟡 ALERT · feed-stale:TSLA\n\nWhat happened: The TSLA price is 3 hours old.\nWho acts: Dev checks." },
+      { text: "🟢 CLEARED · relayer-low (topped up)" },
+      { text: "[cofer alert] indexer-lag" },
+      { text: "COFER LAUNCH BOARD\nLive 1 / 3" },
+      {},
+    ];
+    for (const to of ours) await bot.handle(replyTo(to));
+    expect(texts(t.sent)).toEqual(ours.map(() => REPLY_ONLY));
+    expect(t.sent.every((x) => x.chat === CHAT)).toBe(true);
+    expect(REPLY_ONLY).toBe("I answer commands only: /status, /next, /schedule, /poster N, /changelog, /roadmap, /contracts, /socials, /videos, /health, /help.");
+  });
+
+  test("ignored: replies from bots, other chats, replies to people or other bots, plain messages in a topic", async () => {
+    const { bot, t } = await ready();
+    await bot.handle(replyTo({ text: "COFER LAUNCH BOARD" }, { bot: true }));
+    await bot.handle(replyTo({ text: "COFER LAUNCH BOARD" }, { chat: 555 }));
+    await bot.handle(replyTo({ text: "lunch?", from: { is_bot: false, username: "someone" } }));
+    await bot.handle(replyTo({ text: "COFER LAUNCH BOARD", from: { is_bot: true, username: "other_bot" } }));
+    const inTopic = replyTo({ text: "Topic made by the bot", id: 77 });
+    inTopic.message!.is_topic_message = true;
+    inTopic.message!.message_thread_id = 77;
+    await bot.handle(inTopic);
+    expect(t.sent).toEqual([]);
+  });
+
+  test("a command sent as a reply is answered as the command, not as a reply", async () => {
+    const { bot, t } = await ready();
+    await bot.handle(replyTo({ text: "COFER LAUNCH BOARD" }, { text: "/next" }));
+    expect(texts(t.sent)).toEqual(["The launch time is not set yet."]);
+  });
+
+  test("the same message is answered at most once in 30 seconds, whoever replies", async () => {
+    const { bot, t, clock } = await ready();
+    const board = { text: "COFER LAUNCH BOARD", id: 42 };
+    await bot.handle(replyTo(board));
+    await bot.handle(replyTo(board, { text: "and now?" }));
+    clock.now += SAME_REPLY_MS - 1;
+    await bot.handle(replyTo(board));
+    expect(t.sent).toHaveLength(1);
+    await bot.handle(replyTo({ text: "COFER LAUNCH BOARD", id: 43 })); // another message: answered
+    expect(t.sent).toHaveLength(2);
+    clock.now += 1;
+    await bot.handle(replyTo(board));
+    expect(t.sent).toHaveLength(3);
   });
 });
 

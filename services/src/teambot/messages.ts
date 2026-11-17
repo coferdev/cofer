@@ -182,6 +182,9 @@ export const MENU: [string, string][] = [
   ["help", "all commands"],
 ];
 
+/** The only answer to a reply to one of the bot's messages. */
+export const REPLY_ONLY = "I answer commands only: /status, /next, /schedule, /poster N, /changelog, /roadmap, /contracts, /socials, /videos, /health, /help.";
+
 export const NOT_SET = "The launch time is not set yet.";
 
 export function nextText(st: State, book: Book, now: number): string {

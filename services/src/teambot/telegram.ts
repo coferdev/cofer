@@ -11,8 +11,12 @@ import { noMiniApp } from "../bot/noMiniApp";
 export interface TgMessage {
   message_id: number;
   chat: { id: number };
-  from?: { is_bot?: boolean };
+  from?: { is_bot?: boolean; username?: string };
   text?: string;
+  caption?: string; // a photo's text
+  message_thread_id?: number;
+  is_topic_message?: boolean;
+  reply_to_message?: TgMessage;
 }
 export interface TgUpdate {
   update_id: number;
