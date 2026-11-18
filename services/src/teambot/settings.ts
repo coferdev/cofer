@@ -5,8 +5,9 @@
  *   - CHAIN_ID is mainnet (4663): the testnet service never posts updates or reads the alert bot
  *   - ALERT_BOT_TOKEN and OPS_CHAT_ID are set (it is the existing alert bot, in the staff group)
  *   - TEAMBOT_DATA_DIR is a full path outside the repo (the repo is public; updates and posters are not)
- *   - TEAMBOT_TEST_CHAT_ID, if set, is not the staff group
- *   - TEAMBOT_GITHUB_MODE=publish has TEAMBOT_GITHUB_TOKEN (draft releases are invisible without it)
+ *   - TEAMBOT_TEST_CHAT_ID (Alert Test: release emergencies, /ack, test posts) is set and is not the staff group
+ *   - TEAMBOT_RELEASE_HEARTBEAT, if set, is a full path (the release system's heartbeat file)
+ * The release system does the work and the GitHub release; the team bot only posts, so it holds no GitHub token.
  * When one does not hold, the answer is "off" with a plain reason. It never throws: a wrong team
  * bot setting must not stop the keeper or the alerts.
  */
@@ -20,14 +21,13 @@ export interface TeambotSettings {
   token: string; // ALERT_BOT_TOKEN (secret)
   chat: number; // OPS_CHAT_ID
   dataDir: string; // resolved, outside the repo
-  githubToken?: string; // secret
-  githubMode: "publish" | "check" | "off";
-  testChat?: number;
+  testChat: number; // Alert Test
+  releaseHeartbeat?: string;
 }
 
 export type TeambotDecision = { run: true; settings: TeambotSettings } | { run: false; enabled: boolean; reason: string };
 
-type Input = Pick<Env, "TEAMBOT_ENABLED" | "CHAIN_ID" | "ALERT_BOT_TOKEN" | "OPS_CHAT_ID" | "TEAMBOT_DATA_DIR" | "TEAMBOT_GITHUB_TOKEN" | "TEAMBOT_GITHUB_MODE" | "TEAMBOT_TEST_CHAT_ID">;
+type Input = Pick<Env, "TEAMBOT_ENABLED" | "CHAIN_ID" | "ALERT_BOT_TOKEN" | "OPS_CHAT_ID" | "TEAMBOT_DATA_DIR" | "TEAMBOT_TEST_CHAT_ID" | "TEAMBOT_RELEASE_HEARTBEAT">;
 
 /** The repo's top folder (this file is services/src/teambot/settings.ts). */
 export const REPO_ROOT = path.resolve(import.meta.dir, "../../..");
@@ -59,17 +59,17 @@ export function teambotDecision(e: Input, o: { repoRoot?: string; realpath?: (p:
   const real = o.realpath ?? realOrResolved;
   const dataDir = real(e.TEAMBOT_DATA_DIR);
   if (isInside(dataDir, real(o.repoRoot ?? REPO_ROOT))) return off("TEAMBOT_DATA_DIR is inside the repo. It must be a private folder outside it.");
-  if (e.TEAMBOT_TEST_CHAT_ID !== undefined && e.TEAMBOT_TEST_CHAT_ID === e.OPS_CHAT_ID) return off("TEAMBOT_TEST_CHAT_ID is the staff group. Use a separate test group.");
-  if (e.TEAMBOT_GITHUB_MODE === "publish" && !e.TEAMBOT_GITHUB_TOKEN) return off("TEAMBOT_GITHUB_MODE is publish but TEAMBOT_GITHUB_TOKEN is not set.");
+  if (e.TEAMBOT_TEST_CHAT_ID === undefined) return off("TEAMBOT_TEST_CHAT_ID is not set (Alert Test: release emergencies and test posts).");
+  if (e.TEAMBOT_TEST_CHAT_ID === e.OPS_CHAT_ID) return off("TEAMBOT_TEST_CHAT_ID is the staff group. Use Alert Test.");
+  if (e.TEAMBOT_RELEASE_HEARTBEAT !== undefined && !path.isAbsolute(e.TEAMBOT_RELEASE_HEARTBEAT)) return off("TEAMBOT_RELEASE_HEARTBEAT must be a full path, starting with /.");
   return {
     run: true,
     settings: {
       token: e.ALERT_BOT_TOKEN,
       chat: e.OPS_CHAT_ID,
       dataDir,
-      githubToken: e.TEAMBOT_GITHUB_TOKEN,
-      githubMode: e.TEAMBOT_GITHUB_MODE,
       testChat: e.TEAMBOT_TEST_CHAT_ID,
+      releaseHeartbeat: e.TEAMBOT_RELEASE_HEARTBEAT,
     },
   };
 }

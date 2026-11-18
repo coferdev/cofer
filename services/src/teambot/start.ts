@@ -6,7 +6,6 @@
 import type { Env } from "../env";
 import { logError } from "../core/errors";
 import { loadBook } from "./data";
-import { githubClient } from "./github";
 import { createTeambot } from "./runner";
 import { teambotDecision } from "./settings";
 import { telegramClient } from "./telegram";
@@ -23,9 +22,9 @@ export function maybeStartTeambot(e: Env): { stop: () => void } | null {
     const bot = createTeambot({
       book,
       tg: telegramClient(s.token),
-      gh: githubClient({ repo: book.repo, token: s.githubToken }),
       chat: s.chat,
-      githubMode: s.githubMode,
+      alertChat: s.testChat,
+      releaseHeartbeat: s.releaseHeartbeat,
     });
     return bot.start();
   } catch (err) {

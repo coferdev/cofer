@@ -4,10 +4,8 @@ import os from "node:os";
 import path from "node:path";
 import { parseEnv } from "../src/env";
 import { makeBook, type Book, type Update } from "../src/teambot/data";
-import type { Release } from "../src/teambot/gate";
-import { githubClient, type GitHub } from "../src/teambot/github";
 import { REPLY_ONLY, headingText, plainText, tgCopy, xCopy } from "../src/teambot/messages";
-import { createTeambot, inboxDir, SAME_REPLY_MS, type Teambot } from "../src/teambot/runner";
+import { ACK_PAUSE_MS, ALARM_REPEAT_MS, BOARD_POSTER_AFTER_MS, createTeambot, heartbeatPath, inboxDir, RETRY_MS, SAME_REPLY_MS, TEST_LABEL, type Labels, type Teambot } from "../src/teambot/runner";
 import { maybeStartTeambot } from "../src/teambot/start";
 import { loadState } from "../src/teambot/state";
 import { telegramClient, type Tg, type TgUpdate } from "../src/teambot/telegram";
@@ -15,7 +13,7 @@ import { telegramClient, type Tg, type TgUpdate } from "../src/teambot/telegram"
 // ---------------- made-up data (never the real updates) ----------------
 const TYPES = ["NEW", "HOW", "CMD", "BTS"];
 const fakeUpdates = (count: number): Update[] =>
-  Array.from({ length: count }, (_, i) => ({ n: i + 1, type: TYPES[i % 4]!, title: `Sample title ${i + 1}`, status: "VERIFIED", changelog: "", changelog_line: "", telegram: `Telegram text ${i + 1}.`, x: `X text ${i + 1}.` }));
+  Array.from({ length: count }, (_, i) => ({ n: i + 1, type: TYPES[i % 4]!, title: `Sample title ${i + 1}`, status: "PLANNED", changelog: "", changelog_line: "", telegram: `Telegram text ${i + 1}.`, x: `X text ${i + 1}.` }));
 const CONFIG = {
   repo: "example/cofer",
   explorer: "https://explorer.example",
@@ -25,20 +23,31 @@ const CONFIG = {
   videos: [{ title: "Set up your key", messageId: 10 }],
   health: [{ name: "Website", url: "https://site.example" }],
 };
-const CHAT = -1001234567890;
+const CHAT = -1001234567890; // staff group
+const ALERT = -1009999; // Alert Test
 const LAUNCH = "2026-11-30T18:00:00.000Z";
 const T0 = Date.parse(LAUNCH);
 const H = 3_600_000;
 const MIN = 60_000;
-const rel = (n: number, draft = true): Release => ({ id: 1000 + n, tag_name: `update-${String(n).padStart(2, "0")}`, draft });
+
+/** A PNG header of the given size, then some bytes (enough for the size and the byte-for-byte zip). */
+function png(w: number, h: number, tagByte: number): Uint8Array {
+  const b = new Uint8Array(40);
+  b.set([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a, 0, 0, 0, 13, 0x49, 0x48, 0x44, 0x52]);
+  const v = new DataView(b.buffer);
+  v.setUint32(16, w);
+  v.setUint32(20, h);
+  b.fill(tagByte, 30);
+  return b;
+}
 
 function dataDir(count: number, missing: string[] = []): string {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), "teambot-run-"));
-  for (const shape of ["square", "wide"]) {
+  for (const shape of ["square", "wide"] as const) {
     fs.mkdirSync(path.join(dir, "posters", shape), { recursive: true });
     for (let n = 1; n <= count; n++) {
       const f = `update-${String(n).padStart(2, "0")}-${shape}.png`;
-      if (!missing.includes(f)) fs.writeFileSync(path.join(dir, "posters", shape, f), "png");
+      if (!missing.includes(f)) fs.writeFileSync(path.join(dir, "posters", shape, f), shape === "square" ? png(1080, 1080, n) : png(1200, 675, n));
     }
   }
   return dir;
@@ -50,12 +59,20 @@ function fakeTelegram() {
   const sent: Sent[] = [];
   const queue: TgUpdate[] = [];
   let id = 100;
-  const s = { sent, queue, editError: "" as string, failPhoto: "" as string, menu: [] as [string, string][] };
+  const s = { sent, queue, editError: "" as string, fail: new Set<string>(), menu: [] as [string, string][] };
+  const maybeFail = (m: string, file = "") => {
+    for (const f of s.fail) if (f === m || (file && file.includes(f))) throw new Error(`Telegram could not be reached (${m})`);
+  };
   const tg: Tg = {
-    send: async (chat, text) => (sent.push({ m: "send", chat, text, id: ++id }), id),
+    send: async (chat, text) => (maybeFail("sendMessage"), sent.push({ m: "send", chat, text, id: ++id }), id),
     photo: async (chat, file, caption, html) => {
-      if (s.failPhoto && file.includes(s.failPhoto)) throw new Error("Telegram could not be reached (sendPhoto)");
+      maybeFail("sendPhoto", file);
       sent.push({ m: "photo", chat, file: path.basename(file), text: caption, html: !!html, id: ++id });
+      return id;
+    },
+    document: async (chat, file, caption) => {
+      maybeFail("sendDocument", file);
+      sent.push({ m: "doc", chat, file: path.basename(file), text: caption, id: ++id });
       return id;
     },
     edit: async (chat, mid, text) => {
@@ -70,159 +87,391 @@ function fakeTelegram() {
   };
   return { ...s, s, tg };
 }
-function fakeGitHub(list: Release[]) {
-  const s = { list, published: [] as number[], publishStatus: 0, changelog: "## Unreleased\n" };
-  const gh: GitHub = {
-    releases: async () => s.list,
-    publish: async (id) => {
-      if (s.publishStatus) throw Object.assign(new Error(`GitHub refused (${s.publishStatus})`), { status: s.publishStatus });
-      s.published.push(id);
-      s.list = s.list.map((r) => (r.id === id ? { ...r, draft: false } : r));
-    },
-    changelog: async () => s.changelog,
-  };
-  return { s, gh };
-}
 
-function setup(o: { count?: number; missing?: string[]; dir?: string; releases?: Release[]; mode?: "publish" | "check" | "off"; health?: typeof fetch } = {}) {
+function setup(o: { count?: number; missing?: string[]; dir?: string; health?: typeof fetch; labels?: Labels; releaseHeartbeat?: string } = {}) {
   const count = o.count ?? 4;
   const dir = o.dir ?? dataDir(count, o.missing);
   const book: Book = makeBook(fakeUpdates(count), CONFIG, dir);
   const t = fakeTelegram();
-  const g = fakeGitHub(o.releases ?? Array.from({ length: count }, (_, i) => rel(i + 1)));
   const clock = { now: T0 - 2 * H };
   const logs: string[] = [];
   const make = () =>
-    createTeambot({ book, tg: t.tg, gh: g.gh, chat: CHAT, githubMode: o.mode ?? "publish", now: () => clock.now, log: (...a) => void logs.push(a.join(" ")), sleep: async () => {}, fetch: o.health });
+    createTeambot({ book, tg: t.tg, chat: CHAT, alertChat: ALERT, releaseHeartbeat: o.releaseHeartbeat, labels: o.labels, now: () => clock.now, log: (...a) => void logs.push(a.join(" ")), sleep: async () => {}, fetch: o.health });
   const bot = make();
-  return { dir, book, t, g, clock, logs, bot, make };
+  return { dir, book, t, clock, logs, bot, make };
 }
 const texts = (sent: Sent[]) => sent.filter((x) => x.m === "send").map((x) => x.text!);
-async function arm(bot: Teambot, when = "2026-11-30 18:00") {
-  return bot.applyControl({ id: "a1", cmd: "arm", arg: when });
+
+/** Writes one notice into the team bot's inbox, as the release system does. */
+let nid = 0;
+function notice(dir: string, body: Record<string, unknown>, id = `n${++nid}`): string {
+  const d = inboxDir(dir);
+  fs.mkdirSync(d, { recursive: true });
+  fs.writeFileSync(path.join(d, `${String(++nid).padStart(6, "0")}-${id}.json`), JSON.stringify({ id, kind: "notice", ...body }));
+  return id;
+}
+async function armed(bot: Teambot, dir: string, at = LAUNCH) {
+  notice(dir, { type: "armed", at });
+  await bot.inboxTick();
+}
+async function releaseIt(bot: Teambot, dir: string, n: number, id?: string) {
+  notice(dir, { type: "released", n, what: "Live on testnet and mainnet; live checks pass; public commit and release published.", next: `Update ${String(n + 1).padStart(2, "0")} at 19:00 UTC.`, link: `https://github.com/example/cofer/releases/tag/update-${String(n).padStart(2, "0")}` }, id);
+  await bot.inboxTick();
 }
 
-describe("arming and the hourly release", () => {
-  test("arm: ARMED plus the schedule; a time in the past or unreadable is refused", async () => {
-    const { bot, t, clock } = setup({ count: 30 });
-    expect(await arm(bot, "2026-11-30 17:00")).toBe("Armed for 2026-11-30T17:00:00.000Z (UTC). The schedule was posted in the group.");
-    expect(texts(t.sent)[0]).toStartWith("🟢 <b>SCHEDULE ARMED</b>");
-    expect(texts(t.sent).slice(1).map((x) => x.split("\n")[0])).toEqual(["<b>Day 1 · from Mon 30 Nov</b>", "<b>Day 2 · from Tue 1 Dec</b>"]);
-    expect(await arm(bot)).toBe("Armed for 2026-11-30T18:00:00.000Z (UTC). The schedule was posted in the group.");
-    expect(texts(t.sent).at(-3)).toStartWith("🟢 <b>LAUNCH TIME CHANGED</b>");
-    clock.now = T0 + H;
-    expect(await arm(bot, "2026-11-30 10:00")).toBe("That time has already passed. Pick a time in the future (UTC).");
-    expect(await arm(bot, "tomorrow")).toBe('Could not read that time. Use: cofer-release arm "2026-11-30 18:00" (UTC).');
-  });
-
-  test("update 1 at its hour: gate, draft published, LAUNCHED, the heading, then the two copy-ready posts", async () => {
-    const { bot, t, g, clock, book } = setup();
-    await arm(bot);
+describe("posts only what the release system reports", () => {
+  test("nothing is posted for an update without a notice, even when its hour has passed", async () => {
+    const { bot, t, clock, dir } = setup();
+    await armed(bot, dir);
     t.sent.length = 0;
-    clock.now = T0 - MIN;
-    await bot.releaseTick();
-    expect(t.sent).toEqual([]); // not yet
-    clock.now = T0;
-    await bot.releaseTick();
-    expect(g.s.published).toEqual([1001]);
-    expect(t.sent.map((x) => x.m)).toEqual(["send", "send", "photo", "photo"]);
-    expect(t.sent[0]!.text).toStartWith("🟢 <b>COFER IS LAUNCHED</b>");
-    expect(t.sent[1]).toMatchObject({ m: "send", chat: CHAT, text: "<b>Tech Updates: Update 01 Released</b>" });
-    expect(t.sent[2]).toMatchObject({ m: "photo", chat: CHAT, file: "update-01-square.png", text: tgCopy(book, book.byN.get(1)!), html: false });
-    expect(t.sent[3]).toMatchObject({ m: "photo", chat: CHAT, file: "update-01-wide.png", text: xCopy(book.byN.get(1)!), html: false });
-    expect(bot.st.u[1]!.head).toBe(t.sent[1]!.id);
-    expect(bot.st.u[1]!.state).toBe("released");
-    // update 2 waits for its own hour
-    await bot.releaseTick();
-    expect(t.sent).toHaveLength(4);
-    clock.now = T0 + H;
-    await bot.releaseTick();
-    expect(t.sent.slice(4).map((x) => x.file ?? x.text)).toEqual(["<b>Tech Updates: Update 02 Released</b>", "update-02-square.png", "update-02-wide.png"]); // no second LAUNCHED
+    clock.now = T0 + 3 * H;
+    await bot.tick();
+    expect(t.sent.filter((x) => x.m !== "send" || !x.text!.includes("LAUNCH")).filter((x) => x.m !== "pin" && x.m !== "edit")).toEqual([]);
+    expect(bot.st.u).toEqual({});
   });
 
-  test("a release that is already published is not published again; GitHub check mode never publishes", async () => {
-    const a = setup({ releases: [rel(1, false)] });
-    await arm(a.bot);
-    a.clock.now = T0;
-    await a.bot.releaseTick();
-    expect(a.g.s.published).toEqual([]);
-    expect(a.bot.st.u[1]!.state).toBe("released");
-    const b = setup({ mode: "check" });
-    await arm(b.bot);
-    b.clock.now = T0;
-    await b.bot.releaseTick();
-    expect(b.g.s.published).toEqual([]);
-    expect(b.bot.st.u[1]!.state).toBe("released");
+  test("armed: SCHEDULE ARMED and the schedule, and the board knows the launch time", async () => {
+    const { bot, t, dir } = setup();
+    await armed(bot, dir);
+    expect(texts(t.sent)[0]).toStartWith("🟢 <b>SCHEDULE ARMED</b>");
+    expect(texts(t.sent)[1]).toStartWith("<b>Day 1 · from Mon 30 Nov</b>");
+    expect(bot.st.armedAt).toBe(LAUNCH);
+  });
+
+  test("update released: LAUNCHED, then the full set in order in the staff group, then the status line", async () => {
+    const { bot, t, dir, book } = setup();
+    await armed(bot, dir);
+    t.sent.length = 0;
+    await releaseIt(bot, dir, 1);
+    expect(t.sent.map((x) => [x.m, x.file ?? x.text!.split("\n")[0]])).toEqual([
+      ["send", "🟢 <b>COFER IS LAUNCHED</b>"],
+      ["send", headingText(1)],
+      ["photo", "update-01-square.png"],
+      ["doc", "cofer-update-01-square.zip"],
+      ["photo", "update-01-wide.png"],
+      ["doc", "cofer-update-01-wide.zip"],
+      ["send", "✅ <b>SHIPPED AND RELEASED · Update 01 · release update-01</b>"],
+    ]);
+    expect(t.sent.every((x) => x.chat === CHAT)).toBe(true);
+    expect(t.sent[2]!.text).toBe(tgCopy(book, book.byN.get(1)!));
+    expect(t.sent[3]!.text).toBe("Update 01 · square poster, full quality (1080x1080 PNG)");
+    expect(t.sent[4]!.text).toBe(xCopy(book.byN.get(1)!));
+    expect(t.sent[5]!.text).toBe("Update 01 · wide poster, full quality (1200x675 PNG)");
+    expect(bot.st.u[1]!.state).toBe("released");
+  });
+
+  test("each zip holds only its poster, byte for byte", async () => {
+    const { bot, dir } = setup();
+    await armed(bot, dir);
+    await releaseIt(bot, dir, 1);
+    for (const shape of ["square", "wide"]) {
+      const zip = new Uint8Array(fs.readFileSync(path.join(dir, "zips", `cofer-update-01-${shape}.zip`)));
+      const posterBytes = new Uint8Array(fs.readFileSync(path.join(dir, "posters", shape, `update-01-${shape}.png`)));
+      const name = `cofer-update-01-${shape}.png`;
+      const at = 30 + name.length;
+      expect(Buffer.from(zip.slice(30, at)).toString()).toBe(name);
+      expect(Buffer.from(zip.slice(at, at + posterBytes.length)).equals(Buffer.from(posterBytes))).toBe(true);
+      expect(zip.length).toBe(30 + name.length + posterBytes.length + 46 + name.length + 22); // one file, nothing else
+    }
+  });
+
+  test("the same notice delivered twice posts once; a second notice for an update already out posts nothing", async () => {
+    const { bot, t, dir } = setup();
+    await armed(bot, dir);
+    await releaseIt(bot, dir, 1, "rel-01");
+    const n = t.sent.length;
+    await releaseIt(bot, dir, 1, "rel-01");
+    await releaseIt(bot, dir, 1, "rel-01-again");
+    expect(t.sent.length).toBe(n);
+    expect(fs.readdirSync(inboxDir(dir))).toEqual([]);
+  });
+
+  test("a crash part way through the set: after the restart the rest goes once each, in order", async () => {
+    const { bot, t, dir, make, clock } = setup();
+    await armed(bot, dir);
+    t.sent.length = 0;
+    t.s.fail.add("wide.png");
+    await releaseIt(bot, dir, 1);
+    expect(t.sent.map((x) => x.file ?? "text")).toEqual(["text", "text", "update-01-square.png", "cofer-update-01-square.zip"]);
+    t.s.fail.clear();
+    const again = make(); // a restart
+    await again.inboxTick(); // too soon: retries after 2 minutes
+    expect(t.sent).toHaveLength(4);
+    clock.now += RETRY_MS;
+    await again.inboxTick();
+    expect(t.sent.slice(4).map((x) => x.file ?? x.text!.split("\n")[0])).toEqual(["update-01-wide.png", "cofer-update-01-wide.zip", "✅ <b>SHIPPED AND RELEASED · Update 01 · release update-01</b>"]);
+    expect(texts(t.sent).filter((x) => x.includes("IS LAUNCHED"))).toHaveLength(1);
+  });
+
+  test("a fresh start after a release posts nothing again", async () => {
+    const { bot, t, dir, make, clock } = setup();
+    await bot.boardTick(true);
+    await armed(bot, dir);
+    await releaseIt(bot, dir, 1);
+    t.sent.length = 0;
+    const again = make();
+    clock.now += 10 * MIN;
+    await again.tick();
+    expect(t.sent.filter((x) => x.m !== "edit" && x.m !== "pin")).toEqual([]);
+  });
+
+  test("cut off right after the heading: after the restart the heading is not sent again; the rest follows once", async () => {
+    const { bot, t, dir, make, clock } = setup();
+    await armed(bot, dir);
+    t.sent.length = 0;
+    t.s.fail.add("square.png");
+    await releaseIt(bot, dir, 1);
+    expect(texts(t.sent).map((x) => x.split("\n")[0])).toEqual(["🟢 <b>COFER IS LAUNCHED</b>", headingText(1)]);
+    t.s.fail.clear();
+    const again = make();
+    clock.now += RETRY_MS;
+    await again.inboxTick();
+    expect(t.sent.slice(2).map((x) => x.file ?? x.text!.split("\n")[0])).toEqual(["update-01-square.png", "cofer-update-01-square.zip", "update-01-wide.png", "cofer-update-01-wide.zip", "✅ <b>SHIPPED AND RELEASED · Update 01 · release update-01</b>"]);
+  });
+
+  test("notices are handled in order: one that fails holds back the ones after it", async () => {
+    const { bot, t, dir, clock } = setup();
+    await armed(bot, dir);
+    t.sent.length = 0;
+    t.s.fail.add("sendMessage");
+    notice(dir, { type: "held", n: 1, what: "The tests failed.", next: "x" });
+    notice(dir, { type: "paused", reason: "check" });
+    await bot.inboxTick();
+    t.s.fail.clear();
+    clock.now += RETRY_MS;
+    await bot.inboxTick();
+    expect(texts(t.sent).map((x) => x.split("\n")[0])).toEqual(["🟡 <b>HELD · Update 01 · release update-01</b>", "⏸ <b>PAUSED · updates</b>"]);
+  });
+
+  test("held, delayed and rolled back: the status line only; delayed then released: the full set and ✅", async () => {
+    const { bot, t, dir } = setup();
+    await armed(bot, dir);
+    t.sent.length = 0;
+    notice(dir, { type: "held", n: 2, what: "The tests failed while building Update 02.", next: "Fix it, then on the server: cofer-release release 2. Update 03 stays on time." });
+    notice(dir, { type: "rolled_back", n: 3, what: "The mainnet live check failed; rolled back.", next: "Fix it." });
+    notice(dir, { type: "delayed", n: 4, what: "Live and its checks pass; the GitHub release failed (502); retrying every 2 minutes.", next: "SHIPPED AND RELEASED follows when it goes through." });
+    await bot.inboxTick();
+    expect(t.sent.map((x) => x.text!.split("\n")[0])).toEqual([
+      "🟡 <b>HELD · Update 02 · release update-02</b>",
+      "🔴 <b>ROLLED BACK · Update 03 · release update-03</b>",
+      "🟡 <b>RELEASE DELAYED · Update 04 · release update-04</b>",
+    ]);
+    expect(bot.held().map((u) => u.n)).toEqual([2, 3]);
+    t.sent.length = 0;
+    await releaseIt(bot, dir, 4);
+    expect(t.sent.map((x) => x.m)).toEqual(["send", "photo", "doc", "photo", "doc", "send"]);
+    expect(t.sent.at(-1)!.text).toStartWith("✅ <b>SHIPPED AND RELEASED · Update 04");
   });
 
   test("the last update: ALL LIVE, once", async () => {
-    const { bot, t, clock } = setup({ count: 2 });
-    await arm(bot);
-    clock.now = T0;
-    await bot.releaseTick();
-    clock.now = T0 + H;
-    await bot.releaseTick();
-    await bot.releaseTick();
-    const live = texts(t.sent).filter((x) => x.startsWith("🏁 <b>ALL 2 UPDATES ARE LIVE</b>"));
-    expect(live).toHaveLength(1);
+    const { bot, t, dir } = setup({ count: 2 });
+    await armed(bot, dir);
+    await releaseIt(bot, dir, 1);
+    await releaseIt(bot, dir, 2);
+    await releaseIt(bot, dir, 2);
+    expect(texts(t.sent).filter((x) => x.startsWith("🏁 <b>ALL 2 UPDATES ARE LIVE</b>"))).toHaveLength(1);
+  });
+
+  test("paused, resumed, disarmed and preflight are posted as reported", async () => {
+    const { bot, t, dir } = setup();
+    notice(dir, { type: "paused", reason: "planned check" });
+    notice(dir, { type: "resumed", overdue: 2 });
+    notice(dir, { type: "preflight", bad: [[3, ["The wide poster is missing."]]], total: 4 });
+    notice(dir, { type: "disarmed" });
+    await bot.inboxTick();
+    expect(texts(t.sent).map((x) => x.split("\n")[0])).toEqual(["⏸ <b>PAUSED · updates</b>", "▶️ <b>RESUMED · updates</b>", "🟡 <b>PREFLIGHT · 3 of 4 ready</b>", "⏸ <b>SCHEDULE CANCELLED · launch</b>"]);
+    expect(texts(t.sent)[1]).toContain("2 overdue updates go out first, 2 minutes apart");
+  });
+
+  test("a file that is not a notice is removed and posts nothing", async () => {
+    const { bot, t, dir } = setup();
+    fs.mkdirSync(inboxDir(dir), { recursive: true });
+    fs.writeFileSync(path.join(inboxDir(dir), "x.json"), "{broken");
+    fs.writeFileSync(path.join(inboxDir(dir), "y.json"), JSON.stringify({ id: "y", kind: "notice", type: "released", n: 1 })); // no what/next
+    fs.writeFileSync(path.join(inboxDir(dir), "z.json"), JSON.stringify({ id: "z", cmd: "pause" })); // an old server command
+    await bot.inboxTick();
+    expect(t.sent).toEqual([]);
+    expect(fs.readdirSync(inboxDir(dir))).toEqual([]);
+  });
+
+  test("test N: the full set and status line to Alert Test only, marked TEST, and nothing remembered", async () => {
+    const { bot, t, dir } = setup();
+    notice(dir, { type: "test", n: 2, what: "A test.", next: "Nothing." });
+    await bot.inboxTick();
+    expect(t.sent).toHaveLength(6);
+    expect(t.sent.every((x) => x.chat === ALERT)).toBe(true);
+    expect(t.sent.every((x) => x.text!.startsWith(`<b>${TEST_LABEL}</b>`) || x.text!.startsWith(TEST_LABEL))).toBe(true);
+    expect(bot.st.u).toEqual({});
+  });
+
+  test("a dry run marks every staff post and every emergency differently, so Alert Test can tell them apart", async () => {
+    const labels = { staff: "🧪 DRY RUN · STAFF POST (would go to the staff group)", alarm: "🧪 DRY RUN · EMERGENCY" };
+    const { bot, t, dir } = setup({ labels });
+    await armed(bot, dir);
+    await releaseIt(bot, dir, 1);
+    notice(dir, { type: "alarm", alarm: { name: "release-tests-failed", what: "w", who: "x", n: 2 } });
+    await bot.inboxTick();
+    const staff = t.sent.filter((x) => x.chat === CHAT);
+    expect(staff.every((x) => x.text!.includes(labels.staff))).toBe(true);
+    const alarm = t.sent.filter((x) => x.chat === ALERT);
+    expect(alarm).toHaveLength(1);
+    expect(alarm[0]!.text).toStartWith(`<b>${labels.alarm}</b>\n🔴 <b>ALERT · release-tests-failed</b>`);
   });
 });
 
-describe("restarts never double-post", () => {
-  test("a fresh start after a release posts nothing again", async () => {
-    const a = setup();
-    await arm(a.bot);
-    a.clock.now = T0 + 10 * MIN;
-    await a.bot.releaseTick();
-    const before = a.t.sent.length;
-    const again = a.make(); // same data folder: reads state.json
-    await again.releaseTick();
-    await again.releaseTick();
-    expect(a.t.sent.length).toBe(before);
-    expect(a.g.s.published).toEqual([1001]);
+describe("release emergencies in Alert Test", () => {
+  let uid = 9000;
+  const ackMsg = (o: { chat?: number; text?: string; replyTo?: number } = {}): TgUpdate => ({
+    update_id: uid++,
+    message: { message_id: uid, chat: { id: o.chat ?? ALERT }, from: { is_bot: false }, text: o.text ?? "/ack", ...(o.replyTo ? { reply_to_message: { message_id: o.replyTo, chat: { id: ALERT } } } : {}) },
+  });
+  const open = (dir: string, name = "release-tests-failed", n = 7) =>
+    notice(dir, { type: "alarm", alarm: { name, what: `The tests failed while building Update ${String(n).padStart(2, "0")}.`, who: `Dev fixes it, then on the server: cofer-release release ${n}.`, n, postAt: LAUNCH } });
+
+  test("sent at once, repeated every 2 minutes; /ack pauses it 15 minutes; then repeats; one cleared message", async () => {
+    const { bot, t, dir, clock } = setup();
+    await bot.setup();
+    open(dir);
+    await bot.inboxTick();
+    const first = t.sent.filter((x) => x.chat === ALERT);
+    expect(first).toHaveLength(1);
+    expect(first[0]!.text).toStartWith("🔴 <b>ALERT · release-tests-failed</b>");
+    expect(first[0]!.text).not.toContain("Still open");
+    clock.now += ALARM_REPEAT_MS - 1;
+    await bot.alarmTick();
+    expect(t.sent.filter((x) => x.chat === ALERT)).toHaveLength(1);
+    clock.now += 1;
+    await bot.alarmTick();
+    expect(t.sent.filter((x) => x.chat === ALERT).at(-1)!.text).toContain("Still open after 2m.");
+    await bot.handle(ackMsg({ replyTo: first[0]!.id }));
+    expect(texts(t.sent).at(-1)).toBe("Paused for 15 minutes: release-tests-failed. It repeats every 2 minutes after that if it is still open.");
+    const n = t.sent.length;
+    clock.now += ACK_PAUSE_MS - 1;
+    await bot.alarmTick();
+    expect(t.sent.length).toBe(n);
+    clock.now += 1;
+    await bot.alarmTick();
+    expect(t.sent.at(-1)!.text).toContain("Still open after 17m.");
+    notice(dir, { type: "cleared", name: "release-tests-failed", reason: "Update 07 is ready for its posting time" });
+    await bot.inboxTick();
+    expect(t.sent.at(-1)!.text).toBe("🟢 <b>CLEARED · release-tests-failed</b> (Update 07 is ready for its posting time)");
+    clock.now += 10 * MIN;
+    await bot.alarmTick();
+    notice(dir, { type: "cleared", name: "release-tests-failed", reason: "again" });
+    await bot.inboxTick();
+    expect(t.sent.at(-1)!.text).toStartWith("🟢"); // nothing more after the one cleared message
+    expect(t.sent.filter((x) => x.text!.startsWith("🟢"))).toHaveLength(1);
+    expect(t.sent.filter((x) => x.chat === CHAT)).toEqual([]); // the staff group never sees an emergency
   });
 
-  test("cut off after the Telegram post: only the X post is sent after the restart, and no second LAUNCHED", async () => {
-    const a = setup();
-    await arm(a.bot);
-    a.t.sent.length = 0;
-    a.clock.now = T0;
-    a.t.s.failPhoto = "wide";
-    // simulate the process dying while sending the wide poster: keep what was saved, drop this bot
-    await a.bot.releaseTick().catch(() => {});
-    const saved = loadState(a.dir);
-    expect(saved.u[1]!.tg).toBeGreaterThan(0);
-    // put it back as if the process had died mid-post (instead of being held as failed)
-    saved.u[1]!.state = "posting";
-    saved.u[1]!.reason = null;
-    fs.writeFileSync(path.join(a.dir, "state.json"), JSON.stringify(saved));
-    a.t.s.failPhoto = "";
-    a.t.sent.length = 0;
-    const again = a.make();
-    await again.releaseTick();
-    expect(a.t.sent.map((x) => [x.m, x.file])).toEqual([["photo", "update-01-wide.png"]]);
-    expect(again.st.u[1]!.state).toBe("released");
+  test("/ack by name, /ack alone with one open, and the answers when it is unclear", async () => {
+    const { bot, t, dir } = setup();
+    await bot.setup();
+    await bot.handle(ackMsg());
+    expect(texts(t.sent).at(-1)).toBe("Nothing is open.");
+    open(dir, "release-tests-failed");
+    open(dir, "release-push-failed");
+    await bot.inboxTick();
+    await bot.handle(ackMsg({ text: "/ack" }));
+    expect(texts(t.sent).at(-1)).toBe("Which one? Send /ack and its name (open: release-tests-failed, release-push-failed).");
+    await bot.handle(ackMsg({ text: "/ack@cofer_alerts_bot release-push-failed" }));
+    expect(texts(t.sent).at(-1)).toStartWith("Paused for 15 minutes: release-push-failed.");
+    expect(bot.st.alarms["release-push-failed"]!.ackUntil).toBeGreaterThan(0);
+    expect(bot.st.alarms["release-tests-failed"]!.ackUntil).toBe(0);
   });
 
-  test("cut off after the heading: the heading is not sent again after the restart, the two posts follow", async () => {
-    const a = setup();
-    await arm(a.bot);
-    a.t.sent.length = 0;
-    a.clock.now = T0;
-    a.t.s.failPhoto = "square";
-    await a.bot.releaseTick().catch(() => {});
-    const saved = loadState(a.dir);
-    expect(saved.u[1]!.head).toBeGreaterThan(0);
-    expect(saved.u[1]!.tg).toBeUndefined();
-    saved.u[1]!.state = "posting";
-    saved.u[1]!.reason = null;
-    fs.writeFileSync(path.join(a.dir, "state.json"), JSON.stringify(saved));
-    a.t.s.failPhoto = "";
-    a.t.sent.length = 0;
-    const again = a.make();
-    await again.releaseTick();
-    expect(a.t.sent.map((x) => [x.m, x.file])).toEqual([["photo", "update-01-square.png"], ["photo", "update-01-wide.png"]]);
-    expect(again.st.u[1]!.state).toBe("released");
+  test("/ack anywhere but Alert Test does nothing", async () => {
+    const { bot, t, dir } = setup();
+    await bot.setup();
+    open(dir);
+    await bot.inboxTick();
+    const n = t.sent.length;
+    await bot.handle(ackMsg({ chat: CHAT }));
+    await bot.handle(ackMsg({ chat: 555 }));
+    expect(t.sent.length).toBe(n);
+  });
+
+  test("the release system's heartbeat: missing while armed is an emergency; back again, one cleared", async () => {
+    const beat = path.join(fs.mkdtempSync(path.join(os.tmpdir(), "rel-beat-")), "heartbeat");
+    const { bot, t, dir, clock } = setup({ releaseHeartbeat: beat });
+    await bot.watchRelease(); // not armed: nothing
+    expect(t.sent.filter((x) => x.chat === ALERT)).toEqual([]);
+    await armed(bot, dir);
+    await bot.watchRelease();
+    expect(t.sent.filter((x) => x.chat === ALERT).at(-1)!.text).toStartWith("🔴 <b>ALERT · release-system-stopped</b>");
+    fs.writeFileSync(beat, "x");
+    const now = new Date(clock.now);
+    fs.utimesSync(beat, now, now);
+    await bot.watchRelease();
+    expect(t.sent.at(-1)!.text).toBe("🟢 <b>CLEARED · release-system-stopped</b> (it is running again)");
+  });
+
+  test("the team bot writes its own heartbeat every tick", async () => {
+    const { bot, dir, clock } = setup();
+    await bot.tick();
+    expect(Math.abs(fs.statSync(heartbeatPath(dir)).mtimeMs - clock.now)).toBeLessThan(1000);
+  });
+});
+
+describe("the board poster and Shipped today", () => {
+  const boardPoster = (dir: string, live: number) => {
+    fs.mkdirSync(path.join(dir, "posters", "board"), { recursive: true });
+    fs.writeFileSync(path.join(dir, "posters", "board", `board-${String(live).padStart(2, "0")}.png`), "png");
+  };
+
+  test("30 minutes after a release: the drawn board poster with the board as its caption, once", async () => {
+    const { bot, t, dir, clock } = setup();
+    boardPoster(dir, 1);
+    await armed(bot, dir);
+    clock.now = T0;
+    await releaseIt(bot, dir, 1);
+    t.sent.length = 0;
+    clock.now += BOARD_POSTER_AFTER_MS - 1;
+    await bot.boardPosterTick();
+    expect(t.sent).toEqual([]);
+    clock.now += 1;
+    await bot.boardPosterTick();
+    await bot.boardPosterTick();
+    expect(t.sent).toHaveLength(1);
+    expect(t.sent[0]).toMatchObject({ m: "photo", file: "board-01.png", html: true, chat: CHAT });
+    expect(t.sent[0]!.text).toStartWith("<b>COFER LAUNCH</b>");
+  });
+
+  test("two releases close together: only the latest board poster; with a held update the board goes as text", async () => {
+    const { bot, t, dir, clock } = setup();
+    boardPoster(dir, 1);
+    boardPoster(dir, 2);
+    await armed(bot, dir);
+    clock.now = T0;
+    await releaseIt(bot, dir, 1);
+    clock.now += 10 * MIN;
+    notice(dir, { type: "held", n: 2, what: "The tests failed.", next: "x" });
+    await releaseIt(bot, dir, 3);
+    t.sent.length = 0;
+    clock.now += BOARD_POSTER_AFTER_MS;
+    await bot.boardPosterTick();
+    expect(t.sent).toHaveLength(1);
+    expect(t.sent[0]!.m).toBe("send");
+    expect(t.sent[0]!.text).toStartWith("<b>COFER LAUNCH</b>");
+  });
+
+  test("Shipped today at 23:55 UTC, once, only on a day with releases", async () => {
+    const { bot, t, dir, clock } = setup();
+    clock.now = Date.parse("2026-11-29T23:56:00Z");
+    await bot.summaryTick();
+    expect(t.sent).toEqual([]); // no releases that day
+    await armed(bot, dir);
+    clock.now = T0;
+    await releaseIt(bot, dir, 1);
+    t.sent.length = 0;
+    clock.now = Date.parse("2026-11-30T23:54:59Z");
+    await bot.summaryTick();
+    expect(t.sent).toEqual([]);
+    clock.now = Date.parse("2026-11-30T23:55:00Z");
+    await bot.summaryTick();
+    await bot.summaryTick();
+    expect(texts(t.sent)).toHaveLength(1);
+    expect(texts(t.sent)[0]).toStartWith("<b>Shipped today · 2026-11-30 (UTC)</b>\n23:55 UTC · 02:55 Moscow · 6:55 PM New York\n\n1 update released:\n• Update 01 · Sample title 1");
   });
 
   test("the board is posted and pinned once, and edited in place after a restart", async () => {
@@ -234,149 +483,6 @@ describe("restarts never double-post", () => {
     const again = a.make();
     await again.boardTick(true);
     expect(a.t.sent.slice(2)).toMatchObject([{ m: "edit", id: boardId }]);
-  });
-});
-
-describe("the gate holds an update, and the next stays on time", () => {
-  test("missing poster: HELD with the reason, nothing posted, the next goes at its hour; not repeated", async () => {
-    const { bot, t, clock } = setup({ missing: ["update-02-wide.png"] });
-    await arm(bot);
-    clock.now = T0;
-    await bot.releaseTick();
-    t.sent.length = 0;
-    clock.now = T0 + H;
-    await bot.releaseTick();
-    expect(t.sent).toHaveLength(1);
-    expect(t.sent[0]!.text).toBe(
-      "🟡 <b>HELD · Update 02</b>\n\n<b>What happened:</b> The wide poster file is missing on the server.\n<b>Users affected:</b> No. Cofer keeps running.\n<b>What we did:</b> Update 02 is held and nothing about it was posted. Update 03 stays on time.\n<b>Next:</b> Fix the above, then on the server run: cofer-release release 2",
-    );
-    await bot.releaseTick();
-    expect(t.sent).toHaveLength(1); // one message per real change
-    clock.now = T0 + 2 * H;
-    await bot.releaseTick();
-    expect(t.sent.slice(1).map((x) => x.file ?? x.text)).toEqual(["<b>Tech Updates: Update 03 Released</b>", "update-03-square.png", "update-03-wide.png"]);
-    expect(bot.held().map((u) => u.n)).toEqual([2]);
-  });
-
-  test("released from the server: its checks run again, then it goes out", async () => {
-    const { bot, t, clock, dir } = setup({ missing: ["update-01-wide.png"] });
-    await arm(bot);
-    clock.now = T0;
-    await bot.releaseTick();
-    expect(bot.st.u[1]!.state).toBe("held");
-    expect(await bot.applyControl({ id: "r1", cmd: "release", arg: "1" })).toBe("Update 1 is no longer held. Its checks run again before it goes out (it is overdue, so it goes out shortly).");
-    await bot.releaseTick();
-    expect(bot.st.u[1]!.state).toBe("held"); // still missing: held again (a new message, the reason is the same but it was released in between)
-    fs.writeFileSync(path.join(dir, "posters", "wide", "update-01-wide.png"), "png");
-    await bot.applyControl({ id: "r2", cmd: "release", arg: "1" });
-    t.sent.length = 0;
-    await bot.releaseTick();
-    expect(t.sent.map((x) => x.file ?? x.text!.split("\n")[0])).toEqual(["🟢 <b>COFER IS LAUNCHED</b>", "<b>Tech Updates: Update 01 Released</b>", "update-01-square.png", "update-01-wide.png"]);
-  });
-
-  test("not VERIFIED until marked checked from the server", async () => {
-    const { bot, book, clock } = setup();
-    book.byN.get(1)!.status = "RECHECK-LIVE";
-    await arm(bot);
-    clock.now = T0;
-    await bot.releaseTick();
-    expect(bot.st.u[1]!.reason).toBe("It is marked RECHECK-LIVE. Do its one-time check, then run: cofer-release verify 1.");
-    expect(await bot.applyControl({ id: "v", cmd: "verify", arg: "1" })).toBe("Update 1 is marked as checked.");
-    await bot.applyControl({ id: "r", cmd: "release", arg: "1" });
-    await bot.releaseTick();
-    expect(bot.st.u[1]!.state).toBe("released");
-  });
-
-  test("GitHub refuses to publish: FAILED in red, nothing posted", async () => {
-    const { bot, t, g, clock } = setup();
-    await arm(bot);
-    g.s.publishStatus = 403;
-    t.sent.length = 0;
-    clock.now = T0;
-    await bot.releaseTick();
-    expect(t.sent).toHaveLength(1);
-    expect(t.sent[0]!.text).toStartWith("🔴 <b>FAILED · Update 01</b>\n\n<b>What happened:</b> GitHub refused to publish the release update-01 (403).");
-  });
-
-  test("Telegram fails while posting: FAILED with a plain reason", async () => {
-    const { bot, t, clock } = setup();
-    await arm(bot);
-    t.s.failPhoto = "square";
-    t.sent.length = 0;
-    clock.now = T0;
-    await bot.releaseTick();
-    expect(texts(t.sent).at(-1)).toStartWith("🔴 <b>FAILED · Update 01</b>\n\n<b>What happened:</b> Telegram could not be reached (sendPhoto).");
-  });
-
-  test("hold from the server keeps one back; an update already out cannot be held", async () => {
-    const { bot, clock } = setup();
-    await arm(bot);
-    expect(await bot.applyControl({ id: "h", cmd: "hold", arg: "2 waiting for a fix", rest: "waiting for a fix" })).toBe("Update 2 is held.");
-    expect(bot.st.u[2]!.reason).toBe("Held from the server: waiting for a fix.");
-    clock.now = T0;
-    await bot.releaseTick();
-    expect(await bot.applyControl({ id: "h2", cmd: "hold", arg: "1", rest: "" })).toBe("Update 1 is already out.");
-    expect(await bot.applyControl({ id: "h3", cmd: "release", arg: "3" })).toBe("Update 3 is not held. Nothing changed.");
-  });
-});
-
-describe("pause and resume", () => {
-  test("PAUSED once; RESUMED only after a PAUSED; overdue updates then go 2 minutes apart", async () => {
-    const { bot, t, clock } = setup();
-    await arm(bot);
-    clock.now = T0 - 30 * MIN;
-    t.sent.length = 0;
-    expect(await bot.applyControl({ id: "p", cmd: "pause", arg: "planned check" })).toBe("Paused.");
-    expect(await bot.applyControl({ id: "p2", cmd: "pause", arg: "again" })).toBe("Already paused (planned check). Nothing changed.");
-    expect(texts(t.sent)).toEqual([expect.stringContaining("⏸ <b>PAUSED · updates</b>") as unknown as string]);
-    clock.now = T0 + 2 * H + 5 * MIN; // updates 1, 2 and 3 are now overdue
-    await bot.releaseTick();
-    expect(t.sent).toHaveLength(1); // nothing while paused
-    expect(await bot.applyControl({ id: "r", cmd: "resume" })).toBe("Resumed.");
-    expect(texts(t.sent).at(-1)).toContain("<b>Next:</b> 3 overdue updates go out first, 2 minutes apart, then the normal times.");
-    expect(await bot.applyControl({ id: "r2", cmd: "resume" })).toBe("Not paused. Nothing changed.");
-    expect(t.sent).toHaveLength(2); // no second RESUMED
-    t.sent.length = 0;
-    await bot.releaseTick(); // update 1 (and LAUNCHED)
-    clock.now += MIN;
-    await bot.releaseTick(); // too soon
-    expect(t.sent.filter((x) => x.m === "photo").map((x) => x.file)).toEqual(["update-01-square.png", "update-01-wide.png"]);
-    clock.now += MIN;
-    await bot.releaseTick(); // 2 minutes later: update 2
-    clock.now += 2 * MIN;
-    await bot.releaseTick(); // update 3
-    expect(t.sent.filter((x) => x.m === "photo").map((x) => x.file)).toEqual(["update-01-square.png", "update-01-wide.png", "update-02-square.png", "update-02-wide.png", "update-03-square.png", "update-03-wide.png"]);
-  });
-
-  test("disarm before launch; not after updates went out", async () => {
-    const { bot, t, clock } = setup();
-    expect(await bot.applyControl({ id: "d", cmd: "disarm" })).toBe("Not armed. Nothing changed.");
-    await arm(bot);
-    expect(await bot.applyControl({ id: "d2", cmd: "disarm" })).toBe("Disarmed.");
-    expect(texts(t.sent).at(-1)).toStartWith("⏸ <b>SCHEDULE CANCELLED · launch</b>");
-    await arm(bot);
-    clock.now = T0;
-    await bot.releaseTick();
-    expect(await bot.applyControl({ id: "d3", cmd: "disarm" })).toBe("Updates have already gone out; use pause instead.");
-    expect(await arm(bot, "2026-12-30 18:00")).toBe("Updates have already gone out. The launch time can no longer change.");
-  });
-});
-
-describe("server commands through the inbox", () => {
-  test("a command file is applied, answered in state.json and removed; a broken file is removed", async () => {
-    const { bot, dir } = setup();
-    fs.mkdirSync(inboxDir(dir), { recursive: true });
-    fs.writeFileSync(path.join(inboxDir(dir), "1-abc.json"), JSON.stringify({ id: "1-abc", cmd: "pause", arg: "planned check", by: "ops" }));
-    fs.writeFileSync(path.join(inboxDir(dir), "2-bad.json"), "{nope");
-    fs.writeFileSync(path.join(inboxDir(dir), "3-bad.json"), JSON.stringify({ id: "../../x", cmd: "pause" }));
-    await bot.inboxTick();
-    expect(fs.readdirSync(inboxDir(dir))).toEqual([]);
-    expect(loadState(dir).lastControl).toEqual({ id: "1-abc", text: "Paused." });
-    expect(bot.st.paused?.by).toBe("ops");
-  });
-  test("an unknown command changes nothing", async () => {
-    const { bot } = setup();
-    expect(await bot.applyControl({ id: "x", cmd: "post" })).toBe("Unknown command: post");
   });
 });
 
@@ -442,13 +548,13 @@ describe("staff-group commands", () => {
 
   test("/poster, /video, /roadmap, /schedule, /next", async () => {
     const { bot, t, clock, dir } = setup({ count: 30 });
+    void clock;
     await bot.handle(msg("/poster 2"));
     await bot.handle(msg("/poster"));
     await bot.handle(msg("/schedule"));
     expect(texts(t.sent)).toEqual(["Update 02 is not live yet. Its posters are shared here at its hour.", "Send it with a number, like /poster 14.", "The launch time is not set yet."]);
-    await arm(bot);
-    clock.now = T0;
-    await bot.releaseTick();
+    await armed(bot, dir);
+    await releaseIt(bot, dir, 1);
     t.sent.length = 0;
     await bot.handle(msg("/poster 1"));
     expect(t.sent.map((x) => [x.file, x.text])).toEqual([
@@ -506,10 +612,9 @@ describe("replies to the bot's own messages", () => {
   };
 
   test("whatever message of ours is replied to, the answer is the same one line", async () => {
-    const { bot, t, clock, book } = await ready();
-    await arm(bot);
-    clock.now = T0;
-    await bot.releaseTick();
+    const { bot, t, book, dir } = await ready();
+    await armed(bot, dir);
+    await releaseIt(bot, dir, 1);
     t.sent.length = 0;
     const u1 = book.byN.get(1)!;
     const ours = [
@@ -588,6 +693,12 @@ describe("Telegram client", () => {
     expect(await telegramClient(TOKEN, { fetch: s.f }).photo(CHAT, path.join(dir, "posters", "wide", "update-01-wide.png"), "caption")).toBe(8);
     expect(s.calls[0]!.url).toEndWith("/sendPhoto");
   });
+  test("documents (the zips) are uploaded with their caption", async () => {
+    const dir = dataDir(1);
+    const s = fakeFetch(() => tgOk({ message_id: 11, date: 0, chat: { id: CHAT, type: "supergroup" } }));
+    expect(await telegramClient(TOKEN, { fetch: s.f }).document(CHAT, path.join(dir, "posters", "square", "update-01-square.png"), "cap")).toBe(11);
+    expect(s.calls[0]!.url).toEndWith("/sendDocument");
+  });
   test("too many requests: waits as told, then sends", async () => {
     let n = 0;
     const waits: number[] = [];
@@ -611,46 +722,6 @@ describe("Telegram client", () => {
     const s = fakeFetch(() => tgOk(true));
     await telegramClient(TOKEN, { fetch: s.f }).setCommands(CHAT, [["status", "the launch board"]]);
     expect(JSON.parse(String(s.calls[0]!.init!.body))).toEqual({ commands: [{ command: "status", description: "the launch board" }], scope: { type: "chat", chat_id: CHAT } });
-  });
-});
-
-describe("GitHub client", () => {
-  const GH_TOKEN = "github_pat_FAKESECRET";
-  test("reads every release with the token in a header (never the URL), and caches for 30 seconds", async () => {
-    let now = 0;
-    const s = fakeFetch(() => Response.json([{ id: 1, tag_name: "update-01", draft: true, body: "x" }]));
-    const gh = githubClient({ repo: "example/cofer", token: GH_TOKEN, fetch: s.f, now: () => now });
-    expect(await gh.releases(false)).toEqual([{ id: 1, tag_name: "update-01", draft: true }]);
-    await gh.releases(false);
-    expect(s.calls).toHaveLength(1);
-    now = 31_000;
-    await gh.releases(false);
-    await gh.releases(true);
-    expect(s.calls).toHaveLength(3);
-    expect(s.calls[0]!.url).toBe("https://api.github.com/repos/example/cofer/releases?per_page=100&page=1");
-    expect(s.calls.every((c) => !c.url.includes("FAKESECRET"))).toBe(true);
-    expect((s.calls[0]!.init!.headers as Record<string, string>).authorization).toBe(`Bearer ${GH_TOKEN}`);
-  });
-  test("publishing a draft: one PATCH with draft false; a refusal carries the status", async () => {
-    const s = fakeFetch((_u, init) => (init?.method === "PATCH" ? Response.json({}) : Response.json([])));
-    const gh = githubClient({ repo: "example/cofer", token: GH_TOKEN, fetch: s.f });
-    await gh.publish(42);
-    expect(s.calls[0]!.url).toBe("https://api.github.com/repos/example/cofer/releases/42");
-    expect(s.calls[0]!.init!.method).toBe("PATCH");
-    expect(JSON.parse(String(s.calls[0]!.init!.body))).toEqual({ draft: false });
-    const no = githubClient({ repo: "example/cofer", token: GH_TOKEN, fetch: fakeFetch(() => new Response("", { status: 403 })).f });
-    const e = (await no.publish(42).catch((x: unknown) => x)) as Error & { status?: number };
-    expect(e.status).toBe(403);
-    expect(e.message).not.toContain("FAKESECRET");
-  });
-  test("CHANGELOG.md from main; a failure is a plain sentence", async () => {
-    const s = fakeFetch(() => new Response("## Unreleased\n- line"));
-    expect(await githubClient({ repo: "example/cofer", fetch: s.f }).changelog()).toBe("## Unreleased\n- line");
-    expect(s.calls[0]!.url).toBe("https://raw.githubusercontent.com/example/cofer/main/CHANGELOG.md");
-    const bad = githubClient({ repo: "example/cofer", fetch: fakeFetch(() => new Response("", { status: 404 })).f });
-    expect(await bad.changelog().catch((e: Error) => e.message)).toBe("CHANGELOG.md could not be read (404)");
-    const down = githubClient({ repo: "example/cofer", fetch: fakeFetch(() => Promise.reject(new Error("boom"))).f });
-    expect(await down.releases(true).catch((e: Error) => e.message)).toBe("GitHub releases could not be read (no answer)");
   });
 });
 
@@ -681,7 +752,7 @@ describe("start-up in the keeper", () => {
   test("switched on for testnet by mistake: not started, the reason logged without the token", () => {
     const err = spyOn(console, "error").mockImplementation(() => {});
     try {
-      expect(maybeStartTeambot(parseEnv({ ...base, CHAIN_ID: "46630", TEAMBOT_ENABLED: "1", TEAMBOT_DATA_DIR: dataDir(1), TEAMBOT_GITHUB_MODE: "off" }))).toBeNull();
+      expect(maybeStartTeambot(parseEnv({ ...base, CHAIN_ID: "46630", TEAMBOT_ENABLED: "1", TEAMBOT_DATA_DIR: dataDir(1), TEAMBOT_TEST_CHAT_ID: "-1009999" }))).toBeNull();
       const out = err.mock.calls.map((c) => c.join(" ")).join("\n");
       expect(out).toContain("not started: The team bot runs on mainnet (4663) only; CHAIN_ID is 46630.");
       expect(out).not.toContain("SECRET");
@@ -692,7 +763,7 @@ describe("start-up in the keeper", () => {
   test("mainnet with a data folder missing its files: not started, the reason logged, no throw", () => {
     const err = spyOn(console, "error").mockImplementation(() => {});
     try {
-      expect(maybeStartTeambot(parseEnv({ ...base, TEAMBOT_ENABLED: "1", TEAMBOT_DATA_DIR: dataDir(1), TEAMBOT_GITHUB_MODE: "off" }))).toBeNull();
+      expect(maybeStartTeambot(parseEnv({ ...base, TEAMBOT_ENABLED: "1", TEAMBOT_DATA_DIR: dataDir(1), TEAMBOT_TEST_CHAT_ID: "-1009999" }))).toBeNull();
       expect(err.mock.calls.map((c) => c.join(" ")).join("\n")).toContain("not started: updates.json could not be read from the data folder");
     } finally {
       err.mockRestore();

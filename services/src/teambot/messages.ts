@@ -35,15 +35,6 @@ export function incident(dot: string, kind: string, subject: string, f: Incident
     .join("\n")}`;
 }
 
-/** An update kept back (HELD, 🟡) or one that broke while posting (FAILED, 🔴). */
-export function heldText(u: Update, reason: string, next: Update | undefined, kind = "HELD", dot = "🟡"): string {
-  return incident(dot, kind, `Update ${pad(u.n)}`, {
-    what: reason,
-    done: `Update ${pad(u.n)} is held and nothing about it was posted.${next ? ` Update ${pad(next.n)} stays on time.` : ""}`,
-    next: `Fix the above, then on the server run: cofer-release release ${u.n}`,
-  });
-}
-
 export function launchedText(st: State, book: Book): string {
   const nx = book.updates[1];
   return `🟢 <b>COFER IS LAUNCHED</b>\n\nUpdate 1 of ${book.total} is live on Robinhood Chain mainnet.\n\n• GitHub release published: <a href="${relUrl(book, 1)}">${tag(1)}</a>\n• The Telegram and X posts follow below.\n\n${
@@ -77,10 +68,10 @@ export function resumedText(st: State, book: Book, overdue: number): string {
   return incident("▶️", "RESUMED", "updates", { what: "The pause ended.", done: "Updates continue.", next });
 }
 
-export function preflightText(bad: [Update, string[]][], total: number): string {
+export function preflightText(bad: [number, string[]][], total: number): string {
   const ok = total - bad.length;
   return bad.length
-    ? `🟡 <b>PREFLIGHT · ${ok} of ${total} ready</b>\n\n${bad.map(([u, why]) => `<b>${pad(u.n)}</b> ${esc(why.join(" "))}`).join("\n")}\n\n<i>Each one is held at its hour unless fixed.</i>`
+    ? `🟡 <b>PREFLIGHT · ${ok} of ${total} ready</b>\n\n${bad.map(([n, why]) => `<b>${pad(n)}</b> ${esc(why.join(" "))}`).join("\n")}\n\n<i>Each one is held at its hour unless fixed.</i>`
     : `🟢 <b>PREFLIGHT ALL CLEAR</b>\n\n${total} of ${total} updates are ready: status checked, posters on the server, changelog lines and GitHub releases in place.`;
 }
 
@@ -98,6 +89,57 @@ export function headingText(n: number): string {
 export function xCopy(u: Update): string {
   const text = `Update ${pad(u.n)}: ${u.x}`;
   return `For X · ${text.length} characters\n\n${text}`;
+}
+
+// ---------------- the full set's extra parts and the status line ----------------
+
+/** Under each zip (a document holding only that poster, byte for byte). */
+export const zipCaption = (n: number, shape: "square" | "wide", size: { w: number; h: number } | null) =>
+  `Update ${pad(n)} · ${shape} poster, full quality${size ? ` (${size.w}x${size.h} PNG)` : ""}`;
+
+export const STATUS_HEAD: Record<"released" | "delayed" | "held" | "rolled_back", string> = {
+  released: "✅ SHIPPED AND RELEASED",
+  delayed: "🟡 RELEASE DELAYED",
+  held: "🟡 HELD",
+  rolled_back: "🔴 ROLLED BACK",
+};
+
+/**
+ * The status line, last of each set (and alone for held, delayed and rolled back):
+ *   ✅ SHIPPED AND RELEASED · Update 07 · release update-07
+ *   <title>
+ *
+ *   <what happened>
+ *   Next: <next>
+ *   <link>
+ */
+export function statusLineText(kind: keyof typeof STATUS_HEAD, n: number, title: string, what: string, next: string, link?: string): string {
+  const [dot, ...head] = STATUS_HEAD[kind].split(" ");
+  return [`${dot} <b>${head.join(" ")} · Update ${pad(n)} · release ${tag(n)}</b>`, esc(title), "", esc(what), `Next: ${esc(next)}`, ...(link ? [esc(link)] : [])].join("\n");
+}
+
+// ---------------- release emergencies (Alert Test) ----------------
+
+export const ACK_MINUTES = 15;
+
+/** A release emergency: sent at once, then every 2 minutes until it clears (paused 15 minutes by /ack). */
+export function alarmText(a: { name: string; what: string; who: string; n?: number; postAt?: string }, openMin: number): string {
+  const upd = a.n ? [`Update: ${pad(a.n)}${a.postAt ? `, posting at ${three(new Date(a.postAt))}` : ""}`] : [];
+  const still = openMin > 0 ? `Still open after ${openMin}m. ` : "";
+  return [`🔴 <b>ALERT · ${esc(a.name)}</b>`, "", `What happened: ${esc(a.what)}`, ...upd.map(esc), `Who acts: ${esc(a.who)}`, `${still}/ack pauses this alarm for ${ACK_MINUTES} minutes.`].join("\n");
+}
+export const clearedText = (name: string, reason: string) => `🟢 <b>CLEARED · ${esc(name)}</b> (${esc(reason)})`;
+export const ackText = (name: string) => `Paused for ${ACK_MINUTES} minutes: ${esc(name)}. It repeats every 2 minutes after that if it is still open.`;
+export const ackWhich = (names: string[]) => `Which one? Send /ack and its name (open: ${names.map(esc).join(", ")}).`;
+export const ACK_NONE = "Nothing is open.";
+
+// ---------------- Shipped today (23:55 UTC) ----------------
+
+export function shippedTodayText(day: string, list: { n: number; title: string; url: string }[], at: Date): string {
+  const body = list.length
+    ? [`${list.length} update${list.length === 1 ? "" : "s"} released:`, ...list.map((u) => `• Update ${pad(u.n)} · ${esc(u.title)} · <a href="${u.url}">${tag(u.n)}</a>`)]
+    : ["No updates released today."];
+  return [`<b>Shipped today · ${day} (UTC)</b>`, three(at), "", ...body].join("\n");
 }
 
 // ---------------- the pinned board ----------------

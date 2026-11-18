@@ -27,6 +27,7 @@ export interface TgUpdate {
 export interface Tg {
   send(chat: number, html: string): Promise<number>;
   photo(chat: number, file: string, caption: string, html?: boolean): Promise<number>;
+  document(chat: number, file: string, caption: string): Promise<number>;
   edit(chat: number, messageId: number, html: string): Promise<void>;
   pin(chat: number, messageId: number): Promise<void>;
   me(): Promise<string>;
@@ -70,6 +71,7 @@ export function telegramClient(token: string, o: { fetch?: typeof fetch; wait?: 
     send: async (chat, text) => (await call("sendMessage", () => api.sendMessage(chat, text, html))).message_id,
     photo: async (chat, file, caption, isHtml) =>
       (await call("sendPhoto", () => api.sendPhoto(chat, new InputFile(file), { caption, ...(isHtml ? { parse_mode: "HTML" as const } : {}) }))).message_id,
+    document: async (chat, file, caption) => (await call("sendDocument", () => api.sendDocument(chat, new InputFile(file), { caption }))).message_id,
     edit: async (chat, id, text) => void (await call("editMessageText", () => api.editMessageText(chat, id, text, html), 1)),
     pin: async (chat, id) => void (await call("pinChatMessage", () => api.pinChatMessage(chat, id, { disable_notification: true }))),
     me: async () => (await call("getMe", () => api.getMe())).username,

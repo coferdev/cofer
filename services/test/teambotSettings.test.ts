@@ -26,7 +26,7 @@ const mainnet = {
   ALERT_BOT_TOKEN: TOKEN,
   OPS_CHAT_ID: "-1001234567890",
   TEAMBOT_DATA_DIR: OUTSIDE,
-  TEAMBOT_GITHUB_TOKEN: "github_pat_FAKE",
+  TEAMBOT_TEST_CHAT_ID: "-1009999",
 };
 const decide = (src: Record<string, string | undefined>) => teambotDecision(parseEnv(src));
 const reason = (src: Record<string, string | undefined>) => {
@@ -35,20 +35,19 @@ const reason = (src: Record<string, string | undefined>) => {
 };
 
 describe("team bot settings", () => {
-  test("all optional; off by default, and the GitHub mode defaults to publish", () => {
-    const e = parseEnv(base);
+  test("all optional and off by default; old GitHub settings in a .env are ignored", () => {
+    const e = parseEnv({ ...base, TEAMBOT_GITHUB_TOKEN: "github_pat_FAKE", TEAMBOT_GITHUB_MODE: "publish" });
     expect(e.TEAMBOT_ENABLED).toBe(false);
     expect(e.TEAMBOT_DATA_DIR).toBeUndefined();
-    expect(e.TEAMBOT_GITHUB_TOKEN).toBeUndefined();
-    expect(e.TEAMBOT_GITHUB_MODE).toBe("publish");
     expect(e.TEAMBOT_TEST_CHAT_ID).toBeUndefined();
+    expect(e.TEAMBOT_RELEASE_HEARTBEAT).toBeUndefined();
+    expect("TEAMBOT_GITHUB_TOKEN" in e).toBe(false);
     expect(decide(base)).toEqual({ run: false, enabled: false, reason: "TEAMBOT_ENABLED is not 1." });
   });
 
   test("only 0 or 1 are accepted for TEAMBOT_ENABLED; bad values stop start-up like any other bad setting", () => {
     expect(parseEnv({ ...base, TEAMBOT_ENABLED: "0" }).TEAMBOT_ENABLED).toBe(false);
     expect(() => parseEnv({ ...base, TEAMBOT_ENABLED: "yes" })).toThrow();
-    expect(() => parseEnv({ ...base, TEAMBOT_GITHUB_MODE: "push" })).toThrow();
     expect(() => parseEnv({ ...base, TEAMBOT_TEST_CHAT_ID: "group" })).toThrow();
   });
 
@@ -56,7 +55,7 @@ describe("team bot settings", () => {
     const d = decide(mainnet);
     expect(d.run).toBe(true);
     if (!d.run) return;
-    expect(d.settings).toEqual({ token: TOKEN, chat: -1001234567890, dataDir: fs.realpathSync(OUTSIDE), githubToken: "github_pat_FAKE", githubMode: "publish", testChat: undefined });
+    expect(d.settings).toEqual({ token: TOKEN, chat: -1001234567890, dataDir: fs.realpathSync(OUTSIDE), testChat: -1009999, releaseHeartbeat: undefined });
   });
 
   test("testnet never runs it, even with TEAMBOT_ENABLED=1", () => {
@@ -83,16 +82,15 @@ describe("team bot settings", () => {
     expect(reason({ ...mainnet, TEAMBOT_DATA_DIR: link })).toBe("TEAMBOT_DATA_DIR is inside the repo. It must be a private folder outside it.");
   });
 
-  test("the test group can never be the staff group", () => {
-    expect(reason({ ...mainnet, TEAMBOT_TEST_CHAT_ID: "-1001234567890" })).toBe("TEAMBOT_TEST_CHAT_ID is the staff group. Use a separate test group.");
-    const d = decide({ ...mainnet, TEAMBOT_TEST_CHAT_ID: "-1009999" });
-    expect(d.run && d.settings.testChat).toBe(-1009999);
+  test("Alert Test is needed (emergencies and test posts) and can never be the staff group", () => {
+    expect(reason({ ...mainnet, TEAMBOT_TEST_CHAT_ID: undefined })).toBe("TEAMBOT_TEST_CHAT_ID is not set (Alert Test: release emergencies and test posts).");
+    expect(reason({ ...mainnet, TEAMBOT_TEST_CHAT_ID: "-1001234567890" })).toBe("TEAMBOT_TEST_CHAT_ID is the staff group. Use Alert Test.");
   });
 
-  test("publishing drafts needs a GitHub token; check and off do not", () => {
-    expect(reason({ ...mainnet, TEAMBOT_GITHUB_TOKEN: undefined })).toBe("TEAMBOT_GITHUB_MODE is publish but TEAMBOT_GITHUB_TOKEN is not set.");
-    expect(decide({ ...mainnet, TEAMBOT_GITHUB_TOKEN: undefined, TEAMBOT_GITHUB_MODE: "check" }).run).toBe(true);
-    expect(decide({ ...mainnet, TEAMBOT_GITHUB_TOKEN: undefined, TEAMBOT_GITHUB_MODE: "off" }).run).toBe(true);
+  test("the release system's heartbeat file must be a full path", () => {
+    expect(reason({ ...mainnet, TEAMBOT_RELEASE_HEARTBEAT: "beat" })).toBe("TEAMBOT_RELEASE_HEARTBEAT must be a full path, starting with /.");
+    const d = decide({ ...mainnet, TEAMBOT_RELEASE_HEARTBEAT: "/var/lib/cofer-ship/heartbeat" });
+    expect(d.run && d.settings.releaseHeartbeat).toBe("/var/lib/cofer-ship/heartbeat");
   });
 
   test("a reason never holds a secret", () => {

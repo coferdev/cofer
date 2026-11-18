@@ -3,9 +3,14 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { loadBook, makeBook, posterPath, roadmapPath, type Book, type Update } from "../src/teambot/data";
-import { gate, type GateDeps, type Release } from "../src/teambot/gate";
 import {
+  alarmText,
   allLiveText,
+  ackText,
+  clearedText,
+  shippedTodayText,
+  statusLineText,
+  zipCaption,
   armedText,
   boardKey,
   boardText,
@@ -14,7 +19,6 @@ import {
   currentDay,
   disarmedText,
   healthText,
-  heldText,
   incident,
   launchedText,
   nextText,
@@ -29,7 +33,7 @@ import {
   videosText,
   xCopy,
 } from "../src/teambot/messages";
-import { blankState, dueNow, held, loadState, nextDue, released, saveState, statePath, type State } from "../src/teambot/state";
+import { blankState, held, loadState, nextDue, released, saveState, statePath, type State } from "../src/teambot/state";
 import { dayLabel, inMins, parseUtc, three, threeShort } from "../src/teambot/time";
 
 // Made-up updates and config, for tests only (the real ones live on the server, never in the repo).
@@ -144,14 +148,12 @@ describe("saved state", () => {
     fs.writeFileSync(statePath(dir), "{half written");
     expect(() => loadState(dir)).toThrow("state.json in the data folder could not be read");
   });
-  test("released, held, next and due", () => {
+  test("released, held and next", () => {
     const b = book30();
-    const st = armed({ u: { "1": { state: "released", at: LAUNCH }, "2": { state: "held" }, "3": { state: "posting" } } });
+    const st = armed({ u: { "1": { state: "released", at: LAUNCH }, "2": { state: "held" }, "3": { state: "posting" }, "4": { state: "rolled_back" } } });
     expect(released(st, b).map((u) => u.n)).toEqual([1]);
-    expect(held(st, b).map((u) => u.n)).toEqual([2]);
+    expect(held(st, b).map((u) => u.n)).toEqual([2, 4]); // rolled back shows as held on the board
     expect(nextDue(st, b)?.n).toBe(3); // one cut off mid-post is still due (its sent posts are remembered)
-    expect(dueNow(st, b, T0 + 3 * H).map((u) => u.n)).toEqual([3, 4]);
-    expect(dueNow(blankState(), b, T0 + 3 * H)).toEqual([]);
   });
 });
 
@@ -160,18 +162,6 @@ describe("incident messages", () => {
     expect(incident("⏸", "PAUSED", "updates", { what: "a", done: "b", next: "c" })).toBe(
       "⏸ <b>PAUSED · updates</b>\n\n<b>What happened:</b> a\n<b>Users affected:</b> No. Cofer keeps running.\n<b>What we did:</b> b\n<b>Next:</b> c",
     );
-  });
-  test("HELD and FAILED", () => {
-    const b = book30();
-    expect(heldText(b.byN.get(15)!, "The wide poster file is missing on the server.", b.byN.get(16))).toBe(
-      "🟡 <b>HELD · Update 15</b>\n\n<b>What happened:</b> The wide poster file is missing on the server.\n<b>Users affected:</b> No. Cofer keeps running.\n<b>What we did:</b> Update 15 is held and nothing about it was posted. Update 16 stays on time.\n<b>Next:</b> Fix the above, then on the server run: cofer-release release 15",
-    );
-    const failed = heldText(b.byN.get(30)!, "GitHub refused to publish the release update-30 (403).", undefined, "FAILED", "🔴");
-    expect(failed).toStartWith("🔴 <b>FAILED · Update 30</b>");
-    expect(failed).toContain("<b>What we did:</b> Update 30 is held and nothing about it was posted.\n");
-  });
-  test("reasons are escaped for Telegram HTML", () => {
-    expect(heldText(book30().byN.get(1)!, "a <b> & c", undefined)).toContain("a &lt;b&gt; &amp; c");
   });
   test("PAUSED, RESUMED, ARMED, cancelled", () => {
     const b = book30();
@@ -198,11 +188,44 @@ describe("incident messages", () => {
     );
   });
   test("PREFLIGHT", () => {
-    const b = book30();
     expect(preflightText([], 30)).toBe(
       "🟢 <b>PREFLIGHT ALL CLEAR</b>\n\n30 of 30 updates are ready: status checked, posters on the server, changelog lines and GitHub releases in place.",
     );
-    expect(preflightText([[b.byN.get(4)!, ["A.", "B."]]], 30)).toBe("🟡 <b>PREFLIGHT · 29 of 30 ready</b>\n\n<b>04</b> A. B.\n\n<i>Each one is held at its hour unless fixed.</i>");
+    expect(preflightText([[4, ["A.", "B."]]], 30)).toBe("🟡 <b>PREFLIGHT · 29 of 30 ready</b>\n\n<b>04</b> A. B.\n\n<i>Each one is held at its hour unless fixed.</i>");
+  });
+});
+
+describe("status lines, zips, emergencies, Shipped today", () => {
+  test("the status line: the decided first line, then title, what happened, Next and the link", () => {
+    expect(statusLineText("released", 7, "Title & co", "Live on testnet and mainnet.", "Update 08 at 14:00 UTC.", "https://github.com/coferdev/cofer/releases/tag/update-07")).toBe(
+      "✅ <b>SHIPPED AND RELEASED · Update 07 · release update-07</b>\nTitle &amp; co\n\nLive on testnet and mainnet.\nNext: Update 08 at 14:00 UTC.\nhttps://github.com/coferdev/cofer/releases/tag/update-07",
+    );
+    expect(statusLineText("held", 7, "T", "The tests failed.", "x")).toStartWith("🟡 <b>HELD · Update 07 · release update-07</b>");
+    expect(statusLineText("delayed", 7, "T", "w", "x")).toStartWith("🟡 <b>RELEASE DELAYED · Update 07 · release update-07</b>");
+    expect(statusLineText("rolled_back", 7, "T", "w", "x")).toStartWith("🔴 <b>ROLLED BACK · Update 07 · release update-07</b>");
+  });
+  test("reasons are escaped for Telegram HTML", () => {
+    expect(statusLineText("held", 1, "T", "a <b> & c", "x")).toContain("\na &lt;b&gt; &amp; c\n");
+    expect(pausedText("a <b> & c")).toContain("a &lt;b&gt; &amp; c");
+    expect(alarmText({ name: "release-tests-failed-01", what: "a <b> & c", who: "d" }, 0)).toContain("What happened: a &lt;b&gt; &amp; c");
+  });
+  test("zip captions say the poster's exact size", () => {
+    expect(zipCaption(7, "square", { w: 1080, h: 1080 })).toBe("Update 07 · square poster, full quality (1080x1080 PNG)");
+    expect(zipCaption(7, "wide", null)).toBe("Update 07 · wide poster, full quality");
+  });
+  test("an emergency: what, which update and when it posts, who acts, how long open, and /ack", () => {
+    const a = { name: "release-tests-failed", what: "The tests failed while building Update 07.", who: "Dev fixes it, then on the server: cofer-release release 7.", n: 7, postAt: LAUNCH };
+    expect(alarmText(a, 0)).toBe(
+      "🔴 <b>ALERT · release-tests-failed</b>\n\nWhat happened: The tests failed while building Update 07.\nUpdate: 07, posting at 18:00 UTC · 21:00 Moscow · 1:00 PM New York\nWho acts: Dev fixes it, then on the server: cofer-release release 7.\n/ack pauses this alarm for 15 minutes.",
+    );
+    expect(alarmText(a, 4)).toContain("\nStill open after 4m. /ack pauses this alarm for 15 minutes.");
+    expect(clearedText("release-tests-failed", "Update 07 is ready")).toBe("🟢 <b>CLEARED · release-tests-failed</b> (Update 07 is ready)");
+    expect(ackText("release-tests-failed")).toBe("Paused for 15 minutes: release-tests-failed. It repeats every 2 minutes after that if it is still open.");
+  });
+  test("Shipped today: the UTC day, the three times, each release with its link", () => {
+    expect(shippedTodayText("2026-11-30", [{ n: 1, title: "A", url: "https://github.com/x/y/releases/tag/update-01" }], new Date("2026-11-30T23:55:00Z"))).toBe(
+      '<b>Shipped today · 2026-11-30 (UTC)</b>\n23:55 UTC · 02:55 Moscow · 6:55 PM New York\n\n1 update released:\n• Update 01 · A · <a href="https://github.com/x/y/releases/tag/update-01">update-01</a>',
+    );
   });
 });
 
@@ -309,60 +332,5 @@ describe("staff-group replies", () => {
     expect(healthText([{ name: "Website", status: 200, ok: true, ms: 120 }, { name: "Dashboard" }], armed({ paused: { reason: "x", at: LAUNCH } }), T0)).toBe(
       "<b>Health</b>\n\n✅ Website · 200 · 120 ms\n❌ Dashboard · no answer\n\nUpdates: paused (x)\n<i>Checked 18:00 UTC · 21:00 Moscow · 1:00 PM New York</i>",
     );
-  });
-});
-
-describe("the gate", () => {
-  const b = book30();
-  const rel = (n: number, draft = false): Release => ({ id: n, tag_name: `update-${String(n).padStart(2, "0")}`, draft });
-  const deps = (over: Partial<GateDeps> = {}): GateDeps => ({
-    githubMode: "publish",
-    changelog: async () => "## Unreleased\n- Votes say when they run in plain words, on every card, the signer page and the dashboard.\n",
-    releases: async () => [rel(1), rel(2, true)],
-    posterExists: () => true,
-    ...over,
-  });
-
-  test("ready: no reasons, and the release is returned (a draft too)", async () => {
-    expect(await gate(blankState(), b, b.byN.get(1)!, deps())).toEqual({ why: [], rel: rel(1) });
-    expect((await gate(blankState(), b, b.byN.get(2)!, deps())).rel).toEqual(rel(2, true));
-  });
-  test("every missing piece, as plain sentences", async () => {
-    const u: Update = { ...b.byN.get(3)!, status: "RECHECK-LIVE", changelog: "add", changelog_line: "- A line that is not on main yet." };
-    const { why, rel: r } = await gate(blankState(), b, u, deps({ posterExists: (p) => p.includes("square") }));
-    expect(why).toEqual([
-      "It is marked RECHECK-LIVE. Do its one-time check, then run: cofer-release verify 3.",
-      "The wide poster file is missing on the server.",
-      "Its changelog line is not in CHANGELOG.md on main yet.",
-      "The GitHub release update-03 does not exist.",
-    ]);
-    expect(r).toBeNull();
-  });
-  test("marked checked from the server passes the status check", async () => {
-    const u: Update = { ...b.byN.get(1)!, status: "RECHECK-NUMBERS" };
-    expect((await gate({ ...blankState(), u: { "1": { verified: true } } }, b, u, deps())).why).toEqual([]);
-  });
-  test("the changelog line is found by its start; 'exists' and empty are not checked", async () => {
-    const add: Update = { ...b.byN.get(1)!, changelog: "add", changelog_line: "- Votes say when they run in plain words, on every card, the signer page and more words that differ." };
-    expect((await gate(blankState(), b, add, deps())).why).toEqual([]);
-    let read = false;
-    const exists: Update = { ...b.byN.get(1)!, changelog: "exists", changelog_line: "- not on main" };
-    await gate(blankState(), b, exists, deps({ changelog: async () => ((read = true), "") }));
-    expect(read).toBe(false);
-  });
-  test("GitHub or the changelog cannot be read: held with that reason", async () => {
-    const add: Update = { ...b.byN.get(1)!, changelog: "add", changelog_line: "- x" };
-    const { why } = await gate(blankState(), b, add, deps({ changelog: async () => Promise.reject(new Error("CHANGELOG.md could not be read (404)")), releases: async () => Promise.reject(new Error("GitHub releases could not be read (502)")) }));
-    expect(why).toEqual(["CHANGELOG.md could not be read (404).", "GitHub releases could not be read (502)."]);
-  });
-  test("GitHub off: the release is not checked", async () => {
-    let asked = false;
-    expect(await gate(blankState(), b, b.byN.get(9)!, deps({ githubMode: "off", releases: async () => ((asked = true), []) }))).toEqual({ why: [], rel: null });
-    expect(asked).toBe(false);
-  });
-  test("posters are looked for in the data folder", async () => {
-    const seen: string[] = [];
-    await gate(blankState(), book30("/srv/teambot"), b.byN.get(5)!, deps({ posterExists: (p) => (seen.push(p), true) }));
-    expect(seen).toEqual(["/srv/teambot/posters/square/update-05-square.png", "/srv/teambot/posters/wide/update-05-wide.png"]);
   });
 });

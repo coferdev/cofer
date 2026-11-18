@@ -1,36 +1,43 @@
 /**
- * The team bot at work, on the existing alert bot in the staff group (same behaviour and wording
- * as the standalone version it replaces):
- *   - each update at its hour (launch + (N - 1) hours): the gate, then its GitHub release published
- *     if it is a draft, then two copy-ready posts (square poster + Telegram text, wide poster + X text)
- *   - an update that fails the gate is HELD with plain reasons, never posted; the next stays on time
- *   - after a pause, overdue updates go one at a time, 2 minutes apart
- *   - one pinned launch board, edited in place
+ * The team bot at work, on the existing alert bot. It is the only poster of the launch, and it posts
+ * only what the release system tells it (notices in TEAMBOT_DATA_DIR/inbox, see notices.ts); it has
+ * no clock of its own for updates.
+ *   - "update NN released" (sent at its posting minute, once it is live on testnet and mainnet and
+ *     published): the full set in the staff group: the heading, the square poster with the Telegram
+ *     text, a zip with only that poster, the wide poster with the X text, a zip with only that poster,
+ *     then the status line; LAUNCHED before update 1 and ALL LIVE after the last
+ *   - held, delayed and rolled back: that status line only
+ *   - armed, disarmed, paused, resumed, preflight: the matching staff-group message
+ *   - release emergencies: in Alert Test (TEAMBOT_TEST_CHAT_ID), at once, then every 2 minutes until
+ *     cleared; /ack in Alert Test pauses one for 15 minutes; one cleared message at the end
+ *   - one pinned launch board, edited in place; a board poster 30 minutes after each release (the
+ *     board as text whenever an update is held); "Shipped today" at 23:55 UTC
  *   - staff-group commands (/status /next /schedule /poster /changelog /roadmap /contracts /socials
  *     /videos /video /health /help), only in the staff group, ignoring other bots
- *   - server commands (arm, disarm, pause, resume, hold, release, verify) arrive as files in
- *     TEAMBOT_DATA_DIR/inbox, written by scripts/teambot.ts; never as Telegram commands
+ *   - its own heartbeat file every tick, and an alarm when the release system's heartbeat stops
  * Everything that has gone out is saved in state.json before and after each post, so a restart
  * neither repeats nor skips one.
  */
 import fs from "node:fs";
 import path from "node:path";
 import { redact } from "../core/errors";
-import { pad, posterPath, roadmapPath, tag, type Book, type Update } from "./data";
-import { gate, type GateDeps } from "./gate";
-import type { GitHub } from "./github";
+import { pad, posterPath, relUrl, roadmapPath, type Book, type Shape, type Update } from "./data";
 import {
+  ACK_NONE,
+  ackText,
+  ackWhich,
+  alarmText,
   allLiveText,
   armedText,
   boardKey,
   boardText,
   changelogReply,
+  clearedText,
   contractsText,
   currentDay,
   days,
   disarmedText,
   healthText,
-  heldText,
   HELP,
   launchedText,
   MENU,
@@ -41,45 +48,59 @@ import {
   posterCaption,
   posterNotLive,
   posterUsage,
+  preflightText,
   resumedText,
   roadmapCaption,
   scheduleDay,
+  shippedTodayText,
   socialsText,
+  statusLineText,
   tgCopy,
   videosText,
   videoUsage,
   xCopy,
   headingText,
   REPLY_ONLY,
+  zipCaption,
   type HealthRow,
 } from "./messages";
-import { dueNow, held, loadState, nextDue, released, saveState, us, type State } from "./state";
+import { asNotice, HEARTBEAT_STALE_MS, type AlarmNotice, type Notice } from "./notices";
+import { held, loadState, released, saveState, us, type Alarm, type State, type StatusKind } from "./state";
 import type { Tg, TgMessage, TgUpdate } from "./telegram";
-import { parseUtc, slotTime } from "./time";
+import { storedZip } from "./zip";
 
 export const TICK_MS = 10_000;
 const BOARD_REFRESH_MS = 5 * 60_000;
 const SAME_COMMAND_MS = 5_000;
 /** A reply to the same message of ours is answered at most once in this time. */
 export const SAME_REPLY_MS = 30_000;
-export const CONTROL_COMMANDS = ["arm", "disarm", "pause", "resume", "hold", "release", "verify"] as const;
-export type ControlCommand = (typeof CONTROL_COMMANDS)[number];
+/** A release emergency repeats this often until it clears. */
+export const ALARM_REPEAT_MS = 2 * 60_000;
+/** /ack pauses one alarm this long. */
+export const ACK_PAUSE_MS = 15 * 60_000;
+/** The board poster goes out this long after a release. */
+export const BOARD_POSTER_AFTER_MS = 30 * 60_000;
+/** A notice that could not be posted is tried again after this. */
+export const RETRY_MS = 2 * 60_000;
+/** "Shipped today" goes out at this UTC time, for that UTC day. */
+export const SUMMARY_AT = "23:55";
+const SEEN_KEEP = 2000;
 export const KNOWN = new Set(["help", "start", "status", "next", "schedule", "poster", "changelog", "roadmap", "contracts", "socials", "videos", "video", "health"]);
 
-export interface Control {
-  id: string;
-  cmd: string;
-  arg?: string;
-  rest?: string;
-  by?: string;
+/** Dry runs and test posts carry a first line, so they can never be taken for the real thing in Alert Test. */
+export interface Labels {
+  staff?: string; // e.g. "🧪 DRY RUN · STAFF POST (would go to the staff group)"
+  alarm?: string; // e.g. "🧪 DRY RUN · EMERGENCY"
 }
+export const TEST_LABEL = "🧪 TEST · STAFF POST (sent to Alert Test only)";
 
 export interface TeambotDeps {
   book: Book;
   tg: Tg;
-  gh: GitHub;
-  chat: number; // the staff group
-  githubMode: "publish" | "check" | "off";
+  chat: number; // the staff group (in a dry run: the test group)
+  alertChat?: number; // Alert Test: release emergencies, /ack and test posts
+  releaseHeartbeat?: string; // the release system's heartbeat file
+  labels?: Labels;
   now?: () => number;
   log?: (...a: unknown[]) => void;
   posterExists?: (p: string) => boolean;
@@ -88,68 +109,106 @@ export interface TeambotDeps {
 }
 
 export const inboxDir = (dataDir: string) => path.join(dataDir, "inbox");
+export const heartbeatPath = (dataDir: string) => path.join(dataDir, "heartbeat");
+export const boardPosterPath = (book: Book, live: number) => path.join(book.dataDir, "posters", "board", `board-${pad(live)}.png`);
 const sentence = (e: unknown) => {
   const m = redact(e instanceof Error ? e.message : String(e));
   return m.endsWith(".") ? m : `${m}.`;
 };
+
+/** The width and height in a PNG's header, or null. */
+export function pngSize(b: Uint8Array): { w: number; h: number } | null {
+  if (b.length < 24 || b[0] !== 0x89 || b[1] !== 0x50 || b[12] !== 0x49 || b[13] !== 0x48) return null;
+  const v = new DataView(b.buffer, b.byteOffset, b.byteLength);
+  return { w: v.getUint32(16), h: v.getUint32(20) };
+}
 
 export function createTeambot(d: TeambotDeps) {
   const { book, tg, chat } = d;
   const now = d.now ?? Date.now;
   const log = d.log ?? ((...a: unknown[]) => console.log("[teambot]", ...a.map((x) => redact(String(x)))));
   const sleep = d.sleep ?? ((ms: number) => new Promise((r) => setTimeout(r, ms)));
+  const exists = d.posterExists ?? fs.existsSync;
   const dataDir = book.dataDir;
   const st: State = loadState(dataDir);
   const save = () => saveState(dataDir, st);
-  const say = (html: string) => tg.send(chat, html);
-  const slot = (n: number) => slotTime(st.armedAt!, n, book.slotMs);
-  const gateDeps: GateDeps = { githubMode: d.githubMode, changelog: () => d.gh.changelog(), releases: (fresh) => d.gh.releases(fresh), posterExists: d.posterExists };
 
-  // ---------------- releasing one update ----------------
-  async function hold(u: Update, why: string[], kind = "HELD", dot = "🟡"): Promise<void> {
-    const reason = why.join(" ");
-    const s = us(st, u.n);
-    if (s.state === "held" && s.reason === reason) return; // one message per real change
-    Object.assign(s, { state: "held", reason, at: new Date(now()).toISOString() });
-    save();
-    await say(heldText(u, reason, nextDue(st, book), kind, dot));
+  // ---------------- sending, with the dry-run / test label ----------------
+  const htmlLabel = (l?: string) => (l ? `<b>${l}</b>\n` : "");
+  const plainLabel = (l?: string) => (l ? `${l}\n\n` : "");
+  const say = (html: string, label = d.labels?.staff, to = chat) => tg.send(to, htmlLabel(label) + html);
+  const photo = (file: string, caption: string, isHtml = false, label = d.labels?.staff, to = chat) =>
+    tg.photo(to, file, (isHtml ? htmlLabel(label) : plainLabel(label)) + caption, isHtml);
+  const doc = (file: string, caption: string, label = d.labels?.staff, to = chat) => tg.document(to, file, plainLabel(label) + caption);
+
+  function zipFile(n: number, shape: Shape): { file: string; caption: string } {
+    const src = posterPath(book, n, shape);
+    const bytes = new Uint8Array(fs.readFileSync(src));
+    const dir = path.join(dataDir, "zips");
+    fs.mkdirSync(dir, { recursive: true, mode: 0o700 });
+    const name = `cofer-update-${pad(n)}-${shape}`;
+    const out = path.join(dir, `${name}.zip`);
+    if (!fs.existsSync(out)) {
+      fs.writeFileSync(`${out}.tmp`, storedZip(`${name}.png`, bytes, new Date(now())), { mode: 0o600 });
+      fs.renameSync(`${out}.tmp`, out);
+    }
+    return { file: out, caption: zipCaption(n, shape, pngSize(bytes)) };
   }
 
-  async function doRelease(u: Update): Promise<void> {
+  // ---------------- the full set, in order, each part saved as it goes ----------------
+  async function fullSet(u: Update, n: { what: string; next: string; link?: string }, test: boolean): Promise<void> {
+    if (test) {
+      const to = d.alertChat ?? chat;
+      await say(headingText(u.n), TEST_LABEL, to);
+      await photo(posterPath(book, u.n, "square"), tgCopy(book, u), false, TEST_LABEL, to);
+      const zs = zipFile(u.n, "square");
+      await doc(zs.file, zs.caption, TEST_LABEL, to);
+      await photo(posterPath(book, u.n, "wide"), xCopy(u), false, TEST_LABEL, to);
+      const zw = zipFile(u.n, "wide");
+      await doc(zw.file, zw.caption, TEST_LABEL, to);
+      await say(statusLineText("released", u.n, u.title, n.what, n.next, n.link ?? relUrl(book, u.n)), TEST_LABEL, to);
+      return;
+    }
     const s = us(st, u.n);
-    const { why, rel } = await gate(st, book, u, gateDeps, true);
-    if (why.length) return hold(u, why);
-    s.state = "posting";
-    save();
-    if (d.githubMode === "publish" && rel?.draft) {
-      try {
-        await d.gh.publish(rel.id);
-      } catch (e) {
-        const status = (e as { status?: number }).status;
-        return hold(u, [status ? `GitHub refused to publish the release ${tag(u.n)} (${status}).` : `GitHub could not be reached to publish the release ${tag(u.n)}.`], "FAILED", "🔴");
-      }
+    if (s.state !== "released") {
+      s.state = "posting";
+      save();
     }
     if (u.n === 1 && !st.launchedPosted) {
       await say(launchedText(st, book));
       st.launchedPosted = true;
       save();
     }
-    if (!s.head && !s.tg) {
+    if (!s.head) {
       s.head = await say(headingText(u.n));
       save();
     }
     if (!s.tg) {
-      s.tg = await tg.photo(chat, posterPath(book, u.n, "square"), tgCopy(book, u));
+      s.tg = await photo(posterPath(book, u.n, "square"), tgCopy(book, u));
+      save();
+    }
+    if (!s.zipSq) {
+      const z = zipFile(u.n, "square");
+      s.zipSq = await doc(z.file, z.caption);
       save();
     }
     if (!s.x) {
-      s.x = await tg.photo(chat, posterPath(book, u.n, "wide"), xCopy(u));
+      s.x = await photo(posterPath(book, u.n, "wide"), xCopy(u));
       save();
     }
-    Object.assign(s, { state: "released", reason: null, at: new Date(now()).toISOString() });
-    st.lastReleaseAt = now();
-    save();
-    log("released", tag(u.n));
+    if (!s.zipX) {
+      const z = zipFile(u.n, "wide");
+      s.zipX = await doc(z.file, z.caption);
+      save();
+    }
+    if (!s.lines?.released) {
+      (s.lines ||= {}).released = await say(statusLineText("released", u.n, u.title, n.what, n.next, n.link ?? relUrl(book, u.n)));
+      Object.assign(s, { state: "released", reason: null, at: new Date(now()).toISOString() });
+      st.lastReleaseAt = now();
+      st.boardPoster = { dueAt: now() + BOARD_POSTER_AFTER_MS, live: released(st, book).length }; // a later release replaces it: only the latest goes
+      save();
+      log("released", u.n);
+    }
     if (released(st, book).length === book.total && !st.finishedPosted) {
       st.finishedPosted = true;
       save();
@@ -157,20 +216,183 @@ export function createTeambot(d: TeambotDeps) {
     }
   }
 
-  async function releaseTick(): Promise<void> {
-    if (!st.armedAt || st.paused) return;
-    const due = dueNow(st, book, now());
-    if (!due.length) return;
-    if (now() - st.lastReleaseAt < book.catchupMs) return; // behind schedule: one at a time, a little apart
-    try {
-      await doRelease(due[0]!);
-    } catch (e) {
-      log("release error", sentence(e));
-      await hold(due[0]!, [sentence(e)], "FAILED", "🔴").catch((e2) => log("could not report", sentence(e2)));
+  /** Held, delayed or rolled back: its status line only, once per outcome. */
+  async function outcome(kind: Exclude<StatusKind, "released">, u: Update, n: { id: string; what: string; next: string; link?: string }): Promise<void> {
+    const s = us(st, u.n);
+    if (s.state === "released") return; // already out: an older notice
+    if (s.lastNotice === n.id) return; // posted just before a restart
+    (s.lines ||= {})[kind] = await say(statusLineText(kind, u.n, u.title, n.what, n.next, n.link));
+    Object.assign(s, { state: kind, reason: n.what, at: new Date(now()).toISOString(), lastNotice: n.id });
+    save();
+  }
+
+  // ---------------- release emergencies ----------------
+  const alertTo = () => d.alertChat;
+  async function sendAlarm(a: Alarm): Promise<void> {
+    const to = alertTo();
+    if (to === undefined) {
+      log("no Alert Test group set: alarm not sent", a.name);
+      return;
+    }
+    const mins = a.lastSentAt ? Math.floor((now() - a.openedAt) / 60_000) : 0;
+    const id = await say(alarmText(a, mins), d.labels?.alarm, to);
+    a.lastSentAt = now();
+    a.messages = [...a.messages, id].slice(-50);
+    save();
+  }
+
+  async function openAlarm(n: AlarmNotice, own = false): Promise<void> {
+    const had = st.alarms[n.name];
+    if (had) {
+      Object.assign(had, { what: n.what, who: n.who, n: n.n, postAt: n.postAt }); // the same problem, newer words
+      save();
+      return;
+    }
+    const a: Alarm = { ...n, openedAt: now(), lastSentAt: 0, ackUntil: 0, messages: [], own };
+    st.alarms[n.name] = a;
+    save();
+    await sendAlarm(a);
+  }
+
+  async function clearAlarm(name: string, reason: string): Promise<void> {
+    if (!st.alarms[name]) return; // never open here: nothing to clear
+    const to = alertTo();
+    if (to !== undefined) await say(clearedText(name, reason), d.labels?.alarm, to);
+    delete st.alarms[name];
+    save();
+  }
+
+  async function alarmTick(): Promise<void> {
+    for (const a of Object.values(st.alarms)) {
+      if (now() < a.ackUntil) continue;
+      if (a.lastSentAt && now() - a.lastSentAt < ALARM_REPEAT_MS) continue;
+      try {
+        await sendAlarm(a);
+      } catch (e) {
+        log("alarm not sent", a.name, sentence(e));
+      }
     }
   }
 
-  // ---------------- the pinned board ----------------
+  /** Watches the release system's heartbeat while the launch is armed. */
+  async function watchRelease(): Promise<void> {
+    if (!d.releaseHeartbeat || !st.armedAt || st.finishedPosted) return;
+    let age = Infinity;
+    try {
+      age = now() - fs.statSync(d.releaseHeartbeat).mtimeMs;
+    } catch {
+      /* missing */
+    }
+    const name = "release-system-stopped";
+    if (age > HEARTBEAT_STALE_MS) {
+      await openAlarm(
+        {
+          name,
+          what: `The release system has stopped: its heartbeat is ${Number.isFinite(age) ? `${Math.floor(age / 60_000)} minutes old` : "missing"}. Nothing is built, deployed or released until it runs again.`,
+          who: "Dev: on the server, check the release system (systemctl status cofer-ship and its log) and start it again.",
+        },
+        true,
+      );
+    } else if (st.alarms[name]?.own) await clearAlarm(name, "it is running again");
+  }
+
+  /** /ack in Alert Test: pause one alarm for 15 minutes. */
+  async function ack(m: TgMessage, arg: string): Promise<void> {
+    const to = alertTo()!;
+    const open = Object.values(st.alarms);
+    let a: Alarm | undefined;
+    if (m.reply_to_message) a = open.find((x) => x.messages.includes(m.reply_to_message!.message_id));
+    if (!a && arg) a = st.alarms[arg.trim()];
+    if (!a && !arg && open.length === 1) a = open[0];
+    if (!a) {
+      await say(open.length ? ackWhich(open.map((x) => x.name)) : ACK_NONE, d.labels?.alarm, to);
+      return;
+    }
+    a.ackUntil = now() + ACK_PAUSE_MS;
+    save();
+    await say(ackText(a.name), d.labels?.alarm, to);
+  }
+
+  // ---------------- notices from the release system ----------------
+  async function applyNotice(n: Notice): Promise<void> {
+    switch (n.type) {
+      case "armed":
+        st.armedAt = new Date(n.at).toISOString();
+        save();
+        await say(armedText(!!n.changed, new Date(n.at), book));
+        for (let day = 1; day <= days(book); day++) await say(scheduleDay(st, book, day)!);
+        return;
+      case "disarmed":
+        st.armedAt = null;
+        save();
+        await say(disarmedText());
+        return;
+      case "paused":
+        st.paused = { reason: n.reason || "planned pause", at: new Date(now()).toISOString() };
+        save();
+        await say(pausedText(st.paused.reason));
+        return;
+      case "resumed":
+        st.paused = null;
+        save();
+        await say(resumedText(st, book, n.overdue));
+        return;
+      case "preflight":
+        await say(preflightText(n.bad, n.total));
+        return;
+      case "alarm":
+        await openAlarm(n.alarm);
+        return;
+      case "cleared":
+        await clearAlarm(n.name, n.reason);
+        return;
+    }
+    const u = book.byN.get(n.n);
+    if (!u) {
+      log("notice for an unknown update", n.n);
+      return;
+    }
+    if (n.type === "test") return fullSet(u, n, true);
+    if (n.type === "released") return fullSet(u, n, false);
+    return outcome(n.type, u, n);
+  }
+
+  async function inboxTick(): Promise<void> {
+    const dir = inboxDir(dataDir);
+    if (!fs.existsSync(dir) || now() < st.retryAt) return;
+    for (const f of fs
+      .readdirSync(dir)
+      .filter((x) => x.endsWith(".json"))
+      .sort()) {
+      const p = path.join(dir, f);
+      let n: Notice | null = null;
+      try {
+        n = asNotice(JSON.parse(fs.readFileSync(p, "utf8")));
+      } catch {
+        n = null;
+      }
+      if (!n) {
+        log("removed a file that is not a notice:", f);
+        fs.rmSync(p, { force: true });
+        continue;
+      }
+      if (!st.seen.includes(n.id)) {
+        try {
+          await applyNotice(n);
+        } catch (e) {
+          st.retryAt = now() + RETRY_MS; // in order: nothing after it goes before it
+          save();
+          log("notice not posted yet, trying again in 2 minutes:", n.type, sentence(e));
+          return;
+        }
+        st.seen = [...st.seen, n.id].slice(-SEEN_KEEP);
+        save();
+      }
+      fs.rmSync(p, { force: true });
+    }
+  }
+
+  // ---------------- the pinned board, its poster, Shipped today ----------------
   let lastBoard = { key: "", at: 0 };
   async function boardTick(force = false): Promise<void> {
     const text = boardText(st, book, now());
@@ -179,7 +401,7 @@ export function createTeambot(d: TeambotDeps) {
     try {
       if (st.board) {
         try {
-          await tg.edit(chat, st.board, text);
+          await tg.edit(chat, st.board, htmlLabel(d.labels?.staff) + text);
         } catch (e) {
           const m = e instanceof Error ? e.message : "";
           if (/not modified/i.test(m)) {
@@ -199,92 +421,37 @@ export function createTeambot(d: TeambotDeps) {
     }
   }
 
-  // ---------------- server commands ----------------
-  async function applyControl(c: Control): Promise<string> {
-    const n = parseInt(c.arg ?? "", 10);
-    const u = book.byN.get(n);
-    switch (c.cmd) {
-      case "arm": {
-        const t = parseUtc(c.arg);
-        if (!t) return 'Could not read that time. Use: cofer-release arm "2026-11-30 18:00" (UTC).';
-        if (released(st, book).length) return "Updates have already gone out. The launch time can no longer change.";
-        if (t.getTime() <= now()) return "That time has already passed. Pick a time in the future (UTC).";
-        const changed = !!st.armedAt;
-        st.armedAt = t.toISOString();
-        save();
-        await say(armedText(changed, t, book));
-        for (let day = 1; day <= days(book); day++) await say(scheduleDay(st, book, day)!);
-        return `Armed for ${t.toISOString()} (UTC). The schedule was posted in the group.`;
-      }
-      case "disarm":
-        if (!st.armedAt) return "Not armed. Nothing changed.";
-        if (released(st, book).length) return "Updates have already gone out; use pause instead.";
-        st.armedAt = null;
-        save();
-        await say(disarmedText());
-        return "Disarmed.";
-      case "pause": {
-        if (st.paused) return `Already paused (${st.paused.reason}). Nothing changed.`;
-        st.paused = { reason: c.arg || "planned pause", at: new Date(now()).toISOString(), by: c.by };
-        save();
-        await say(pausedText(st.paused.reason));
-        return "Paused.";
-      }
-      case "resume": {
-        if (!st.paused) return "Not paused. Nothing changed."; // never a RESUMED without a PAUSED
-        st.paused = null;
-        save();
-        await say(resumedText(st, book, dueNow(st, book, now()).length));
-        return "Resumed.";
-      }
-      case "hold":
-        if (!u) return 'Usage: cofer-release hold 15 "reason"';
-        if (st.u[n]?.state === "released") return `Update ${n} is already out.`;
-        await hold(u, [`Held from the server: ${c.rest || "no reason given"}.`]);
-        return `Update ${n} is held.`;
-      case "release":
-        if (!u) return "Usage: cofer-release release 15";
-        if (st.u[n]?.state !== "held") return `Update ${n} is not held. Nothing changed.`;
-        st.u[n]!.state = null;
-        st.u[n]!.reason = null;
-        save();
-        return `Update ${n} is no longer held. Its checks run again before it goes out${st.armedAt && slot(n).getTime() <= now() ? " (it is overdue, so it goes out shortly)" : ""}.`;
-      case "verify":
-        if (!u) return "Usage: cofer-release verify 23";
-        us(st, n).verified = true;
-        save();
-        return `Update ${n} is marked as checked.`;
-      default:
-        return `Unknown command: ${c.cmd}`;
+  async function boardPosterTick(): Promise<void> {
+    const bp = st.boardPoster;
+    if (!bp || now() < bp.dueAt) return;
+    const text = boardText(st, book, now());
+    const img = boardPosterPath(book, bp.live);
+    try {
+      if (held(st, book).length || !exists(img)) await say(text);
+      else await photo(img, text, true);
+      st.boardPoster = null;
+      save();
+    } catch (e) {
+      bp.dueAt = now() + RETRY_MS;
+      save();
+      log("board poster not sent, trying again in 2 minutes:", sentence(e));
     }
   }
 
-  async function inboxTick(): Promise<void> {
-    const dir = inboxDir(dataDir);
-    if (!fs.existsSync(dir)) return;
-    for (const f of fs
-      .readdirSync(dir)
-      .filter((x) => x.endsWith(".json"))
-      .sort()) {
-      const p = path.join(dir, f);
-      let c: Control;
-      try {
-        c = JSON.parse(fs.readFileSync(p, "utf8")) as Control;
-        if (typeof c.id !== "string" || !/^[\w-]{1,64}$/.test(c.id) || typeof c.cmd !== "string") throw new Error("bad");
-      } catch {
-        fs.rmSync(p, { force: true });
-        continue;
-      }
-      let text: string;
-      try {
-        text = await applyControl(c);
-      } catch (e) {
-        text = `Failed: ${sentence(e)}`;
-      }
-      st.lastControl = { id: c.id, text };
+  async function summaryTick(): Promise<void> {
+    const t = new Date(now());
+    const day = t.toISOString().slice(0, 10);
+    if (t.toISOString().slice(11, 16) < SUMMARY_AT || st.summaryDays.includes(day)) return;
+    const list = released(st, book)
+      .filter((u) => (st.u[u.n]?.at ?? "").startsWith(day))
+      .map((u) => ({ n: u.n, title: u.title, url: relUrl(book, u.n) }));
+    if (!list.length) return; // only on days with releases
+    try {
+      await say(shippedTodayText(day, list, t));
+      st.summaryDays = [...st.summaryDays, day].slice(-60);
       save();
-      fs.rmSync(p, { force: true });
-      log("control", c.cmd, c.arg ?? "", "->", text);
+    } catch (e) {
+      log("Shipped today not sent:", sentence(e));
     }
   }
 
@@ -324,7 +491,7 @@ export function createTeambot(d: TeambotDeps) {
         if (st.u[n]?.state !== "released") return say(posterNotLive(n));
         for (const shape of ["square", "wide"] as const) {
           const p = posterPath(book, n, shape);
-          if ((d.posterExists ?? fs.existsSync)(p)) await tg.photo(chat, p, posterCaption(n, shape === "wide"));
+          if (exists(p)) await photo(p, posterCaption(n, shape === "wide"));
         }
         return;
       }
@@ -333,7 +500,7 @@ export function createTeambot(d: TeambotDeps) {
       case "roadmap": {
         const cap = roadmapCaption(st, book);
         const img = roadmapPath(book);
-        return img && (d.posterExists ?? fs.existsSync)(img) ? tg.photo(chat, img, cap, true) : say(cap);
+        return img && exists(img) ? photo(img, cap, true) : say(cap);
       }
       case "contracts":
         return say(contractsText(book));
@@ -372,19 +539,29 @@ export function createTeambot(d: TeambotDeps) {
     }
   }
 
-  /** One update from Telegram: answered only in the staff group, from a person: our commands, and replies to our messages. */
+  /** One update from Telegram: /ack in Alert Test; in the staff group our commands, and replies to our messages. */
   async function handle(up: TgUpdate): Promise<void> {
     st.offset = up.update_id + 1;
     save();
     const m = up.message;
-    if (!m || m.chat?.id !== chat || m.from?.is_bot) return;
-    if (!m.text?.startsWith("/")) {
+    if (!m || m.from?.is_bot) return;
+    const text = m.text?.trim() ?? "";
+    const [head = "", ...rest] = text.split(/\s+/);
+    const [cmd = "", at] = head.startsWith("/") ? head.slice(1).toLowerCase().split("@") : [""];
+    if (at && (!me || at !== me.toLowerCase())) return; // a command for another bot
+    if (cmd === "ack" && d.alertChat !== undefined && m.chat?.id === d.alertChat) {
+      try {
+        await ack(m, rest.join(" "));
+      } catch (e) {
+        log("ack error", sentence(e));
+      }
+      return;
+    }
+    if (m.chat?.id !== chat) return;
+    if (!head.startsWith("/")) {
       if (m.reply_to_message) await reply(m);
       return;
     }
-    const [head, ...rest] = m.text.trim().split(/\s+/);
-    const [cmd = "", at] = head!.slice(1).toLowerCase().split("@");
-    if (at && (!me || at !== me.toLowerCase())) return; // a command for another bot
     if (!KNOWN.has(cmd)) return;
     const key = `${cmd} ${rest.join(" ")}`;
     if (now() - (lastCmd.get(key) ?? 0) < SAME_COMMAND_MS) return; // the same command twice in a row: answer once
@@ -422,13 +599,24 @@ export function createTeambot(d: TeambotDeps) {
     for (const up of ups) await handle(up);
   }
 
-  async function tick(): Promise<void> {
+  function beat(): void {
     try {
-      await inboxTick();
-      await releaseTick();
-      await boardTick();
+      fs.writeFileSync(heartbeatPath(dataDir), new Date(now()).toISOString(), { mode: 0o600 });
+      const t = new Date(now());
+      fs.utimesSync(heartbeatPath(dataDir), t, t);
     } catch (e) {
-      log("tick error", sentence(e));
+      log("heartbeat not written", sentence(e));
+    }
+  }
+
+  async function tick(): Promise<void> {
+    beat();
+    for (const step of [inboxTick, alarmTick, watchRelease, boardPosterTick, summaryTick, () => boardTick()]) {
+      try {
+        await step();
+      } catch (e) {
+        log("tick error", sentence(e));
+      }
     }
   }
 
@@ -437,7 +625,7 @@ export function createTeambot(d: TeambotDeps) {
   function start(): { stop: () => void } {
     running = true;
     fs.mkdirSync(inboxDir(dataDir), { recursive: true, mode: 0o700 });
-    log(`up: ${book.total} updates, GitHub ${d.githubMode}, ${st.armedAt ? `armed for ${st.armedAt}` : "not armed"}`);
+    log(`up: ${book.total} updates, ${st.armedAt ? `armed for ${st.armedAt}` : "not armed"}; posts only what the release system reports`);
     void (async () => {
       await setup();
       while (running) await pollOnce();
@@ -452,7 +640,7 @@ export function createTeambot(d: TeambotDeps) {
     return { stop: () => void (running = false) };
   }
 
-  return { st, releaseTick, boardTick, inboxTick, applyControl, handle, setup, pollOnce, tick, start, held: () => held(st, book) };
+  return { st, inboxTick, alarmTick, watchRelease, boardPosterTick, summaryTick, boardTick, handle, setup, pollOnce, tick, start, held: () => held(st, book) };
 }
 
 export type Teambot = ReturnType<typeof createTeambot>;

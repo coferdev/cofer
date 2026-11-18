@@ -1,8 +1,18 @@
 # Cofer team bot: staff and server guide
 
-The existing alert bot also runs the launch updates in the staff group: one update every hour, a
+The existing alert bot also posts the launch updates in the staff group: one update every hour, a
 pinned launch board, and a few read-only commands. It is the same bot that posts the alerts
 ([alerts.md](alerts.md)); no new bot.
+
+The team bot and the release system work as one system:
+
+- The **release system** (a private job on the server) does the work for each update: its checks,
+  the build and tests, the deploy to testnet and then mainnet with live checks (rolled back if one
+  fails), the public commit and the GitHub release `update-NN`. It never posts in Telegram.
+- When an update is live and released, at its posting minute, the release system tells the team bot,
+  and **only the team bot posts**. Held, delayed and rolled-back updates are reported the same way.
+- The team bot has no clock of its own for updates: nothing is posted unless the release system
+  reports it, so nothing is posted twice and nothing is posted before it is live.
 
 Pause, resume, hold and release are done on the server only, never from Telegram.
 
@@ -24,44 +34,67 @@ github.com/<owner>/<repo>/releases/tag/update-14
 
 Times are always UTC · Moscow · New York.
 
-**Each update, at its hour** (update N at launch + N − 1 hours):
+**Each update, at its minute** (update N at launch + N − 1 hours), once the release system reports it
+live and released:
 
-1. Its checks run (below).
-2. Its GitHub release `update-NN` is published, if it is still a draft.
-3. A heading in bold: **Tech Updates: Update NN Released**.
-4. Two copy-ready posts: the square poster with the Telegram text, then the wide poster with the X
-   text and its character count. Copy them to the channel and to X.
+1. A heading in bold: **Tech Updates: Update NN Released**.
+2. The square poster with the Telegram text.
+3. A zip holding only that square poster (Telegram makes photos smaller; the zip keeps it exact).
+4. The wide poster with the X text and its character count.
+5. A zip holding only that wide poster.
+6. The status line: **✅ SHIPPED AND RELEASED · Update NN · release update-NN**, the title, what
+   happened, what is next and the release link.
 
-Update 1 is preceded by **🟢 COFER IS LAUNCHED**, and the last one is followed by **🏁 ALL 55 UPDATES ARE LIVE**.
+Copy the posts to the channel and to X. Update 1 is preceded by **🟢 COFER IS LAUNCHED**, and the last
+one is followed by **🏁 ALL 55 UPDATES ARE LIVE**.
 
-**The checks.** An update goes out only when all of these hold:
+**30 minutes after each release**, a board poster: a picture of the board with the board as its
+caption (drawn ahead of time; whenever an update is held, the board is posted as text instead). If two
+releases are close together, only the latest one is posted.
 
-- its status is VERIFIED, or it was marked checked on the server (`cofer-release verify N`)
-- both poster files are in the data folder
-- its changelog line is in `CHANGELOG.md` on main (only for updates whose changelog is "add")
-- its GitHub release `update-NN` exists (a draft is fine: it is published at that hour)
+**Every day at 23:55 UTC** on a day with releases, **Shipped today**: each update released that UTC day
+with its release link, and the time in UTC, Moscow and New York.
 
-If anything is missing, the update is **held**: nothing about it is posted, the group is told why
-in plain words, and the next update still goes out on time.
+## Status lines
 
-## Messages
+Each is posted once. The first line is always `<status> · Update NN · release update-NN`.
 
-Each one is posted once per real change.
-
-| Message | What it means | Who acts |
+| Line | What it means | Who acts |
 |---|---|---|
-| 🟡 HELD · Update NN | It failed its checks (reasons listed) or was held on the server. Nothing was posted. | Fix the reasons, then on the server: `cofer-release release NN`. |
-| 🔴 FAILED · Update NN | GitHub or Telegram refused while it was going out. | Dev checks, then `cofer-release release NN`. Posts that already went out are not sent again. |
-| ⏸ PAUSED · updates | Paused from the server. One update already posting finishes. | Nothing. |
-| ▶️ RESUMED · updates | The pause ended. Only ever follows a PAUSED. Overdue updates go out first, 2 minutes apart. | Nothing. |
-| 🟢 SCHEDULE ARMED / LAUNCH TIME CHANGED | The launch time was set, followed by the full list day by day. | Check the times. |
-| ⏸ SCHEDULE CANCELLED · launch | The launch time was cleared before launch. | Nothing. |
-| 🟢 COFER IS LAUNCHED | Update 1 is live. | Nothing. |
-| 🏁 ALL 55 UPDATES ARE LIVE | The last update went out. | Nothing. |
-| 🟡 PREFLIGHT · N of 55 ready / 🟢 PREFLIGHT ALL CLEAR | The result of a check run from the server. | Fix anything listed before its hour. |
+| ✅ SHIPPED AND RELEASED | Live on testnet and mainnet, its live checks pass, public commit and GitHub release out. Follows the full set. | Nothing. |
+| 🟡 RELEASE DELAYED | Live and its checks pass, but the public push or the GitHub release did not go through by its minute. Retried every 2 minutes; the full set and ✅ follow. | Dev checks the emergency in Alert Test. |
+| 🟡 HELD | It was not ready at its minute (a check, the build or the tests failed), or it was held on the server. Nothing deployed. The next update keeps its own time. | Fix it, then on the server: `cofer-release release NN`. |
+| 🔴 ROLLED BACK | It was deployed, a live check failed, and the previous version is back on every target. | Fix it, then `cofer-release release NN`. |
 
-Every incident message says what happened, whether users are affected (normally "No. Cofer keeps
-running."), what was done, and what comes next.
+Other messages: ⏸ PAUSED · updates, ▶️ RESUMED · updates (overdue updates then go 2 minutes apart),
+🟢 SCHEDULE ARMED / LAUNCH TIME CHANGED (with the full list day by day), ⏸ SCHEDULE CANCELLED · launch,
+🟡 PREFLIGHT · N of 55 ready / 🟢 PREFLIGHT ALL CLEAR.
+
+## Release emergencies (Alert Test only)
+
+Every problem while an update is being prepared is a 🔴 emergency in **Alert Test**
+(`TEAMBOT_TEST_CHAT_ID`), never in the staff group. The work for each update starts 30 minutes before
+its minute, so there is time to fix it.
+
+```
+🔴 ALERT · release-tests-failed-07
+
+What happened: The tests failed while building Update 07.
+Update: 07, posting at 14:00 UTC · 17:00 Moscow · 9:00 AM New York
+Who acts: Dev fixes it, then on the server: cofer-release release 7.
+Still open after 4m. /ack pauses this alarm for 15 minutes.
+```
+
+- Each alarm's name ends with its update's number, so two updates failing the same way never share one.
+- It is repeated **every 2 minutes** until it is fixed.
+- **/ack** in Alert Test (as a reply to the alarm, or `/ack <name>`, or `/ack` alone when only one is
+  open) pauses that one alarm for **15 minutes**. Still open after that, it repeats again.
+- When it is fixed: one `🟢 CLEARED · <name> (<reason>)`.
+- The team bot also watches the release system: if it stops (`release-system-stopped`), that is an
+  emergency too. The release system watches the team bot the same way.
+
+In a dry run, every staff post starts with `🧪 DRY RUN · STAFF POST` and every emergency with
+`🧪 DRY RUN · EMERGENCY`; a `cofer-release test N` post starts with `🧪 TEST · STAFF POST`.
 
 ## Commands in the staff group
 
@@ -95,25 +128,11 @@ that command.
 
 ## Server commands
 
-On the server only, through the `cofer-release` shortcut (set-up below):
-
-| Command | What it does |
-|---|---|
-| `cofer-release preflight` | checks every update now and prints what is missing |
-| `cofer-release preflight --post` | the same, and reports it to the staff group |
-| `cofer-release test 14` | sends update 14's heading and two posts to the test group only (never the staff group) |
-| `cofer-release arm "2026-11-30 18:00"` | sets the launch time, in UTC. It can change until the first update is out |
-| `cofer-release disarm` | clears the launch time before launch |
-| `cofer-release pause "reason"` | stops new updates |
-| `cofer-release resume` | continues; overdue updates go 2 minutes apart |
-| `cofer-release hold 15 "reason"` | keeps one update back |
-| `cofer-release release 15` | lets a held update go; its checks run again first |
-| `cofer-release verify 23` | marks a RECHECK update as checked |
-| `cofer-release status` | prints the board and the reason for anything held |
-
-arm, disarm, pause, resume, hold, release and verify are handed to the running bot, and its answer
-is printed. "The bot did not answer" means the mainnet keeper is not running, or the team bot is not
-switched on there.
+On the server only, through the `cofer-release` shortcut, which runs the **release system's** commands:
+`arm "YYYY-MM-DD HH:MM"` (UTC), `disarm`, `pause "reason"`, `resume`, `hold N "reason"`, `release N`,
+`verify N`, `status`, `preflight [--post]`, `test N` (the full set of update N to Alert Test only).
+The release system tells the team bot what to post. The team bot's own command is read-only:
+`cd services && bun scripts/teambot.ts status`.
 
 ## For the dev: set-up
 
@@ -130,18 +149,19 @@ there by mistake, the team bot refuses to start on any chain but 4663.
 |---|---|
 | `TEAMBOT_ENABLED` | `1` |
 | `TEAMBOT_DATA_DIR` | full path of the private data folder (below), outside the repo |
-| `TEAMBOT_GITHUB_TOKEN` | secret. A fine-grained token for this repo only, "Contents: read and write", so draft releases can be seen and published |
-| `TEAMBOT_GITHUB_MODE` | `publish` (default), `check` (only check that the release exists) or `off` |
-| `TEAMBOT_TEST_CHAT_ID` | optional; a separate test group for `cofer-release test` |
+| `TEAMBOT_TEST_CHAT_ID` | Alert Test: release emergencies, `/ack` and test posts. Never the staff group |
+| `TEAMBOT_RELEASE_HEARTBEAT` | optional; full path of the release system's heartbeat file, so the team bot can tell when it stops |
 
-It also needs `ALERT_BOT_TOKEN` and `OPS_CHAT_ID`, which are already set for the alerts. If a
-setting is wrong, the team bot does not start, the keeper log says why (`[teambot] not started: ...`)
-and the alerts carry on as normal.
+It also needs `ALERT_BOT_TOKEN` and `OPS_CHAT_ID`, which are already set for the alerts. The team bot
+holds no GitHub token: the release system makes the releases. Old `TEAMBOT_GITHUB_*` settings are
+ignored. If a setting is wrong, the team bot does not start, the keeper log says why
+(`[teambot] not started: ...`) and the alerts carry on as normal.
 
-### The alert bot in the staff group
+### The alert bot in the staff group and Alert Test
 
 - Make it an admin of the staff group with **Pin messages**, so it can pin the board.
-- It reads the group with long polling, so it must not have a webhook set.
+- It must be a member of Alert Test, to post emergencies there and read `/ack`.
+- It reads the groups with long polling, so it must not have a webhook set.
 
 ### The data folder
 
@@ -153,34 +173,12 @@ The folder is private, on the server, and outside the repo. The repo is public: 
 | `config.json` | repo, explorer, contracts, links, demo videos (message numbers in the staff group), health checks, roadmap image |
 | `posters/square/update-NN-square.png` | square poster, for Telegram |
 | `posters/wide/update-NN-wide.png` | wide poster, for X |
+| `posters/board/board-NN.png` | the board poster for "NN of 55 live" |
 | roadmap image | the file `config.json` names, inside this folder |
-| `state.json`, `inbox/` | written by the bot: what has gone out. Do not edit while it runs |
+| `state.json`, `inbox/`, `zips/`, `heartbeat` | written by the bot and the release system. Do not edit while it runs |
 
 Make the folder readable only by the user that runs the services. Back up `state.json` before you
 move the folder. If `state.json` is damaged, the bot refuses to start rather than starting over,
 because starting over could post updates twice.
-
-### The `cofer-release` shortcut
-
-A three-line file on the server (for example `/usr/local/bin/cofer-release`, made executable).
-Replace the parts in angle brackets with your own:
-
-```sh
-#!/bin/sh
-cd <path to the repo>/services || exit 1
-exec sudo -u <user that runs the services> <path to bun> scripts/teambot.ts "$@"
-```
-
-The script reads the same settings as the services. If they come from a systemd environment file
-rather than `services/.env`, load that file in the shortcut first. On any server where the team bot may
-not run, the script only prints why and does nothing.
-
-### Before launch
-
-1. Create every GitHub release `update-01` ... `update-55` as a draft.
-2. `cofer-release preflight --post`, then fix whatever it lists.
-3. `cofer-release test 1` and check both posts in the test group.
-4. `cofer-release arm "YYYY-MM-DD HH:MM"` (UTC), then check the schedule it posts.
-5. Check that the board is pinned in the staff group.
 
 Logs: the keeper's log, lines starting `[teambot]`.

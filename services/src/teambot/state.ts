@@ -7,7 +7,7 @@ import fs from "node:fs";
 import path from "node:path";
 import type { Book, Update } from "./data";
 
-export type UpdateStateName = "posting" | "held" | "released" | null;
+export type UpdateStateName = "posting" | "held" | "rolled_back" | "delayed" | "released" | null;
 
 export interface UpdateState {
   state?: UpdateStateName;
@@ -17,6 +17,27 @@ export interface UpdateState {
   head?: number; // message id of the heading sent before the two posts, once sent
   tg?: number; // message id of the Telegram post (square poster), once sent
   x?: number; // message id of the X post (wide poster), once sent
+  zipSq?: number; // message id of the square poster's zip, once sent
+  zipX?: number; // message id of the wide poster's zip, once sent
+  lines?: Partial<Record<StatusKind, number>>; // message id of each status line posted for this update
+  lastNotice?: string; // the last held / delayed / rolled-back notice posted for it
+}
+
+/** The four outcomes the release system reports. */
+export type StatusKind = "released" | "delayed" | "held" | "rolled_back";
+
+/** A release emergency open in Alert Test (repeated every 2 minutes until it clears). */
+export interface Alarm {
+  name: string;
+  what: string;
+  who: string;
+  n?: number; // the update it is about
+  postAt?: string; // that update's posting time (ISO)
+  openedAt: number; // ms
+  lastSentAt: number; // ms; 0 = not sent yet
+  ackUntil: number; // ms; repeats pause until then
+  messages: number[]; // message ids sent for it (a reply to any of them is an /ack for it)
+  own?: boolean; // raised by the team bot itself (the release system's heartbeat)
 }
 
 export interface State {
@@ -29,9 +50,14 @@ export interface State {
   launchedPosted: boolean;
   finishedPosted: boolean;
   lastControl: { id: string; text: string } | null; // answer to the last server command
+  seen: string[]; // ids of release-system notices already handled (a notice delivered twice posts once)
+  alarms: Record<string, Alarm>; // open release emergencies, by name
+  boardPoster: { dueAt: number; live: number } | null; // the board poster due 30 minutes after a release
+  summaryDays: string[]; // UTC days whose "Shipped today" went out
+  retryAt: number; // ms: a notice that failed to post is tried again from then
 }
 
-export const blankState = (): State => ({ armedAt: null, paused: null, board: null, offset: 0, u: {}, lastReleaseAt: 0, launchedPosted: false, finishedPosted: false, lastControl: null });
+export const blankState = (): State => ({ armedAt: null, paused: null, board: null, offset: 0, u: {}, lastReleaseAt: 0, launchedPosted: false, finishedPosted: false, lastControl: null, seen: [], alarms: {}, boardPoster: null, summaryDays: [], retryAt: 0 });
 
 export const statePath = (dataDir: string) => path.join(dataDir, "state.json");
 
@@ -61,13 +87,8 @@ export function saveState(dataDir: string, st: State): void {
 
 export const us = (st: State, n: number): UpdateState => (st.u[n] ||= {});
 export const released = (st: State, book: Book): Update[] => book.updates.filter((u) => st.u[u.n]?.state === "released");
-export const held = (st: State, book: Book): Update[] => book.updates.filter((u) => st.u[u.n]?.state === "held");
-const waiting = (st: State, n: number) => !["released", "held"].includes(st.u[n]?.state ?? "");
+/** Held at its hour or rolled back (shown together as "Held" on the board). */
+export const held = (st: State, book: Book): Update[] => book.updates.filter((u) => ["held", "rolled_back"].includes(st.u[u.n]?.state ?? ""));
+const waiting = (st: State, n: number) => !["released", "held", "rolled_back"].includes(st.u[n]?.state ?? "");
 /** The first update that is neither out nor held. */
 export const nextDue = (st: State, book: Book): Update | undefined => book.updates.find((u) => waiting(st, u.n));
-/** Updates whose hour has come and that are neither out nor held, in order. */
-export function dueNow(st: State, book: Book, now: number): Update[] {
-  if (!st.armedAt) return [];
-  const t0 = Date.parse(st.armedAt);
-  return book.updates.filter((u) => t0 + (u.n - 1) * book.slotMs <= now && waiting(st, u.n));
-}
