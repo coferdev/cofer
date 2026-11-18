@@ -57,6 +57,7 @@ Fixes from the 2026-11-01 review of `0.1.0` (commit `aba0779`). `contracts/src` 
 - Installs: no package may run install scripts (`trustedDependencies: []` for Bun, `ignore-scripts` for npm in `contracts/`), and Bun skips package versions less than 3 days old. `contracts/package-lock.json` is now committed.
 - Staff alerts rewritten in plain words (what happened, who acts, whether exits are affected); documented in docs/alerts.md.
 - The team bot's pinned launch board is titled "COFER LAUNCH" (was "COFER LAUNCH BOARD"); the rest of the board is unchanged.
+- The sign-up warnings for a passkey and for a connected wallet now say "you lose access to your money" (was "funds"); the same words in SECURITY.md and the runbook.
 - The statement sent on /start now ends with the main commands, one line each: /start (set up your key, in a private chat), /me (your share and allowance, shown only to you), /newpot (a group admin opens the group account in the group chat) and /exit (leave with your exact share at any time, in the group or in a private chat). The statement itself is unchanged; a test checks each line against the bot's code, and the staff copy in docs/runbook.md is updated.
 
 ### Fixed

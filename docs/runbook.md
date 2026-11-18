@@ -142,7 +142,7 @@ rephrasing it. This is the staff copy; a test keeps it equal to what the bot sen
 Nobody can recover a passkey or reverse an exit. Say so plainly. The sign-up screen tells members, before the
 passkey is created:
 
-> Your passkey is your key. There is no recovery: if you lose it and have no backup, you lose access to your funds, like a lost seed phrase. Make sure your phone or browser backs up your passkeys (for example iCloud Keychain or Google Password Manager).
+> Your passkey is your key. There is no recovery: if you lose it and have no backup, you lose access to your money, like a lost seed phrase. Make sure your phone or browser backs up your passkeys (for example iCloud Keychain or Google Password Manager).
 
 - **Lost passkey, no backup:** the member's key and its share cannot be reached by anyone, including
   the studio. Do not promise more.

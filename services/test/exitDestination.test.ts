@@ -251,7 +251,7 @@ describe("warnings", () => {
     );
     expect(EXIT_CONFIRM_TEXT).toBe("I checked this address supports Robinhood Chain and is mine. Sending to a wrong address cannot be undone.");
     expect(PASSKEY_LOSS_WARNING).toBe(
-      "Your passkey is your key. There is no recovery: if you lose it and have no backup, you lose access to your funds, like a lost seed phrase. Make sure your phone or browser backs up your passkeys (for example iCloud Keychain or Google Password Manager).",
+      "Your passkey is your key. There is no recovery: if you lose it and have no backup, you lose access to your money, like a lost seed phrase. Make sure your phone or browser backs up your passkeys (for example iCloud Keychain or Google Password Manager).",
     );
   });
 

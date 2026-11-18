@@ -61,7 +61,7 @@ Notes on these choices:
   their own browser wallet, which shows the typed data it signs.
 - **A lost passkey cannot be recovered.** What members read on the sign-up screen, before the
   passkey is created:
-  "Your passkey is your key. There is no recovery: if you lose it and have no backup, you lose access to your funds, like a lost seed phrase. Make sure your phone or browser backs up your passkeys (for example iCloud Keychain or Google Password Manager)."
+  "Your passkey is your key. There is no recovery: if you lose it and have no backup, you lose access to your money, like a lost seed phrase. Make sure your phone or browser backs up your passkeys (for example iCloud Keychain or Google Password Manager)."
   *Reason:* a passkey is the member's own key; nobody else holds a copy, so nobody can restore it.
   *What limits it:* the backup the member's phone or browser makes of its passkeys, and the warning
   above. A member who also has a browser wallet can use that instead of a passkey.
