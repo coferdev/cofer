@@ -10,6 +10,7 @@ import { logError } from "../core/errors";
 import type { ProposalDeps } from "../services/proposals";
 import type { CardAdapter } from "../cards/CardAdapter";
 import { dashboardRoutes, type DashboardDeps } from "../dashboard/routes";
+import { publicApi, type PublicApiDeps } from "../publicapi/router";
 
 export async function buildSignerBundle(): Promise<string> {
   const out = await Bun.build({ entrypoints: [new URL("../web/client.ts", import.meta.url).pathname], target: "browser", minify: true });
@@ -48,8 +49,9 @@ export async function buildWalletBundle(): Promise<string> {
  * @param opts.env settings to use instead of the process environment (tests pass fixed values).
  * @param opts.dashboard the read-only dashboard API's data source; omitted = no dashboard routes.
  * @param opts.walletJs the wallet bundle (buildWalletBundle); omitted or null = Connect wallet is off.
+ * @param opts.publicApi the public read-only API's data sources (publicapi/); omitted = no /v1 routes.
  */
-export function createServer(opts: { deps: ProposalDeps; cards: CardAdapter | null; bot?: Bot; signerJs: string; walletJs?: string | null; env?: Env; dashboard?: DashboardDeps }) {
+export function createServer(opts: { deps: ProposalDeps; cards: CardAdapter | null; bot?: Bot; signerJs: string; walletJs?: string | null; env?: Env; dashboard?: DashboardDeps; publicApi?: PublicApiDeps }) {
   const e = opts.env ?? env();
   const pageRpc = signerRpcUrl(e);
   // Connect wallet needs both the public Reown project ID and the built wallet file; otherwise it is off and the passkey works as before
@@ -66,6 +68,9 @@ export function createServer(opts: { deps: ProposalDeps; cards: CardAdapter | nu
 
   // read-only dashboard API (dashboard/routes.ts); the dashboard site reaches it on its own address
   if (opts.dashboard) app.route("/api/dashboard", dashboardRoutes(opts.dashboard));
+
+  // the public read-only API: on-chain data only, rate limited, CORS open for GET (publicapi/router.ts)
+  if (opts.publicApi) app.route("/v1", publicApi(opts.publicApi).app);
 
   app.use(
     "/trpc/*",

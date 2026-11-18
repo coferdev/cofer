@@ -21,6 +21,7 @@ import { dashboardData } from "./dashboard/data";
 import { countErrorsWith, logError } from "./core/errors";
 import { recordError } from "./keeper/serverHealth";
 import { maybeStartTeambot } from "./teambot/start";
+import { livePublicApiDeps } from "./publicapi/deps";
 
 async function main() {
   const e = env();
@@ -49,7 +50,7 @@ async function main() {
       });
       if (walletJs) console.log("[api] Connect wallet is on");
     }
-    const app = createServer({ deps: proposalDeps(), cards, bot, signerJs: await buildSignerBundle(), walletJs, dashboard });
+    const app = createServer({ deps: proposalDeps(), cards, bot, signerJs: await buildSignerBundle(), walletJs, dashboard, publicApi: livePublicApiDeps(e) });
     Bun.serve({ port: e.PORT, fetch: app.fetch });
     if (e.BOT_MODE === "webhook") {
       await bot.api.setWebhook(`${e.PUBLIC_URL}/tg/webhook`, {

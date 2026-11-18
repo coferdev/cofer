@@ -7,6 +7,9 @@ Security issues still open are listed in [SECURITY.md](SECURITY.md).
 
 Fixes from the 2026-11-01 review of `0.1.0` (commit `aba0779`). `contracts/src` has changed since the review (see "Contracts" below) and needs a re-audit and a new deploy before these changes are live.
 
+### Tech updates
+- Update 01 · 2026-11-18 20:00 UTC: Public status endpoint: Chain, latest block, indexer lag and feed ages.
+
 ### Mainnet
 - Cofer is live on Robinhood Chain mainnet (chain 4663): factory, fee router, group account template and swap adapter deployed on 2026-11-06; addresses in contracts/deployments/4663.json.
 - Ownership of the factory and fee router moved to the team's 2-of-3 multisig on 2026-11-06 (two-step handover, accepted in one batch).
