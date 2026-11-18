@@ -415,7 +415,7 @@ describe("staff-group commands", () => {
     for (const m of [msg("/status", { chat: 555 }), msg("hello team"), msg("/status@other_bot"), msg("/pause"), msg("/status", { bot: true }), msg("/resume")]) await bot.handle(m);
     expect(t.sent).toEqual([]);
     await bot.handle(msg("/status@Cofer_Alerts_Bot"));
-    expect(texts(t.sent)[0]).toStartWith("<b>COFER LAUNCH BOARD</b>");
+    expect(texts(t.sent)[0]).toStartWith("<b>COFER LAUNCH</b>");
     expect(t.s.menu.map(([c]) => c)).toEqual(["status", "next", "schedule", "poster", "changelog", "roadmap", "contracts", "socials", "videos", "health", "help"]);
     expect(t.s.menu.map(([c]) => c)).not.toContain("pause");
   });
@@ -519,7 +519,7 @@ describe("replies to the bot's own messages", () => {
       { text: "🟡 ALERT · feed-stale:TSLA\n\nWhat happened: The TSLA price is 3 hours old.\nWho acts: Dev checks." },
       { text: "🟢 CLEARED · relayer-low (topped up)" },
       { text: "[cofer alert] indexer-lag" },
-      { text: "COFER LAUNCH BOARD\nLive 1 / 3" },
+      { text: "COFER LAUNCH\nLive 1 / 3" },
       {},
     ];
     for (const to of ours) await bot.handle(replyTo(to));
@@ -530,10 +530,10 @@ describe("replies to the bot's own messages", () => {
 
   test("ignored: replies from bots, other chats, replies to people or other bots, plain messages in a topic", async () => {
     const { bot, t } = await ready();
-    await bot.handle(replyTo({ text: "COFER LAUNCH BOARD" }, { bot: true }));
-    await bot.handle(replyTo({ text: "COFER LAUNCH BOARD" }, { chat: 555 }));
+    await bot.handle(replyTo({ text: "COFER LAUNCH" }, { bot: true }));
+    await bot.handle(replyTo({ text: "COFER LAUNCH" }, { chat: 555 }));
     await bot.handle(replyTo({ text: "lunch?", from: { is_bot: false, username: "someone" } }));
-    await bot.handle(replyTo({ text: "COFER LAUNCH BOARD", from: { is_bot: true, username: "other_bot" } }));
+    await bot.handle(replyTo({ text: "COFER LAUNCH", from: { is_bot: true, username: "other_bot" } }));
     const inTopic = replyTo({ text: "Topic made by the bot", id: 77 });
     inTopic.message!.is_topic_message = true;
     inTopic.message!.message_thread_id = 77;
@@ -543,19 +543,19 @@ describe("replies to the bot's own messages", () => {
 
   test("a command sent as a reply is answered as the command, not as a reply", async () => {
     const { bot, t } = await ready();
-    await bot.handle(replyTo({ text: "COFER LAUNCH BOARD" }, { text: "/next" }));
+    await bot.handle(replyTo({ text: "COFER LAUNCH" }, { text: "/next" }));
     expect(texts(t.sent)).toEqual(["The launch time is not set yet."]);
   });
 
   test("the same message is answered at most once in 30 seconds, whoever replies", async () => {
     const { bot, t, clock } = await ready();
-    const board = { text: "COFER LAUNCH BOARD", id: 42 };
+    const board = { text: "COFER LAUNCH", id: 42 };
     await bot.handle(replyTo(board));
     await bot.handle(replyTo(board, { text: "and now?" }));
     clock.now += SAME_REPLY_MS - 1;
     await bot.handle(replyTo(board));
     expect(t.sent).toHaveLength(1);
-    await bot.handle(replyTo({ text: "COFER LAUNCH BOARD", id: 43 })); // another message: answered
+    await bot.handle(replyTo({ text: "COFER LAUNCH", id: 43 })); // another message: answered
     expect(t.sent).toHaveLength(2);
     clock.now += 1;
     await bot.handle(replyTo(board));

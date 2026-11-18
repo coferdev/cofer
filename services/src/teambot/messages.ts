@@ -119,7 +119,7 @@ export function boardText(st: State, book: Book, now: number): string {
   } else if (!st.armedAt) lines.push("Next    launch time not set");
   lines.push(`Queue   ${queue}`, `Held    ${h.length ? h.join(", ") : "none"}`);
   const last = released(st, book).sort((a, b) => Date.parse(st.u[b.n]!.at!) - Date.parse(st.u[a.n]!.at!))[0];
-  let out = `<b>COFER LAUNCH BOARD</b>\n<pre>${esc(lines.join("\n"))}</pre>`;
+  let out = `<b>COFER LAUNCH</b>\n<pre>${esc(lines.join("\n"))}</pre>`;
   if (last) out += `\n<b>Last:</b> Update ${pad(last.n)} · ${esc(last.title)}\n<a href="${relUrl(book, last.n)}">${esc(`github.com/${book.repo}/releases/tag/${tag(last.n)}`)}</a>`;
   out += `\n\n<i>Times: UTC · Moscow · New York. Updated ${utcClock(new Date(now))} UTC.</i>`;
   return out;

@@ -219,7 +219,7 @@ describe("the pinned board", () => {
   const b = book30();
   test("not armed", () => {
     expect(boardText(blankState(), b, T0)).toBe(
-      "<b>COFER LAUNCH BOARD</b>\n<pre>Live     0 / 30   ▱▱▱▱▱▱▱▱▱▱▱▱\nNext    launch time not set\nQueue   ○ not armed\nHeld    none</pre>\n\n<i>Times: UTC · Moscow · New York. Updated 18:00 UTC.</i>",
+      "<b>COFER LAUNCH</b>\n<pre>Live     0 / 30   ▱▱▱▱▱▱▱▱▱▱▱▱\nNext    launch time not set\nQueue   ○ not armed\nHeld    none</pre>\n\n<i>Times: UTC · Moscow · New York. Updated 18:00 UTC.</i>",
     );
   });
   test("armed, before launch", () => {
@@ -245,7 +245,23 @@ describe("the pinned board", () => {
     expect(boardKey(boardText(blankState(), b, T0))).toBe(boardKey(boardText(blankState(), b, T0 + 7 * 60_000)));
   });
   test("plain text for the server", () => {
-    expect(plainText(boardText(blankState(), b, T0))).toStartWith("COFER LAUNCH BOARD\nLive     0 / 30");
+    expect(plainText(boardText(blankState(), b, T0))).toStartWith("COFER LAUNCH\nLive     0 / 30");
+  });
+  test("the title is COFER LAUNCH, followed by the Live line, in every state", () => {
+    const all = armed({ u: Object.fromEntries(b.updates.map((u) => [u.n, { state: "released" as const, at: LAUNCH }])) });
+    const states: [string, State, number][] = [
+      ["not armed", blankState(), T0],
+      ["armed", armed(), T0 - 90 * 60_000],
+      ["running, held, last", armed({ u: { "1": { state: "released", at: LAUNCH }, "2": { state: "held" } } }), T0 + H + 60_000],
+      ["paused", armed({ paused: { reason: "planned check", at: LAUNCH } }), T0],
+      ["finished", all, T0 + 40 * H],
+    ];
+    for (const [name, st, at] of states) {
+      const t = boardText(st, b, at);
+      expect(`${name}: ${t.slice(0, 33)}`).toBe(`${name}: <b>COFER LAUNCH</b>\n<pre>Live    `);
+      expect(plainText(t).split("\n")[0]).toBe("COFER LAUNCH");
+      expect(t).not.toContain("BOARD");
+    }
   });
 });
 

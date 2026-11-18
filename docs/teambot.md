@@ -11,7 +11,7 @@ Pause, resume, hold and release are done on the server only, never from Telegram
 **The pinned launch board.** One message, pinned once and edited in place:
 
 ```
-COFER LAUNCH BOARD
+COFER LAUNCH
 Live    14 / 55   ▰▰▰▱▱▱▱▱▱▱▱▱
 Next    Update 15 · How it works
         08:00 · 11:00 · 3:00 AM

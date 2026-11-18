@@ -129,7 +129,7 @@ describe("status and usage", () => {
     const s = setup();
     saveState(s.dir, { ...blankState(), armedAt: new Date(T0).toISOString(), u: { "2": { state: "held", reason: "The wide poster file is missing on the server." } } });
     expect(await runCli(["status"], s.deps)).toBe(0);
-    expect(s.out[0]).toStartWith("COFER LAUNCH BOARD\nLive     0 / 3");
+    expect(s.out[0]).toStartWith("COFER LAUNCH\nLive     0 / 3");
     expect(s.out[0]).toContain("Held    02");
     expect(s.out[1]).toBe("held 02: The wide poster file is missing on the server.");
     expect(s.sent).toEqual([]); // status never posts
