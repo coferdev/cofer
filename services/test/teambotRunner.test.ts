@@ -138,13 +138,12 @@ describe("posts only what the release system reports", () => {
     expect(bot.st.armedAt).toBe(LAUNCH);
   });
 
-  test("update released: LAUNCHED, then the full set in order in the staff group, then the status line", async () => {
+  test("update released: the full set in order in the staff group, then the status line", async () => {
     const { bot, t, dir, book } = setup();
     await armed(bot, dir);
     t.sent.length = 0;
     await releaseIt(bot, dir, 1);
     expect(t.sent.map((x) => [x.m, x.file ?? x.text!.split("\n")[0]])).toEqual([
-      ["send", "🟢 <b>COFER IS LAUNCHED</b>"],
       ["send", headingText(1)],
       ["photo", "update-01-square.png"],
       ["doc", "cofer-update-01-square.zip"],
@@ -153,10 +152,10 @@ describe("posts only what the release system reports", () => {
       ["send", "✅ <b>SHIPPED AND RELEASED · Update 01 · release update-01</b>"],
     ]);
     expect(t.sent.every((x) => x.chat === CHAT)).toBe(true);
-    expect(t.sent[2]!.text).toBe(tgCopy(book, book.byN.get(1)!));
-    expect(t.sent[3]!.text).toBe("Update 01 · square poster, full quality (1080x1080 PNG)");
-    expect(t.sent[4]!.text).toBe(xCopy(book.byN.get(1)!));
-    expect(t.sent[5]!.text).toBe("Update 01 · wide poster, full quality (1200x675 PNG)");
+    expect(t.sent[1]!.text).toBe(tgCopy(book, book.byN.get(1)!));
+    expect(t.sent[2]!.text).toBe("Update 01 · square poster, full quality (1080x1080 PNG)");
+    expect(t.sent[3]!.text).toBe(xCopy(book.byN.get(1)!));
+    expect(t.sent[4]!.text).toBe("Update 01 · wide poster, full quality (1200x675 PNG)");
     expect(bot.st.u[1]!.state).toBe("released");
   });
 
@@ -192,15 +191,14 @@ describe("posts only what the release system reports", () => {
     t.sent.length = 0;
     t.s.fail.add("wide.png");
     await releaseIt(bot, dir, 1);
-    expect(t.sent.map((x) => x.file ?? "text")).toEqual(["text", "text", "update-01-square.png", "cofer-update-01-square.zip"]);
+    expect(t.sent.map((x) => x.file ?? "text")).toEqual(["text", "update-01-square.png", "cofer-update-01-square.zip"]);
     t.s.fail.clear();
     const again = make(); // a restart
     await again.inboxTick(); // too soon: retries after 2 minutes
-    expect(t.sent).toHaveLength(4);
+    expect(t.sent).toHaveLength(3);
     clock.now += RETRY_MS;
     await again.inboxTick();
-    expect(t.sent.slice(4).map((x) => x.file ?? x.text!.split("\n")[0])).toEqual(["update-01-wide.png", "cofer-update-01-wide.zip", "✅ <b>SHIPPED AND RELEASED · Update 01 · release update-01</b>"]);
-    expect(texts(t.sent).filter((x) => x.includes("IS LAUNCHED"))).toHaveLength(1);
+    expect(t.sent.slice(3).map((x) => x.file ?? x.text!.split("\n")[0])).toEqual(["update-01-wide.png", "cofer-update-01-wide.zip", "✅ <b>SHIPPED AND RELEASED · Update 01 · release update-01</b>"]);
   });
 
   test("a fresh start after a release posts nothing again", async () => {
@@ -221,12 +219,12 @@ describe("posts only what the release system reports", () => {
     t.sent.length = 0;
     t.s.fail.add("square.png");
     await releaseIt(bot, dir, 1);
-    expect(texts(t.sent).map((x) => x.split("\n")[0])).toEqual(["🟢 <b>COFER IS LAUNCHED</b>", headingText(1)]);
+    expect(texts(t.sent).map((x) => x.split("\n")[0])).toEqual([headingText(1)]);
     t.s.fail.clear();
     const again = make();
     clock.now += RETRY_MS;
     await again.inboxTick();
-    expect(t.sent.slice(2).map((x) => x.file ?? x.text!.split("\n")[0])).toEqual(["update-01-square.png", "cofer-update-01-square.zip", "update-01-wide.png", "cofer-update-01-wide.zip", "✅ <b>SHIPPED AND RELEASED · Update 01 · release update-01</b>"]);
+    expect(t.sent.slice(1).map((x) => x.file ?? x.text!.split("\n")[0])).toEqual(["update-01-square.png", "cofer-update-01-square.zip", "update-01-wide.png", "cofer-update-01-wide.zip", "✅ <b>SHIPPED AND RELEASED · Update 01 · release update-01</b>"]);
   });
 
   test("notices are handled in order: one that fails holds back the ones after it", async () => {
@@ -316,6 +314,28 @@ describe("posts only what the release system reports", () => {
     const alarm = t.sent.filter((x) => x.chat === ALERT);
     expect(alarm).toHaveLength(1);
     expect(alarm[0]!.text).toStartWith(`<b>${labels.alarm}</b>\n🔴 <b>ALERT · release-tests-failed</b>`);
+  });
+});
+
+describe("the launch announcement", () => {
+  test("at the launch minute: the launch poster with the write-up, once; text if the poster is missing", async () => {
+    const { bot, t, dir } = setup();
+    fs.mkdirSync(path.join(dir, "kit"), { recursive: true });
+    fs.writeFileSync(path.join(dir, "kit", "launch-announcement-square.png"), "png");
+    await armed(bot, dir);
+    t.sent.length = 0;
+    notice(dir, { type: "launch" });
+    notice(dir, { type: "launch" });
+    await bot.inboxTick();
+    expect(t.sent).toHaveLength(1);
+    expect(t.sent[0]).toMatchObject({ m: "photo", file: "launch-announcement-square.png", html: true, chat: CHAT });
+    expect(t.sent[0]!.text).toStartWith("🟢 <b>COFER IS LIVE</b>");
+    const b = setup();
+    await armed(b.bot, b.dir);
+    b.t.sent.length = 0;
+    notice(b.dir, { type: "launch" });
+    await b.bot.inboxTick();
+    expect(b.t.sent[0]).toMatchObject({ m: "send" });
   });
 });
 

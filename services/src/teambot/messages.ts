@@ -35,11 +35,9 @@ export function incident(dot: string, kind: string, subject: string, f: Incident
     .join("\n")}`;
 }
 
-export function launchedText(st: State, book: Book): string {
-  const nx = book.updates[1];
-  return `🟢 <b>COFER IS LAUNCHED</b>\n\nUpdate 1 of ${book.total} is live on Robinhood Chain mainnet.\n\n• GitHub release published: <a href="${relUrl(book, 1)}">${tag(1)}</a>\n• The Telegram and X posts follow below.\n\n${
-    nx ? `<b>Next:</b> Update ${pad(nx.n)} at ${three(slot(st, book, nx.n))}, then one every hour until ${dayLabel(slot(st, book, book.total))}, ${utcClock(slot(st, book, book.total))} UTC.` : ""
-  }`;
+/** The launch announcement, at the launch minute: the caption of the launch poster (HTML, within Telegram's 1,024). */
+export function launchText(st: State, book: Book): string {
+  return `🟢 <b>COFER IS LIVE</b>\n\nCofer is a shared money account for your Telegram group, on Robinhood Chain. Members add USDG, vote on payments with their own key, and anyone can leave with their exact share at any time.\n\nFrom ${three(slot(st, book, 1))}: one tech update every hour, ${book.total} in all, until ${dayLabel(slot(st, book, book.total))}, ${utcClock(slot(st, book, book.total))} UTC. Each one goes out only after it is live and checked.\n\nBot: t.me/coferappbot · getcofer.com`;
 }
 
 export function allLiveText(book: Book, now: number): string {
@@ -47,7 +45,7 @@ export function allLiveText(book: Book, now: number): string {
 }
 
 export function armedText(changed: boolean, t: Date, book: Book): string {
-  return `🟢 <b>${changed ? "LAUNCH TIME CHANGED" : "SCHEDULE ARMED"}</b>\n\n<b>Launch:</b> ${dayLabel(t)}, ${three(t)}\n${book.total} updates, one every hour. Update 1 goes out at that minute.\nEach update goes out only after its checks pass. One that fails is held, never posted broken.`;
+  return `🟢 <b>${changed ? "LAUNCH TIME CHANGED" : "SCHEDULE ARMED"}</b>\n\n<b>Launch:</b> ${dayLabel(t)}, ${three(t)}\nThe launch announcement goes out at that minute, Update 1 an hour later, then one every hour: ${book.total} updates.\nEach update goes out only after its checks pass. One that fails is held, never posted broken.`;
 }
 
 export const disarmedText = () =>

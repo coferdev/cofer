@@ -34,8 +34,10 @@ github.com/<owner>/<repo>/releases/tag/update-14
 
 Times are always UTC · Moscow · New York.
 
-**Each update, at its minute** (update N at launch + N − 1 hours), once the release system reports it
-live and released:
+**At the launch minute**, the launch poster with a short "Cofer is live" write-up.
+
+**Each update, at its minute** (update N at launch + N hours: update 1 an hour after the launch), once the
+release system reports it live and released:
 
 1. A heading in bold: **Tech Updates: Update NN Released**.
 2. The square poster with the Telegram text.
@@ -45,8 +47,7 @@ live and released:
 6. The status line: **✅ SHIPPED AND RELEASED · Update NN · release update-NN**, the title, what
    happened, what is next and the release link.
 
-Copy the posts to the channel and to X. Update 1 is preceded by **🟢 COFER IS LAUNCHED**, and the last
-one is followed by **🏁 ALL 55 UPDATES ARE LIVE**.
+Copy the posts to the channel and to X. The last one is followed by **🏁 ALL 55 UPDATES ARE LIVE**.
 
 **30 minutes after each release**, a board poster: a picture of the board with the board as its
 caption (drawn ahead of time; whenever an update is held, the board is posted as text instead). If two

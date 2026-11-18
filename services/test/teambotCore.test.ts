@@ -20,7 +20,7 @@ import {
   disarmedText,
   healthText,
   incident,
-  launchedText,
+  launchText,
   nextText,
   pausedText,
   plainText,
@@ -169,20 +169,21 @@ describe("incident messages", () => {
     // overdue updates go 2 minutes apart
     expect(resumedText(armed(), b, 3)).toContain("<b>Next:</b> 3 overdue updates go out first, 2 minutes apart, then the normal times.");
     expect(resumedText(armed(), b, 1)).toContain("<b>Next:</b> 1 overdue update goes out first, then the normal times.");
-    expect(resumedText(armed(), b, 0)).toContain("<b>Next:</b> Update 01 at 18:00 UTC · 21:00 Moscow · 1:00 PM New York.");
+    expect(resumedText(armed(), b, 0)).toContain("<b>Next:</b> Update 01 at 19:00 UTC · 22:00 Moscow · 2:00 PM New York.");
     expect(resumedText(blankState(), b, 0)).toContain("<b>Next:</b> Nothing is waiting.");
     expect(resumedText(armed(), b, 0)).toStartWith("▶️ <b>RESUMED · updates</b>");
     expect(armedText(false, new Date(LAUNCH), b)).toBe(
-      "🟢 <b>SCHEDULE ARMED</b>\n\n<b>Launch:</b> Mon 30 Nov, 18:00 UTC · 21:00 Moscow · 1:00 PM New York\n30 updates, one every hour. Update 1 goes out at that minute.\nEach update goes out only after its checks pass. One that fails is held, never posted broken.",
+      "🟢 <b>SCHEDULE ARMED</b>\n\n<b>Launch:</b> Mon 30 Nov, 18:00 UTC · 21:00 Moscow · 1:00 PM New York\nThe launch announcement goes out at that minute, Update 1 an hour later, then one every hour: 30 updates.\nEach update goes out only after its checks pass. One that fails is held, never posted broken.",
     );
     expect(armedText(true, new Date(LAUNCH), b)).toStartWith("🟢 <b>LAUNCH TIME CHANGED</b>");
     expect(disarmedText()).toStartWith("⏸ <b>SCHEDULE CANCELLED · launch</b>");
   });
-  test("LAUNCHED and ALL LIVE", () => {
+  test("the launch announcement and ALL LIVE", () => {
     const b = book30();
-    expect(launchedText(armed(), b)).toBe(
-      '🟢 <b>COFER IS LAUNCHED</b>\n\nUpdate 1 of 30 is live on Robinhood Chain mainnet.\n\n• GitHub release published: <a href="https://github.com/example/cofer/releases/tag/update-01">update-01</a>\n• The Telegram and X posts follow below.\n\n<b>Next:</b> Update 02 at 19:00 UTC · 22:00 Moscow · 2:00 PM New York, then one every hour until Tue 1 Dec, 23:00 UTC.',
+    expect(launchText(armed(), b)).toBe(
+      "🟢 <b>COFER IS LIVE</b>\n\nCofer is a shared money account for your Telegram group, on Robinhood Chain. Members add USDG, vote on payments with their own key, and anyone can leave with their exact share at any time.\n\nFrom 19:00 UTC · 22:00 Moscow · 2:00 PM New York: one tech update every hour, 30 in all, until Wed 2 Dec, 00:00 UTC. Each one goes out only after it is live and checked.\n\nBot: t.me/coferappbot · getcofer.com",
     );
+    expect(launchText(armed(), b).length).toBeLessThan(1024);
     expect(allLiveText(b, T0 + 29 * H)).toBe(
       '🏁 <b>ALL 30 UPDATES ARE LIVE</b>\n\nThe last one, Update 30, went out at 23:00 UTC · 02:00 Moscow · 6:00 PM New York.\nEvery release: <a href="https://github.com/example/cofer/releases">github.com/example/cofer/releases</a>',
     );
@@ -247,13 +248,13 @@ describe("the pinned board", () => {
   });
   test("armed, before launch", () => {
     const t = boardText(armed(), b, T0 - 90 * 60_000);
-    expect(t).toContain("Next    Update 01 · New\n        18:00 · 21:00 · 1:00 PM\n        Mon 30 Nov · in 1h 30m\nQueue   ◷ armed");
+    expect(t).toContain("Next    Update 01 · New\n        19:00 · 22:00 · 2:00 PM\n        Mon 30 Nov · in 2h 30m\nQueue   ◷ armed");
   });
   test("running, with a held update and the last release", () => {
     const st = armed({ u: { "1": { state: "released", at: LAUNCH }, "2": { state: "held" }, "3": { state: "released", at: new Date(T0 + 2 * H).toISOString() } } });
     const t = boardText(st, b, T0 + 2 * H + 60_000);
     expect(t).toContain("Live     2 / 30   ▰▱▱▱▱▱▱▱▱▱▱▱");
-    expect(t).toContain("Next    Update 04 · Behind the scenes\n        21:00 · 00:00 · 4:00 PM\n        Mon 30 Nov · in 59 min");
+    expect(t).toContain("Next    Update 04 · Behind the scenes\n        22:00 · 01:00 · 5:00 PM\n        Mon 30 Nov · in 1h 59m");
     expect(t).toContain("Queue   ● running\nHeld    02</pre>");
     expect(t).toContain('\n<b>Last:</b> Update 03 · Sample title 3\n<a href="https://github.com/example/cofer/releases/tag/update-03">github.com/example/cofer/releases/tag/update-03</a>');
   });
@@ -293,7 +294,7 @@ describe("staff-group replies", () => {
   test("/schedule: 24 a day, with marks", () => {
     const st = armed({ u: { "1": { state: "released" }, "2": { state: "held" } } });
     const d1 = scheduleDay(st, b, 1)!;
-    expect(d1).toStartWith("<b>Day 1 · from Mon 30 Nov</b>\n<i>UTC · Moscow · New York</i>\n\n<code>01✓</code> 18:00 · 21:00 · 1:00 PM  Sample title 1\n<code>02⏸</code> 19:00");
+    expect(d1).toStartWith("<b>Day 1 · from Mon 30 Nov</b>\n<i>UTC · Moscow · New York</i>\n\n<code>01✓</code> 19:00 · 22:00 · 2:00 PM  Sample title 1\n<code>02⏸</code> 20:00");
     expect(d1.split("\n").length).toBe(3 + 24);
     expect(scheduleDay(st, b, 2)!).toStartWith("<b>Day 2 · from Tue 1 Dec</b>");
     expect(scheduleDay(st, b, 3)).toBeNull();
@@ -305,7 +306,7 @@ describe("staff-group replies", () => {
     expect(nextText(blankState(), b, T0)).toBe("The launch time is not set yet.");
     const st = armed({ u: { "1": { state: "released" }, "2": { state: "held" } } });
     expect(nextText(st, b, T0 + H)).toBe(
-      "<b>Next updates</b>\n<i>UTC · Moscow · New York</i>\n\n<b>02</b> · Sample title 2\n19:00 · 22:00 · 2:00 PM · due now · ⏸ held\n\n<b>03</b> · Sample title 3\n20:00 · 23:00 · 3:00 PM · in 1h 0m\n\n<b>04</b> · Sample title 4\n21:00 · 00:00 · 4:00 PM · in 2h 0m",
+      "<b>Next updates</b>\n<i>UTC · Moscow · New York</i>\n\n<b>02</b> · Sample title 2\n20:00 · 23:00 · 3:00 PM · in 1h 0m · ⏸ held\n\n<b>03</b> · Sample title 3\n21:00 · 00:00 · 4:00 PM · in 2h 0m\n\n<b>04</b> · Sample title 4\n22:00 · 01:00 · 5:00 PM · in 3h 0m",
     );
   });
   test("/changelog: latest three", () => {

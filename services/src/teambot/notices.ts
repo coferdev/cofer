@@ -18,6 +18,7 @@ export interface AlarmNotice {
 export type Notice =
   | { id: string; kind: "notice"; type: "armed"; at: string; changed?: boolean }
   | { id: string; kind: "notice"; type: "disarmed" }
+  | { id: string; kind: "notice"; type: "launch" }
   | { id: string; kind: "notice"; type: "paused"; reason: string }
   | { id: string; kind: "notice"; type: "resumed"; overdue: number }
   | { id: string; kind: "notice"; type: "preflight"; bad: [number, string[]][]; total: number }
@@ -38,6 +39,7 @@ export function asNotice(j: unknown): Notice | null {
     case "armed":
       return str(o.at) && !Number.isNaN(Date.parse(o.at as string)) ? (o as unknown as Notice) : null;
     case "disarmed":
+    case "launch":
       return o as unknown as Notice;
     case "paused":
       return str(o.reason) ? (o as unknown as Notice) : null;

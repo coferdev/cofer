@@ -39,7 +39,7 @@ import {
   disarmedText,
   healthText,
   HELP,
-  launchedText,
+  launchText,
   MENU,
   nextText,
   noDayText,
@@ -172,11 +172,6 @@ export function createTeambot(d: TeambotDeps) {
     const s = us(st, u.n);
     if (s.state !== "released") {
       s.state = "posting";
-      save();
-    }
-    if (u.n === 1 && !st.launchedPosted) {
-      await say(launchedText(st, book));
-      st.launchedPosted = true;
       save();
     }
     if (!s.head) {
@@ -340,6 +335,15 @@ export function createTeambot(d: TeambotDeps) {
       case "preflight":
         await say(preflightText(n.bad, n.total));
         return;
+      case "launch": {
+        if (st.launchedPosted) return;
+        const poster = path.join(dataDir, "kit", "launch-announcement-square.png");
+        if (exists(poster)) await photo(poster, launchText(st, book), true);
+        else await say(launchText(st, book));
+        st.launchedPosted = true;
+        save();
+        return;
+      }
       case "alarm":
         await openAlarm(n.alarm);
         return;

@@ -37,5 +37,5 @@ export function parseUtc(s: string | undefined | null): Date | null {
   return m ? new Date(Date.UTC(+m[1]!, +m[2]! - 1, +m[3]!, +m[4]!, +m[5]!)) : null;
 }
 
-/** When update n is due: launch + (n - 1) slots. */
-export const slotTime = (armedAt: string, n: number, slotMs: number) => new Date(Date.parse(armedAt) + (n - 1) * slotMs);
+/** When update n posts: launch + n slots (the launch announcement is at the launch minute, update 1 an hour later). */
+export const slotTime = (armedAt: string, n: number, slotMs: number) => new Date(Date.parse(armedAt) + n * slotMs);
