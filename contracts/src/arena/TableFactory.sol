@@ -36,7 +36,7 @@ contract TableFactory is ITableFactory, ReentrancyGuard {
     uint32 public constant FRIEND_SETTLE_GRACE = 24 hours;
     uint32 public constant FREEROLL_DISPUTE_WINDOW = 24 hours;
     uint32 public constant FREEROLL_SETTLE_GRACE = 72 hours;
-    uint16 public constant FRIEND_DISPUTE_BOND_BPS = 2_000; // 20% (Open decision 8)
+    uint16 public constant FRIEND_DISPUTE_BOND_BPS = 2_000; // 20% of the buy-in, fixed, not host-chosen (Open decision 8)
     uint16 public constant FRIEND_MAX_SEATS = 10;
     uint16 public constant FREEROLL_MAX_SEATS = 4096;
     uint96 public constant MIN_BUY_IN = 1e6; // 1 USDG
@@ -71,6 +71,8 @@ contract TableFactory is ITableFactory, ReentrancyGuard {
     }
 
     QueuedCaps public queuedCaps;
+    uint256 public queuedMinHostBond;
+    uint64 public queuedMinHostBondEta;
     address public queuedEligibilitySigner;
     uint64 public queuedEligibilityEta;
 
@@ -114,6 +116,7 @@ contract TableFactory is ITableFactory, ReentrancyGuard {
         emit GuardianSet(guardian_);
         emit CapsApplied(maxBuyIn_, maxTablePot_, maxLiveValue_);
         emit EligibilitySignerApplied(eligibilitySigner_);
+        emit MinHostBondApplied(minHostBond_);
     }
 
     // ------------------------------------------------------------------ tables
@@ -220,6 +223,24 @@ contract TableFactory is ITableFactory, ReentrancyGuard {
 
     function _checkCaps(uint96 maxBuyIn_, uint96 maxTablePot_) internal pure {
         if (maxBuyIn_ < MIN_BUY_IN || maxTablePot_ < maxBuyIn_) revert BadParam();
+    }
+
+    /// @notice Host bond for public Freerolls not funded by the vault. Same 48 h timelock as the caps; it is checked
+    ///         only in createTable, so a change applies to new tables only.
+    function queueMinHostBond(uint256 bond) external onlyOwner {
+        queuedMinHostBond = bond;
+        queuedMinHostBondEta = uint64(block.timestamp) + TIMELOCK;
+        emit MinHostBondQueued(bond, queuedMinHostBondEta);
+    }
+
+    function applyMinHostBond() external onlyOwner {
+        uint64 eta = queuedMinHostBondEta;
+        if (eta == 0) revert NothingQueued();
+        if (block.timestamp < eta) revert TooEarly();
+        minHostBond = queuedMinHostBond;
+        queuedMinHostBond = 0;
+        queuedMinHostBondEta = 0;
+        emit MinHostBondApplied(minHostBond);
     }
 
     function setCreationPaused(bool paused) external {

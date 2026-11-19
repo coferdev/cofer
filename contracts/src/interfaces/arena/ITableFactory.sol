@@ -11,6 +11,8 @@ interface ITableFactory {
     event EligibilitySignerQueued(address signer, uint64 eta);
     event EligibilitySignerApplied(address signer);
     event GuardianSet(address guardian);
+    event MinHostBondQueued(uint256 bond, uint64 eta);
+    event MinHostBondApplied(uint256 bond);
     event StakePoolSet(address pool);
     event PrizeVaultSet(address vault);
     event OwnershipTransferStarted(address indexed from, address indexed to);
@@ -25,6 +27,8 @@ interface ITableFactory {
     function maxLiveValue() external view returns (uint128);
     function liveValue() external view returns (uint128);
     function minHostBond() external view returns (uint256);
+    function queueMinHostBond(uint256 bond) external;
+    function applyMinHostBond() external;
     function queueCaps(uint96 maxBuyIn_, uint96 maxTablePot_, uint128 maxLiveValue_) external;
     function applyCaps() external;
 

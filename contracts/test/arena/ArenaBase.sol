@@ -10,6 +10,7 @@ import {TableFactory} from "../../src/arena/TableFactory.sol";
 import {TableEscrow} from "../../src/arena/TableEscrow.sol";
 import {PrizeVault} from "../../src/arena/PrizeVault.sol";
 import {StakePool} from "../../src/arena/StakePool.sol";
+import {ArenaParams} from "../../script/ArenaParams.sol";
 import {ITableEscrow} from "../../src/interfaces/arena/ITableEscrow.sol";
 
 /// @notice Shared setup for the Arena tests: the launch caps (50 / 500 / 25,000 USDG), a 2-of-3 signer set,
@@ -47,7 +48,7 @@ abstract contract ArenaBase is Test {
         impl = new TableEscrow();
         factory = new TableFactory(
             address(usdg), address(cofr), address(registry), address(impl), address(this), guardian, vm.addr(ELIG_KEY),
-            50e6, 500e6, 25_000e6, 1_000e18
+            ArenaParams.MAX_BUY_IN, ArenaParams.MAX_TABLE_POT, ArenaParams.MAX_LIVE_VALUE, ArenaParams.MIN_HOST_BOND
         );
         registry.setFactory(address(factory));
         pool = new StakePool(address(cofr), address(factory));
@@ -56,7 +57,7 @@ abstract contract ArenaBase is Test {
         toks[0] = address(usdg);
         toks[1] = address(cofr);
         uint256[] memory caps = new uint256[](2);
-        caps[0] = 2_000e6;
+        caps[0] = ArenaParams.VAULT_WEEKLY_CAP_USDG;
         caps[1] = 1_000_000e18;
         vault = new PrizeVault(address(factory), address(this), scheduler, toks, caps);
         factory.setPrizeVault(address(vault));

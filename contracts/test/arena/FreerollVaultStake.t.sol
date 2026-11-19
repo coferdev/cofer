@@ -170,10 +170,14 @@ contract FreerollVaultStakeTest is ArenaBase {
         vm.expectRevert(TableFactory.NeedHostBond.selector);
         factory.createTable(p, bytes32(uint256(1)));
 
-        cofr.mint(host, 2_000e18);
+        cofr.mint(host, 100_001e18);
         vm.startPrank(host);
         cofr.approve(address(pool), type(uint256).max);
-        uint256 id = pool.stake(1_000e18, IStakePool.Term.D7);
+        uint256 small = pool.stake(99_999e18, IStakePool.Term.D7);
+        pool.markBond(small);
+        vm.expectRevert(TableFactory.NeedHostBond.selector);
+        factory.createTable(p, bytes32(uint256(1)));
+        uint256 id = pool.stake(2e18, IStakePool.Term.D7);
         pool.markBond(id);
         TableEscrow t = TableEscrow(factory.createTable(p, bytes32(uint256(1))));
         vm.stopPrank();
@@ -189,7 +193,82 @@ contract FreerollVaultStakeTest is ArenaBase {
         vm.warp(until);
         vm.prank(host);
         pool.unstake(id);
-        assertEq(cofr.balanceOf(host), 2_000e18);
+        vm.prank(host);
+        pool.unstake(small);
+        assertEq(cofr.balanceOf(host), 100_001e18);
+    }
+
+    function test_hostBondIs100kCofr() public view {
+        assertEq(factory.minHostBond(), 100_000e18);
+    }
+
+    function test_hostBondChangeIsTimelockedAndOnlyForNewTables() public {
+        vm.prank(host);
+        vm.expectRevert(TableFactory.NotOwner.selector);
+        factory.queueMinHostBond(1e18);
+
+        factory.queueMinHostBond(200_000e18);
+        vm.expectRevert(TableFactory.TooEarly.selector);
+        factory.applyMinHostBond();
+        vm.warp(block.timestamp + 48 hours - 1);
+        vm.expectRevert(TableFactory.TooEarly.selector);
+        factory.applyMinHostBond();
+        assertEq(factory.minHostBond(), 100_000e18);
+        vm.warp(block.timestamp + 1);
+        factory.applyMinHostBond();
+        assertEq(factory.minHostBond(), 200_000e18);
+        vm.expectRevert(TableFactory.NothingQueued.selector);
+        factory.applyMinHostBond();
+    }
+
+    function test_hostBondRaiseDoesNotTouchExistingTable() public {
+        ArenaTypes.TableParams memory p = _freeroll(100e6, 50);
+        cofr.mint(host, 100_000e18);
+        vm.startPrank(host);
+        usdg.approve(address(factory), type(uint256).max);
+        cofr.approve(address(pool), type(uint256).max);
+        pool.markBond(pool.stake(100_000e18, IStakePool.Term.D7));
+        TableEscrow t = TableEscrow(factory.createTable(p, bytes32(uint256(7))));
+        vm.stopPrank();
+
+        factory.queueMinHostBond(150_000e18);
+        vm.warp(block.timestamp + 48 hours);
+        factory.applyMinHostBond();
+        assertEq(uint8(t.state()), uint8(ArenaTypes.State.Open), "existing table unaffected");
+        assertEq(usdg.balanceOf(address(t)), 100e6);
+
+        ArenaTypes.TableParams memory q = _freeroll(100e6, 50);
+        vm.prank(host);
+        vm.expectRevert(TableFactory.NeedHostBond.selector);
+        factory.createTable(q, bytes32(uint256(8)));
+    }
+
+    function test_friendDisputeBondFixedAt20Percent() public {
+        assertEq(factory.FRIEND_DISPUTE_BOND_BPS(), 2_000);
+        ArenaTypes.TableParams memory p = _friend(2, 4, uint64(block.timestamp + 1 hours));
+        p.disputeBondBps = 1_000;
+        vm.expectRevert(TableFactory.BadParam.selector);
+        factory.createTable(p, bytes32(uint256(9)));
+        p.disputeBondBps = 3_000;
+        vm.expectRevert(TableFactory.BadParam.selector);
+        factory.createTable(p, bytes32(uint256(10)));
+    }
+
+    function test_weeklyCapResetsMondayUtc() public {
+        // 2026-11-22 23:59:59 UTC is a Sunday; one second later is Monday 2026-11-23 00:00:00 UTC.
+        uint256 monday = 1_795_392_000;
+        assertEq((monday / 1 days + 4) % 7, 1, "test date is a Monday");
+        vm.warp(monday - 1);
+        uint256 sunWeek = vault.currentWeek();
+        _vaultFreeroll(1_500e6);
+        assertEq(vault.spentThisWeek(address(usdg)), 1_500e6);
+        vm.warp(monday);
+        assertEq(vault.currentWeek(), sunWeek + 1);
+        assertEq(vault.spentThisWeek(address(usdg)), 0, "reset at Monday 00:00 UTC");
+        vm.warp(monday + 7 days - 1);
+        assertEq(vault.currentWeek(), sunWeek + 1, "same week until next Monday");
+        vm.warp(monday + 7 days);
+        assertEq(vault.currentWeek(), sunWeek + 2);
     }
 
     // ------------------------------------------------------------------ StakePool (A16)

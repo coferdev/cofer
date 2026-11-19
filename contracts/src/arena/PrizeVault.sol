@@ -54,9 +54,12 @@ contract PrizeVault is IPrizeVault, ReentrancyGuard {
         }
     }
 
-    /// @notice Week number (weeks since 1970-01-01, a Thursday, at 00:00 UTC).
+    /// @notice Unix time 0 is a Thursday; shifting by 3 days makes each week start Monday 00:00 UTC.
+    uint256 public constant WEEK_OFFSET = 3 days;
+
+    /// @notice Week number; the weekly cap resets every Monday at 00:00 UTC.
     function currentWeek() public view returns (uint256) {
-        return block.timestamp / 1 weeks;
+        return (block.timestamp + WEEK_OFFSET) / 1 weeks;
     }
 
     function spentThisWeek(address token) public view returns (uint256) {
