@@ -1,0 +1,20 @@
+{
+  "name": "@cofer/sdk",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Read-only helpers for Cofer on Robinhood Chain. Lives in this repo; not published to npm.",
+  "license": "MIT",
+  "type": "module",
+  "main": "src/index.ts",
+  "scripts": {
+    "test": "bun test",
+    "typecheck": "tsc --noEmit"
+  },
+  "dependencies": {
+    "viem": "2.57.11"
+  },
+  "devDependencies": {
+    "@types/bun": "latest",
+    "typescript": "^5.9.0"
+  }
+}
