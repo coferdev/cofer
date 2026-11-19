@@ -205,6 +205,7 @@ export function publicApi(d: PublicApiDeps) {
   });
 
   app.get("/receipts/exit/:tx", receiptRoute("exit"));
+  app.get("/receipts/deposit/:tx", receiptRoute("deposit"));
 
   // last: anything else under /v1 (a sub-app's notFound is not used once it is mounted)
   app.all("*", (c) => fail(c, 404, "not_found", TEXT.notFound));

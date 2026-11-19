@@ -89,3 +89,48 @@ export async function exitReceipt(r: TxReceiptLike, d: ReceiptDeps): Promise<Exi
   }
   return { kind: "exit", chainId: d.chainId, tx: r.transactionHash, block: r.blockNumber, pot, member: getAddress(x.member), to, sharesBurned: BigInt(x.shares), assets, checks };
 }
+
+export interface DepositReceipt {
+  kind: "deposit";
+  chainId: number;
+  tx: Hex;
+  block: bigint;
+  pot: Address;
+  member: Address;
+  /** USDG paid in, raw (6 decimals). */
+  amount: bigint;
+  sharesMinted: bigint;
+  /** The group's total in USDG as priced for this deposit, just before it (raw, 6 decimals): the share price base. */
+  groupTotalBefore: bigint;
+  usdg: Address;
+  checks: CheckLine[];
+}
+
+export async function depositReceipt(r: TxReceiptLike, d: ReceiptDeps & { usdg: Address }): Promise<DepositReceipt | null> {
+  if (r.status !== "success") return null;
+  const dep = (await potLogs(r, d)).find((l) => l.eventName === "Deposited");
+  if (!dep) return null;
+  const x = dep.args as { member: Address; amount: bigint; shares: bigint; navBefore: bigint };
+  const before = r.blockNumber - 1n;
+  const pot = dep.address;
+  return {
+    kind: "deposit",
+    chainId: d.chainId,
+    tx: r.transactionHash,
+    block: r.blockNumber,
+    pot,
+    member: getAddress(x.member),
+    amount: BigInt(x.amount),
+    sharesMinted: BigInt(x.shares),
+    groupTotalBefore: BigInt(x.navBefore),
+    usdg: getAddress(d.usdg),
+    checks: [
+      { what: "The Deposited log in this transaction (member, amount, shares, the group's total before)", command: `cast receipt ${r.transactionHash} --rpc-url ${d.rpcUrl}` },
+      { what: `Total shares just before the deposit. Shares minted = paid x (this + 10^12) / (the group's total before + 1), rounded down; when the group held anything other than USDG, "paid" is first reduced by the entry spread`, command: castCall(d.rpcUrl, pot, "totalShares()(uint256)", [], before) },
+      { what: "The group's settings at that block (the entry spread is the third value)", command: castCall(d.rpcUrl, pot, "config()(uint32,uint16,uint16,bool)", [], before) },
+      { what: `The group's USDG before (block ${before}); compare with the next line, the difference is the amount paid`, command: castCall(d.rpcUrl, d.usdg, "balanceOf(address)(uint256)", [pot], before) },
+      { what: `The group's USDG after (block ${r.blockNumber})`, command: castCall(d.rpcUrl, d.usdg, "balanceOf(address)(uint256)", [pot], r.blockNumber) },
+      { what: "The member's shares after the deposit (second value)", command: castCall(d.rpcUrl, pot, "memberInfo(address)((bool,uint256,uint128,uint32,uint64,uint128))", [getAddress(x.member)], r.blockNumber) },
+    ],
+  };
+}

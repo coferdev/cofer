@@ -230,7 +230,7 @@ export function setAsideExit(): TxReceiptLike & { blockTime: number } {
 
 export function fakeReceipts(extra: (TxReceiptLike & { blockTime?: number })[] = []): ReceiptsDeps {
   const tx = fakeTx([setAsideExit(), ...extra]);
-  return { chainId: 46630, rpcUrl: "https://rpc.testnet.chain.robinhood.com", isPot: tx.explain.isPot, token: tx.explain.token, receipt: tx.receipt };
+  return { chainId: 46630, rpcUrl: "https://rpc.testnet.chain.robinhood.com", usdg: T_USDG, isPot: tx.explain.isPot, token: tx.explain.token, receipt: tx.receipt };
 }
 
 export function fakePublicApi(over: Partial<PublicApiDeps> = {}): PublicApiDeps {

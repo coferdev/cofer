@@ -40,3 +40,4 @@ Read-only facts about Cofer, straight from Robinhood Chain. No sign-in and no ke
 | [`GET /v1/pots/:pot/votes`](pots.md#get-v1potspotvotes) | a group's votes by state, with a summary made from the vote itself, approvals and transaction; votes made outside the bot included |
 | [`GET /v1/pots/:pot/timeline`](pots.md#get-v1potspottimeline) | everything a group did, in block order, in plain words, each with its transaction; paged |
 | [`GET /v1/receipts/exit/:tx`](receipts.md#get-v1receiptsexittx) | an exit's receipt: shares burned, every amount sent or set aside, and the calls to check each |
+| [`GET /v1/receipts/deposit/:tx`](receipts.md#get-v1receiptsdeposittx) | a deposit's receipt: amount, shares minted, the group's total before, and the calls to check each |

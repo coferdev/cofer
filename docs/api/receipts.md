@@ -15,3 +15,12 @@ malformed hash `400`. A receipt never changes, so it may be cached for an hour.
 Each `amount` is `distributable(token) x sharesBurned / totalShares`, both read just before the exit, rounded down.
 The `checks` list gives those reads at the block before, the destination's balance before and after, and `owed` for
 anything set aside.
+
+## GET /v1/receipts/deposit/:tx
+
+`member`, `amount` (USDG paid, raw, 6 decimals), `sharesMinted`, and `groupTotalBefore`: the group's total in USDG as
+priced for this deposit, just before it (the base of the share maths).
+
+Shares minted = paid x (total shares before + 10^12) / (`groupTotalBefore` + 1), rounded down. When the group held
+anything other than USDG, "paid" is first reduced by the group's entry spread. The `checks` give total shares and the
+settings at the block before, and the group's USDG before and after.

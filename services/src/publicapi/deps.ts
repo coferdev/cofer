@@ -168,6 +168,7 @@ export function livePublicApiDeps(e: Env): PublicApiDeps {
     },
     receipts: {
       chainId: e.CHAIN_ID,
+      usdg: e.USDG_ADDRESS as Address,
       rpcUrl: signerRpcUrl(e),
       isPot: isPotMemo,
       token: (a) => tokenInfo(a),
