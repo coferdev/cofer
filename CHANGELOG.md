@@ -24,6 +24,7 @@ Fixes from the 2026-11-01 review of `0.1.0` (commit `aba0779`). `contracts/src` 
 - Update 14 · 2026-11-19 13:00 UTC: Deposit receipt: Amount, shares minted, calls to check it.
 - Update 15 · 2026-11-19 14:00 UTC: Vote receipt: The exact message signed, and who approved.
 - Update 16 · 2026-11-19 15:00 UTC: Allowance spend receipt: Who spent, to whom, and what is left.
+- Update 17 · 2026-11-19 16:00 UTC: Receipt checker: Any RPC you choose. It names the line that fails.
 
 ### Mainnet
 - Cofer is live on Robinhood Chain mainnet (chain 4663): factory, fee router, group account template and swap adapter deployed on 2026-11-06; addresses in contracts/deployments/4663.json.

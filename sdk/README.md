@@ -65,3 +65,25 @@ const kit = await buildExit({ pot: "0x…", shares: "1000000000000000000", to: "
   contract address the signer page refuses; the reasons are word for word the same.
 - Without a reader it works offline and `preview` is `null`.
 - The tests run the call inside the real group account code, and compare every refusal with the signer page's.
+
+## verifyReceipt
+
+Checks any receipt from `/v1/receipts/exit|deposit|spend/:tx` or `/v1/receipts/vote/:digest` against the chain,
+through an RPC you choose, and names every line that does not match.
+
+```ts
+import { verifyReceipt, verdictText } from "./sdk/src";
+const receipt = await (await fetch("https://<signer site>/v1/receipts/exit/0x…")).json();
+console.log(verdictText(await verifyReceipt(receipt, "https://rpc.mainnet.chain.robinhood.com")));
+// Receipt matches the chain (8 lines checked).
+```
+
+From the command line (read-only, never signs):
+
+```bash
+bun sdk/bin/cofer.ts verify receipt.json --rpc https://rpc.mainnet.chain.robinhood.com
+```
+
+- exit, deposit, spend: the transaction's logs from the group account are read again and every figure compared.
+- vote: the digest is made again from the signed message and asked of the group account (`hashProposal`), and each
+  approval not withdrawn is verified again (ERC-1271 for keys that are accounts).
