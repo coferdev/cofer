@@ -31,3 +31,4 @@ Read-only facts about Cofer, straight from Robinhood Chain. No sign-in and no ke
 | Route | What it gives |
 |---|---|
 | [`GET /v1/status`](status.md) | chain, latest block, indexer lag, relayer gas (yes or no), age of every price feed |
+| [`GET /v1/badge.svg`](badge.md) | a status image for a README or page: chain, and whether the indexer is live or behind |

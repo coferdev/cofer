@@ -5,6 +5,7 @@
  */
 import { Hono } from "hono";
 import { logError } from "../core/errors";
+import { badgeSvg, type BadgeState } from "./badge";
 import { cached, fail, ok, PUBLIC_HEADERS } from "./format";
 import { clientKey, limiter, type Limiter } from "./rateLimit";
 import { readStatus, STATUS_CACHE_MS, type Status, type StatusDeps } from "./status";
@@ -46,6 +47,17 @@ export function publicApi(d: PublicApiDeps) {
   app.get("/status", async (c) => {
     const s = await status();
     return ok(c, s.value, meta(s.at, STATUS_CACHE_MS / 1000));
+  });
+
+  // a status image for READMEs: never an error image; when the chain cannot be read it says "unknown"
+  app.get("/badge.svg", async (c) => {
+    let state: BadgeState = "unknown";
+    try {
+      state = (await status()).value.indexer.state;
+    } catch (e) {
+      logError("publicapi badge", e);
+    }
+    return c.body(badgeSvg(d.chainId, state), 200, { ...PUBLIC_HEADERS, "content-type": "image/svg+xml; charset=utf-8", "cache-control": `public, max-age=${STATUS_CACHE_MS / 1000}`, "content-security-policy": "default-src 'none'; style-src 'unsafe-inline'" });
   });
 
   // last: anything else under /v1 (a sub-app's notFound is not used once it is mounted)
