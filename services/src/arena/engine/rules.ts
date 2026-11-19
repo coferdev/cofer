@@ -5,6 +5,7 @@
 import { type Hex, keccak256, toBytes } from "viem";
 import { isSymbol, type Symbol } from "../marks/markets";
 import { parseWad } from "./detmath";
+import { DEFAULT_COLLUSION } from "../scoring/collusion";
 import type { Product, Rules } from "./orders";
 
 /** RFC 8785 JCS for the values rules use: objects (keys sorted by UTF-16 code units), arrays, strings, integers, booleans, null. */
@@ -83,5 +84,6 @@ export function parseRules(j: RulesJson): Rules & { lambdaBps: bigint; minFills:
     lambdaBps: bps(j.lambda),
     minFills: j.activity.minFills,
     minExposureBps: bps(j.activity.minExposure),
+    collusion: { ...DEFAULT_COLLUSION, oBps: bps(j.collusion.O), rhoBps: bps(j.collusion.rho), sync: j.collusion.sync },
   };
 }

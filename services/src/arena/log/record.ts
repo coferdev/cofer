@@ -11,6 +11,10 @@ import type { Mark } from "../marks/median";
 import { encodeAbiParameters } from "viem";
 import { type Game, type GameEmitted, finish, newGame, step } from "../engine/game";
 import { type ScoreRules, type Standing, rank } from "../scoring/score";
+import { DEFAULT_COLLUSION, detect } from "../scoring/collusion";
+
+/** In a Flag event, ρ when there were too few shared samples to measure it. */
+export const RHO_UNSET = -(2n ** 255n);
 import type { Order, Rules } from "../engine/orders";
 import { HOUR_MS } from "../marks/tape";
 import { orderSigProblem } from "../engine/session";
@@ -133,7 +137,14 @@ export class Recorder {
       const s = g.book.seats.get(seat)!;
       return { seat, index, finalEquity: s.ledger.cash, maxDdBps: a.maxDdBps, fills: a.fills, exposedMs: a.exposedMs, eliminatedAt: s.ledger.eliminatedAt };
     });
-    const standings = rank(inputs, { ...score, durationMs: g.endAt - g.startAt }, flaggedPairs);
+    // collusion (spec §4.10): part of the replay, so anyone can check it; each flagged pair is logged with its metrics
+    const found = detect(g.seats.map((s) => g.traces.get(s)!), g.book.rules.collusion ?? DEFAULT_COLLUSION);
+    for (const m of found.all.filter((x) => x.flagged))
+      this.put({ type: "Flag", payload: ["COLLUSION", [m.a as Hex, m.b as Hex], [m.oBps, m.rhoBps ?? RHO_UNSET, BigInt(m.sync), m.eliminatedHolding ? 1n : 0n]] });
+    const key = (a: string, b: string) => [a.toLowerCase(), b.toLowerCase()].sort().join();
+    const pairs = new Map<string, [string, string]>();
+    for (const pr of [...found.flagged, ...flaggedPairs]) pairs.set(key(pr[0], pr[1]), pr);
+    const standings = rank(inputs, { ...score, durationMs: g.endAt - g.startAt }, [...pairs.values()]);
     this.put({ type: "GameClose", payload: [BigInt(g.endAt), encodeStandings(standings)] });
     return { standings, head: this.chain.head };
   }

@@ -40,6 +40,24 @@ describe("arena collusion", () => {
     const m = pairMetrics(a, b);
     expect(m.rhoBps).toBe(-10_000n);
     expect(m.flagged).toBe(false); // sync 0
-    expect(detect([a, b, { ...a, seat: "c" }]).all).toHaveLength(3);
+    expect(detect([a, b, { ...a, seat: "c" }]).all).toHaveLength(0); // no opposite opens: nothing can be flagged
+  });
+
+  test("measuring only pairs with opposite opens flags exactly what measuring every pair flags", () => {
+    let x = 7;
+    const rnd = () => ((x = (x * 1103515245 + 12345) % 2147483648), x);
+    const traces: SeatTrace[] = [];
+    for (let i = 0; i < 12; i++) {
+      const sign = (i % 2 ? 1 : -1) as 1 | -1;
+      const opens = [0, 1, 2].map(() => ({ ts: (rnd() % 20) * 60_000, symbol: rnd() % 2 ? "BTC" : "ETH", sign: (rnd() % 3 ? sign : -sign) as 1 | -1 }));
+      const samples = Array.from({ length: 30 }, (_, k) => s(k, BigInt(10_000 + sign * ((k * 37) % 50) - (rnd() % 5)) * C, { BTC: BigInt(sign) * 5_000n * C, ETH: BigInt(-sign) * 3_000n * C }));
+      traces.push({ seat: `s${i}`, opens, eliminatedAt: null, samples });
+    }
+    const brute: string[] = [];
+    for (let a = 0; a < traces.length; a++) for (let b = a + 1; b < traces.length; b++) if (pairMetrics(traces[a]!, traces[b]!).flagged) brute.push(`${traces[a]!.seat},${traces[b]!.seat}`);
+    const fast = detect(traces);
+    expect(fast.flagged.map((p) => p.join())).toEqual(brute);
+    expect(brute.length).toBeGreaterThan(0);
+    expect(fast.all.length).toBeLessThan((12 * 11) / 2 + 1);
   });
 });
