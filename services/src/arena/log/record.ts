@@ -13,6 +13,7 @@ import { type Game, type GameEmitted, finish, newGame, step } from "../engine/ga
 import { type ScoreRules, type Standing, rank } from "../scoring/score";
 import type { Order, Rules } from "../engine/orders";
 import { HOUR_MS } from "../marks/tape";
+import { orderSigProblem } from "../engine/session";
 import { LogChain } from "./chain";
 import { type LogEvent, decodeLogEvent, decodeOrder, encodeLogEvent, encodeOrder } from "./events";
 
@@ -52,7 +53,8 @@ export class Recorder {
   readonly game: Game;
   private pending: { hour: number; first: number; last: number } | null = null;
 
-  constructor(readonly open: Open, rules: Rules) {
+  /** `checkSigs` false only in replay, which reports a bad signature as a problem instead of stopping. */
+  constructor(readonly open: Open, rules: Rules, private readonly checkSigs = true) {
     this.chain = new LogChain(open.chainId, open.table, open.rulesHash);
     this.game = newGame(rules, open.seats.map((s) => s.toLowerCase()), open.lockedAt, open.endAt);
     this.put({ type: "GameOpen", payload: [open.table, open.rulesHash, open.rulesJson, open.seats, open.pubkeys, BigInt(open.lockedAt), BigInt(open.endAt), open.lockBlock, open.tapeHours.map(BigInt)] });
@@ -81,8 +83,13 @@ export class Recorder {
   }
 
   order(o: Order, signature: Hex, recvTs: number): GameEmitted[] {
+    const bytes = encodeOrder(this.open.table, o);
+    if (this.checkSigs) {
+      const bad = orderSigProblem(this.open.seats, this.open.pubkeys, o.seat as Hex, bytes, signature);
+      if (bad) throw new Error(`order not logged: ${bad}`); // never enters the log
+    }
     this.flush();
-    const seq = this.put({ type: "OrderIn", payload: [o.seat as Hex, encodeOrder(this.open.table, o), signature, BigInt(recvTs)] });
+    const seq = this.put({ type: "OrderIn", payload: [o.seat as Hex, bytes, signature, BigInt(recvTs)] });
     const out = step(this.game, { t: "OrderIn", seq, recvTs, order: o });
     this.outputs(out);
     return out;
@@ -157,13 +164,16 @@ export function replayLog(chainId: number, log: Hex[], rules: Rules, ticks: Tick
   if (first.type !== "GameOpen") return { ok: false, head: "0x", problems: ["the log does not start with GameOpen"] };
   const p = first.payload as [Hex, Hex, string, Hex[], Hex[], bigint, bigint, bigint, bigint[]];
   const open: Open = { chainId, table: p[0], rulesHash: p[1], rulesJson: p[2], seats: [...p[3]], pubkeys: [...p[4]], lockedAt: Number(p[5]), endAt: Number(p[6]), lockBlock: p[7], tapeHours: p[8].map(Number) };
-  const r = new Recorder(open, rules);
+  const r = new Recorder(open, rules, false);
   for (let i = 1; i < log.length; i++) {
     const e = decodeLogEvent(log[i]!);
     if (e.type === "OrderIn") {
-      const [, bytes, sig, recv] = e.payload as [Hex, Hex, Hex, bigint];
+      const [seat, bytes, sig, recv] = e.payload as [Hex, Hex, Hex, bigint];
       const { table, order } = decodeOrder(bytes);
       if (table !== open.table.toLowerCase()) problems.push(`#${i}: order for another table`);
+      if (seat.toLowerCase() !== order.seat) problems.push(`#${i}: logged for ${seat} but the order is ${order.seat}'s`);
+      const bad = orderSigProblem(open.seats, open.pubkeys, seat, bytes, sig);
+      if (bad) problems.push(`#${i}: ${bad}`);
       r.order(order, sig, Number(recv));
     } else if (e.type === "TickRef") {
       const [, a, b] = (e.payload as bigint[]).map(Number);
