@@ -18,17 +18,32 @@ import { checkAlert } from "../keeper/alerts";
 import { failureReason, RevertedOnChain, voteAlertKey, voteStuckAlert } from "./voteAlerts";
 import { env } from "../env";
 
+/** What relayOnce talks to; the real ones by default, stand-ins in tests. */
+export type RelayDeps = {
+  db: () => ReturnType<typeof db>;
+  publicClient: () => ReturnType<typeof publicClient>;
+  relayerClient: () => ReturnType<typeof relayerClient>;
+  buildExecuteArgs: typeof buildExecuteArgs;
+  enqueueRelay: typeof enqueueRelay;
+  enqueueNotify: typeof enqueueNotify;
+  checkAlert: typeof checkAlert;
+  chainId: () => number;
+  nowSec: () => number;
+};
+const realDeps = (): RelayDeps => ({ db, publicClient, relayerClient, buildExecuteArgs, enqueueRelay, enqueueNotify, checkAlert, chainId: () => env().CHAIN_ID, nowSec: () => Math.floor(Date.now() / 1000) });
+
 const PERMANENT = new Set(["NonceUsed", "StaleEpoch", "Expired", "UnknownKind", "AssetNotBuyable", "AdapterNotAllowed", "SlippageTooLoose"]);
 
-export async function relayOnce(proposalId: Hex): Promise<"queued" | "executed" | "skipped"> {
+export async function relayOnce(proposalId: Hex, d: RelayDeps = realDeps()): Promise<"queued" | "executed" | "skipped"> {
+  const { db, publicClient, relayerClient, buildExecuteArgs, enqueueRelay, enqueueNotify, checkAlert } = d;
   const row = await db().query.proposals.findFirst({ where: eq(schema.proposals.id, proposalId) });
   if (!row || !["ready", "queued"].includes(row.status)) return "skipped";
-  if (row.status === "queued" && row.queuedEta && row.queuedEta > Math.floor(Date.now() / 1000)) {
+  if (row.status === "queued" && row.queuedEta && row.queuedEta > d.nowSec()) {
     await enqueueRelay(proposalId, row.queuedEta + 2);
     return "skipped";
   }
 
-  const { pot, args } = await buildExecuteArgs({ db: db(), client: publicClient(), chainId: env().CHAIN_ID }, proposalId);
+  const { pot, args } = await buildExecuteArgs({ db: db(), client: publicClient(), chainId: d.chainId() }, proposalId);
   const wallet = relayerClient();
   try {
     const { request } = await publicClient().simulateContract({ account: wallet.account, address: pot, abi: potAbi, functionName: "execute", args });
@@ -82,7 +97,8 @@ export function revertName(e: unknown): string | undefined {
 }
 
 /** Alerts the ops chat when a vote is still failing after its last retry. */
-export async function alertStillFailing(proposalId: string, tries: number) {
+export async function alertStillFailing(proposalId: string, tries: number, d: Pick<RelayDeps, "db" | "checkAlert"> = realDeps()) {
+  const { db, checkAlert } = d;
   const row = await db().query.proposals.findFirst({ where: eq(schema.proposals.id, proposalId) });
   if (!row || !["ready", "queued"].includes(row.status)) return;
   await checkAlert(voteAlertKey(proposalId), voteStuckAlert(row, row.error ?? "unknown error", { tries }));
