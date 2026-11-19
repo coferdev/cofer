@@ -86,8 +86,24 @@ export function fakeOwnership(factoryOver: Record<string, unknown> = {}, routerO
   };
 }
 
+export const SAMPLE_CHANGELOG = `# Changelog
+
+## [Unreleased]
+
+### Tech updates
+- Update 01 · 2026-12-01 14:00 UTC: Public status endpoint: Chain, latest block, indexer lag and feed ages.
+- Update 02 · 2026-12-01 15:00 UTC: Status badge: Indexer live or behind, and which chain.
+
+### Added
+- Something without a date yet.
+
+## [0.1.0] - 2026-10-31
+
+First release. <script>not a tag</script> & more.
+`;
+
 export function fakePublicApi(over: Partial<PublicApiDeps> = {}): PublicApiDeps {
-  return { chainId: 4663, status: fakeStatus(), tx: fakeTx(), ownership: fakeOwnership(), ...over };
+  return { chainId: 4663, status: fakeStatus(), tx: fakeTx(), ownership: fakeOwnership(), changelog: { text: SAMPLE_CHANGELOG, baseUrl: "https://sign.example" }, ...over };
 }
 
 /** The whole signer server with the public API on fake data (fixed, fake settings: never the process environment). */

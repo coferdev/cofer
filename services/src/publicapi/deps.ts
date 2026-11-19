@@ -8,10 +8,19 @@ import { privateKeyToAccount } from "viem/accounts";
 import { db, schema } from "../db/client";
 import { aggregatorAbi, erc20Abi, factoryAbi, factoryAddress, feeRouterAbi, publicClient } from "../chain/clients";
 import { signerRpcUrl } from "../web/page";
+import { readFileSync } from "node:fs";
 import { CURSOR } from "../indexer/indexer";
 import type { Env } from "../env";
 import type { PublicApiDeps } from "./router";
 import type { FeedReading } from "./status";
+
+function readChangelog(): string {
+  try {
+    return readFileSync(new URL("../../../CHANGELOG.md", import.meta.url), "utf8");
+  } catch {
+    return ""; // no CHANGELOG.md in this folder: the feeds are empty, nothing else changes
+  }
+}
 
 /** Remembers each answer for an address (contracts' identities and token details do not change). */
 function memo<T>(f: (a: Address) => Promise<T>, max = 5000): (a: Address) => Promise<T> {
@@ -61,6 +70,8 @@ export function livePublicApiDeps(e: Env): PublicApiDeps {
       relayerHasGas: async () => (await client.getBalance({ address: relayer })) >= e.RELAYER_MIN_ETH,
       now: () => Math.floor(Date.now() / 1000),
     },
+    // this release's CHANGELOG.md (services/src/publicapi/deps.ts is three folders below the repo's top)
+    changelog: { text: readChangelog(), baseUrl: e.PUBLIC_URL },
     ownership: {
       factory: factoryAddress(),
       feeRouter: async () => router ?? (router = await client.readContract({ address: factoryAddress(), abi: factoryAbi, functionName: "feeRouter" })),

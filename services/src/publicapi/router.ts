@@ -11,12 +11,15 @@ import { clientKey, limiter, type Limiter } from "./rateLimit";
 import { readStatus, STATUS_CACHE_MS, type Status, type StatusDeps } from "./status";
 import { isTxHash, TX_CACHE_SECONDS, txExplainer, type TxDeps } from "./tx";
 import { OWNERSHIP_CACHE_MS, readOwnership, type Ownership, type OwnershipDeps } from "./ownership";
+import { atomFeed, FEED_CACHE_SECONDS, jsonFeed, parseChangelog } from "./changelog";
 
 export interface PublicApiDeps {
   chainId: number;
   status: StatusDeps;
   tx: TxDeps;
   ownership: OwnershipDeps;
+  /** CHANGELOG.md as it is in this release, and the public address the feeds name as their own. */
+  changelog: { text: string; baseUrl: string };
   limiter?: Limiter;
   nowMs?: () => number;
 }
@@ -36,6 +39,10 @@ export function publicApi(d: PublicApiDeps) {
   const status = cached<Status>(() => readStatus(d.status), STATUS_CACHE_MS, nowMs);
   const explainTx = txExplainer(d.tx);
   const ownership = cached<Ownership>(() => readOwnership(d.ownership), OWNERSHIP_CACHE_MS, nowMs);
+  // made once at start-up from this release's CHANGELOG.md
+  const entries = parseChangelog(d.changelog.text);
+  const atom = atomFeed(entries, d.changelog.baseUrl);
+  const feedJson = JSON.stringify(jsonFeed(entries, d.changelog.baseUrl));
   /** 0 when this client may make a request now, else the milliseconds to wait (shared by /v1 and the /tx page). */
   const limit = (forwardedFor: string | undefined) => lim.take(clientKey(forwardedFor), nowMs());
   const meta = (at: number, cacheSeconds: number) => ({ chainId: d.chainId, generatedAt: new Date(at).toISOString(), cacheSeconds });
@@ -82,6 +89,9 @@ export function publicApi(d: PublicApiDeps) {
     const o = await ownership();
     return ok(c, o.value, meta(o.at, OWNERSHIP_CACHE_MS / 1000));
   });
+
+  app.get("/changelog.atom", (c) => c.body(atom, 200, { ...PUBLIC_HEADERS, "content-type": "application/atom+xml; charset=utf-8", "cache-control": `public, max-age=${FEED_CACHE_SECONDS}` }));
+  app.get("/changelog.json", (c) => c.body(feedJson, 200, { ...PUBLIC_HEADERS, "content-type": "application/feed+json; charset=utf-8", "cache-control": `public, max-age=${FEED_CACHE_SECONDS}` }));
 
   // last: anything else under /v1 (a sub-app's notFound is not used once it is mounted)
   app.all("*", (c) => fail(c, 404, "not_found", TEXT.notFound));

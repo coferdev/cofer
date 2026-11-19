@@ -34,3 +34,4 @@ Read-only facts about Cofer, straight from Robinhood Chain. No sign-in and no ke
 | [`GET /v1/badge.svg`](badge.md) | a status image for a README or page: chain, and whether the indexer is live or behind |
 | [`GET /v1/tx/:hash`](tx.md) | any transaction in plain words: what each Cofer contract in it did, with every amount and address. Also a page: `/tx` |
 | [`GET /v1/proof/ownership`](ownership.md) | owner, guardian, pause flags, swap fee and fee wallets, each with the `cast` line to check it |
+| [`GET /v1/changelog.atom`, `/v1/changelog.json`](changelog.md) | the changelog as a feed (Atom and JSON Feed): every release, newest first |
