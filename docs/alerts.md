@@ -41,6 +41,7 @@ Members can always exit. No alert, pause or outage changes that.
 | indexer-behind | The indexer is more than 5 minutes behind the chain. The bot may show old numbers. | Dev checks. |
 | job-failing | A background job failed 3 times in a row. | Dev checks. |
 | large-outflow | More than 5,000 USDG worth left group accounts within the last hour (exits, voted transfers, allowance spends, plan payments and claimed set-aside tokens, across all pots; stocks at the oracle price). It names the largest pot and links the largest transaction. Exits are never paused by it. | Dev checks it is real activity. If it is not, pause deposits (runbook). |
+| set-aside-waiting | A token set aside during an exit has waited more than 7 days unclaimed, and its claim would now go through (checked with a read-only simulation). Anyone can send the claim; the tokens go to the address they were set aside for. | Dev checks; tell the group so the owner of that address claims it (`/claim`, or `GET /v1/set-asides/<address>`). |
 | admin-change | An expected admin change: a pause, a queued or applied feed, adapter or fee change, the plan price, or a role set to its expected address. | Nothing if it was planned. If not, tell the owner and the dev at once. After a pause, tell the groups. |
 
 ## Server and service health

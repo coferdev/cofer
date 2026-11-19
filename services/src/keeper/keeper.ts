@@ -3,7 +3,7 @@
  * permissionless, so liveness never depends on this process: members can always exit, and anyone
  * can execute a passed proposal.
  */
-import { and, gte, inArray, like, lt, lte, eq, notInArray } from "drizzle-orm";
+import { and, gte, inArray, like, lt, lte, eq, notInArray, sql } from "drizzle-orm";
 import { getAddress, zeroAddress, type Address } from "viem";
 import { db, schema } from "../db/client";
 import { aggregatorAbi, erc20Abi, factoryAbi, factoryAddress, feeRouterAbi, potAbi, publicClient, relayerClient } from "../chain/clients";
@@ -22,6 +22,7 @@ import { voteAlertClears } from "../relayer/voteAlerts";
 import { relayerFundsProblem } from "../core/relayerFunds";
 import { INDEXER_LAG_ALERT, indexerLagProblem } from "../core/indexerLag";
 import { runLedgers } from "./ledgers";
+import { setAsideAlarm, SET_ASIDE_ALERT, type SetAsideAlarmDeps } from "./setAsideAlarm";
 import { ROLES_ALERT, roleProblem, type RoleState } from "../core/roles";
 import { CURSOR } from "../indexer/indexer";
 import { OUTFLOW_ALERT, OUTFLOW_EVENTS, OUTFLOW_WINDOW_SEC, outflowAlert, outflowsOf, summarize, valueFromHolding, type Outflow, type PotEvent } from "../core/outflow";
@@ -538,6 +539,7 @@ export async function scheduleKeeper() {
   await q.upsertJobScheduler("health", { every: HEALTH_EVERY_MS }, { name: "health" });
   await q.upsertJobScheduler("server", { every: 60_000 }, { name: "server" });
   await q.upsertJobScheduler("ledgers", { every: 60_000 }, { name: "ledgers" });
+  await q.upsertJobScheduler("set-asides", { every: 1_800_000 }, { name: "set-asides" });
 }
 
 export function startKeeper() {
@@ -561,6 +563,8 @@ export function startKeeper() {
           return serverChecks();
         case "ledgers":
           return runLedgers();
+        case "set-asides":
+          return setAsideAlarm(setAsideAlarmDeps());
         case "feeds":
           return { feeds: await feedHealth(), continuity: await multiplierContinuity() };
       }
@@ -569,4 +573,31 @@ export function startKeeper() {
   );
   watchJobFailures(w);
   return w;
+}
+
+/** The set-aside alarm's live data: the ledger, block times, a read-only claim simulation, token details. */
+function setAsideAlarmDeps(): SetAsideAlarmDeps {
+  const client = publicClient();
+  return {
+    async rows() {
+      const open = await db().select().from(schema.setAsides).where(sql`${schema.setAsides.setAside} > ${schema.setAsides.claimed}`);
+      const alerted = (await db().select({ key: schema.alerts.key }).from(schema.alerts).where(like(schema.alerts.key, `${SET_ASIDE_ALERT}:%`))).map((r) => r.key.split(":"));
+      const rows = open.map((r) => ({ pot: getAddress(r.pot), asset: getAddress(r.asset), account: getAddress(r.account), open: BigInt(r.setAside) - BigInt(r.claimed), lastBlock: r.lastBlock }));
+      for (const [, pot, asset, account] of alerted)
+        if (!rows.some((r) => r.pot.toLowerCase() === pot && r.asset.toLowerCase() === asset && r.account.toLowerCase() === account)) rows.push({ pot: getAddress(pot!), asset: getAddress(asset!), account: getAddress(account!), open: 0n, lastBlock: 0n });
+      return rows;
+    },
+    blockTime: async (n) => Number((await client.getBlock({ blockNumber: n })).timestamp),
+    claimWouldWork: async (pot, asset, account) => {
+      await client.simulateContract({ address: pot, abi: potAbi, functionName: "claimOwed", args: [asset, account], account: account });
+      return true;
+    },
+    token: async (a) => {
+      if (a.toLowerCase() === env().USDG_ADDRESS.toLowerCase()) return { symbol: "USDG", decimals: 6 };
+      const row = await db().query.assets.findFirst({ where: eq(schema.assets.address, a) });
+      return row ? { symbol: row.symbol, decimals: row.decimals } : null;
+    },
+    now: () => Math.floor(Date.now() / 1000),
+    alerts: alertDeps(),
+  };
 }

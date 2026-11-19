@@ -28,6 +28,7 @@ Fixes from the 2026-11-01 review of `0.1.0` (commit `aba0779`). `contracts/src` 
 - Update 18 · 2026-11-19 17:00 UTC: One key, every group: Every group where an address is a member.
 - Update 19 · 2026-11-19 18:00 UTC: Set-aside ledger: Every token set aside at an exit, claimed or not, for any address.
 - Update 20 · 2026-11-19 19:00 UTC: Anything set aside for me?: Open set-aside tokens, with the claim call.
+- Update 21 · 2026-11-19 20:00 UTC: Set-aside token alarm: Staff are alerted when a set-aside token waits 7 days and could now be claimed.
 
 ### Mainnet
 - Cofer is live on Robinhood Chain mainnet (chain 4663): factory, fee router, group account template and swap adapter deployed on 2026-11-06; addresses in contracts/deployments/4663.json.
