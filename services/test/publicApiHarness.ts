@@ -11,6 +11,7 @@ import type { BotVoteRow, OutsideEventRow, VotesDeps } from "../src/publicapi/vo
 import type { EventRow, TimelineDeps } from "../src/publicapi/timeline";
 import type { ReceiptsDeps } from "../src/publicapi/receipts";
 import type { SetAsidesDeps } from "../src/publicapi/setAsides";
+import type { AdminDeps, AdminRowIn } from "../src/publicapi/admin";
 import type { VoteReceiptDeps, VoteRow } from "../src/core/voteReceipt";
 import { encodeAbiParameters, encodeEventTopics, type Abi } from "viem";
 import { decodeEventLog } from "viem";
@@ -282,8 +283,18 @@ export function fakeSetAsides(): SetAsidesDeps {
   };
 }
 
+export const ADMIN_ROWS: AdminRowIn[] = [
+  { id: "a:0", kind: "feed", subject: "0x322F0929c4625eD5bAd873c95208D54E1c003b2d", newValue: "0x00000000000000000000000000000000000000a2", maxStaleness: 345_600, eta: NOW + 7200, queuedBlock: 200n, queuedTx: `0x${"a2".repeat(32)}`, state: "queued", resolvedBlock: null, resolvedTx: null },
+  { id: "b:0", kind: "swap fee", subject: "swap fee", newValue: "40", maxStaleness: null, eta: NOW - 60, queuedBlock: 201n, queuedTx: `0x${"a3".repeat(32)}`, state: "queued", resolvedBlock: null, resolvedTx: null },
+  { id: "c:0", kind: "adapter", subject: "0x00000000000000000000000000000000000000b1", newValue: "0x00000000000000000000000000000000000000b1", maxStaleness: null, eta: NOW - 9000, queuedBlock: 150n, queuedTx: `0x${"b1".repeat(32)}`, state: "applied", resolvedBlock: 190n, resolvedTx: `0x${"b2".repeat(32)}` },
+];
+
+export function fakeAdmin(rows: AdminRowIn[] = ADMIN_ROWS): AdminDeps {
+  return { rows: async () => rows, token: async (a) => (a.toLowerCase() === "0x322f0929c4625ed5bad873c95208d54e1c003b2d" ? { symbol: "TSLA", decimals: 18 } : null), now: () => NOW };
+}
+
 export function fakePublicApi(over: Partial<PublicApiDeps> = {}): PublicApiDeps {
-  return { chainId: 4663, status: fakeStatus(), tx: fakeTx(), ownership: fakeOwnership(), changelog: { text: SAMPLE_CHANGELOG, baseUrl: "https://sign.example" }, pots: fakePots(), members: fakeMembers(), keyGroups: fakeKeyGroups(), votes: fakeVotes(), timeline: fakeTimeline(), receipts: fakeReceipts(), setAsides: fakeSetAsides(), voteReceipts: fakeVoteReceipts(), ...over };
+  return { chainId: 4663, status: fakeStatus(), tx: fakeTx(), ownership: fakeOwnership(), changelog: { text: SAMPLE_CHANGELOG, baseUrl: "https://sign.example" }, pots: fakePots(), members: fakeMembers(), keyGroups: fakeKeyGroups(), votes: fakeVotes(), timeline: fakeTimeline(), receipts: fakeReceipts(), setAsides: fakeSetAsides(), admin: fakeAdmin(), voteReceipts: fakeVoteReceipts(), ...over };
 }
 
 /** The whole signer server with the public API on fake data (fixed, fake settings: never the process environment). */

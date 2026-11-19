@@ -18,6 +18,7 @@ import { afterParam, readTimeline, TIMELINE_CACHE_MS, TIMELINE_MAX_LIMIT, type T
 import { RECEIPT_CACHE_SECONDS, receiptMaker, type ReceiptKind, type ReceiptsDeps } from "./receipts";
 import { voteReceipt, type VoteReceipt, type VoteReceiptDeps } from "../core/voteReceipt";
 import { readSetAsides, SET_ASIDES_CACHE_MS, type SetAsidesDeps } from "./setAsides";
+import { ADMIN_CACHE_MS, readAdminPending, type AdminDeps } from "./admin";
 import { perKeyCache, POT_CACHE_MS, POT_CACHE_SIZE, potParam, readPotSummary, type PotsDeps, type PotSummary } from "./pots";
 
 export interface PublicApiDeps {
@@ -31,6 +32,7 @@ export interface PublicApiDeps {
   members: MembersDeps;
   keyGroups: KeyGroupsDeps;
   setAsides: SetAsidesDeps;
+  admin: AdminDeps;
   votes: VotesDeps;
   timeline: TimelineDeps;
   receipts: ReceiptsDeps;
@@ -124,6 +126,8 @@ export function publicApi(d: PublicApiDeps) {
   const keyGroups = perKeyCache((a) => readKeyGroups(d.keyGroups, a as `0x${string}`), MEMBERS_CACHE_MS, POT_CACHE_SIZE, nowMs);
 
   const setAsides = perKeyCache((a) => readSetAsides(d.setAsides, a as `0x${string}`), SET_ASIDES_CACHE_MS, POT_CACHE_SIZE, nowMs);
+
+  const adminPending = cached(() => readAdminPending(d.admin), ADMIN_CACHE_MS, nowMs);
 
   // made once at start-up from this release's CHANGELOG.md
   const entries = parseChangelog(d.changelog.text);
@@ -243,6 +247,11 @@ export function publicApi(d: PublicApiDeps) {
     if (!a) return fail(c, 400, "bad_request", TEXT.badAddress);
     const r = await setAsides(a);
     return ok(c, r.value, meta(r.at, SET_ASIDES_CACHE_MS / 1000));
+  });
+
+  app.get("/admin/pending", async (c) => {
+    const r = await adminPending();
+    return ok(c, r.value, meta(r.at, ADMIN_CACHE_MS / 1000));
   });
 
   // last: anything else under /v1 (a sub-app's notFound is not used once it is mounted)

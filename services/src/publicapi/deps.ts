@@ -221,6 +221,16 @@ export function livePublicApiDeps(e: Env): PublicApiDeps {
             .where(eq(sql`lower(${schema.setAsides.account})`, account.toLowerCase()))
         ).map((r) => ({ ...r, setAside: String(r.setAside), claimed: String(r.claimed) })),
     },
+    admin: {
+      token: (a) => tokenInfo(a),
+      now: () => Math.floor(Date.now() / 1000),
+      async rows(recent) {
+        const t = schema.pendingAdminChanges;
+        const queued = await db().select().from(t).where(eq(t.state, "queued"));
+        const done = await db().select().from(t).where(sql`${t.state} <> 'queued'`).orderBy(desc(t.resolvedBlock)).limit(recent);
+        return [...queued, ...done];
+      },
+    },
     ownership: {
       factory: factoryAddress(),
       feeRouter: feeRouterNow,
