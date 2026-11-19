@@ -14,6 +14,7 @@ Fixes from the 2026-11-01 review of `0.1.0` (commit `aba0779`). `contracts/src` 
 - Update 04 · 2026-11-19 03:00 UTC: Transaction explainer: Paste a hash. Every amount and address.
 - Update 05 · 2026-11-19 04:00 UTC: Ownership and pause proof: Owner, guardian, pauses and fee, each checkable.
 - Update 06 · 2026-11-19 05:00 UTC: Release notes feed: The changelog as Atom and JSON Feed. Subscribe once.
+- Update 07 · 2026-11-19 06:00 UTC: Guide: check your own exit: Find your share, preview it, and check the exit on the explorer yourself.
 
 ### Mainnet
 - Cofer is live on Robinhood Chain mainnet (chain 4663): factory, fee router, group account template and swap adapter deployed on 2026-11-06; addresses in contracts/deployments/4663.json.
