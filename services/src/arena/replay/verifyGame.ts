@@ -137,7 +137,7 @@ export function verifyGame(c: OnChainGame, f: GameFiles): VerifyOut {
     const r = verifyTape(c.chainId, h, lines, undefined, anchored);
     if (!r.ok) p2.push(...r.problems.slice(0, 3).map((x) => `hour ${h}: ${x}`));
   }
-  steps.push(step("tape", p2, `${hours.length} hours, each at its anchored tapeHead`));
+  steps.push(step("tape", p2, `${hours.length} ${hours.length === 1 ? "hour" : "hours"}, each at its anchored tapeHead`));
 
   // 3. quotes
   steps.push(step("quotes", f.quoteProblems ?? [], `${chainlinkQuotes(hours.map((h) => f.tape.get(h) ?? [])).length} Chainlink quotes match their rounds`, f.quoteProblems ? undefined : "no RPC given: Chainlink rounds not checked"));

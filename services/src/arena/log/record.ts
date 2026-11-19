@@ -213,8 +213,23 @@ export function replayLog(chainId: number, log: Hex[], rules: Rules, ticks: Tick
   } else head = r.end();
   const n = Math.max(log.length, r.log.length);
   for (let i = 0; i < n && problems.length < 20; i++) {
-    if (log[i] !== r.log[i]) problems.push(`#${i}: the log says ${log[i] ? decodeLogEvent(log[i]!).type : "nothing"}, the replay gives ${r.log[i] ? decodeLogEvent(r.log[i]!).type : "nothing"}`);
+    if (log[i] !== r.log[i]) problems.push(differs(i, log[i], r.log[i]));
   }
   if (expectedHead && head !== expectedHead) problems.push(`head ${head} is not the posted ${expectedHead}`);
   return { ok: problems.length === 0, head, problems, recorder: r, standings };
+}
+
+/** One line on how a published event differs from the replayed one. */
+function differs(i: number, published: Hex | undefined, replayed: Hex | undefined): string {
+  const a = published ? decodeLogEvent(published) : undefined;
+  const b = replayed ? decodeLogEvent(replayed) : undefined;
+  if (!a || !b || a.type !== b.type) return `#${i}: the log says ${a?.type ?? "nothing"}, the replay gives ${b?.type ?? "nothing"}`;
+  const pa = a.payload as unknown[];
+  const pb = b.payload as unknown[];
+  for (let k = 0; k < Math.max(pa.length, pb.length); k++) {
+    const x = String(pa[k]);
+    const y = String(pb[k]);
+    if (x !== y) return `#${i} ${a.type}: field ${k} is ${x} in the log, ${y} in the replay`;
+  }
+  return `#${i} ${a.type}: the encodings differ`;
 }
