@@ -5,6 +5,7 @@ import type { PublicApiDeps } from "../src/publicapi/router";
 import type { StatusDeps } from "../src/publicapi/status";
 import type { TxDeps } from "../src/publicapi/tx";
 import type { OwnershipDeps } from "../src/publicapi/ownership";
+import type { PotsDeps } from "../src/publicapi/pots";
 import type { Address, Hex } from "viem";
 import type { TxReceiptLike } from "../src/core/txExplain";
 import recorded from "./fixtures/tx-receipts-46630.json";
@@ -102,8 +103,27 @@ export const SAMPLE_CHANGELOG = `# Changelog
 First release. <script>not a tag</script> & more.
 `;
 
+/** One group account on testnet (addresses from the recorded receipts), with fixed chain answers. */
+export const POT = "0x362B6794E6374b400aA186C1a67AC2c060af2E50" as Address;
+export const POT_MEMBERS = ["0x215Ea29bE890960586CEc7e35B381F6599f955aa", "0x8251FA75f4982cDCB4bE015B9F7Ba20116a1596C", "0x6c57Cad77abE08317aB9714cF8f6CF3955775A68"] as Address[];
+export const T_USDG = "0x14119629e364A53ceda500d0c1111DBB136A7398" as Address;
+export const T_TSTA = "0x3232dDDE4c6a3FE39Fd17696791D50B54Bc52fFE" as Address;
+
+export function fakePots(over: Partial<PotsDeps> = {}, reads: Record<string, unknown> = {}): PotsDeps {
+  const r: Record<string, unknown> = { memberCount: 3n, threshold: 0, thresholdBps: 6000, config: [21_600, 300, 50, true], totalShares: 25n * 10n ** 18n, epoch: 2n, heldAssets: [T_USDG, T_TSTA], ...reads };
+  return {
+    isPot: async (a) => a.toLowerCase() === POT.toLowerCase(),
+    read: async (_p, fn, args) => (fn === "distributable" ? (String(args![0]).toLowerCase() === T_USDG.toLowerCase() ? 24_000_000n : 10n ** 17n) : r[fn]),
+    balanceOf: async (t) => (t.toLowerCase() === T_USDG.toLowerCase() ? 25_000_000n : 10n ** 17n),
+    token: async (a) => TESTNET_TOKENS[a.toLowerCase()] ?? null,
+    planPaidUntil: async () => 1_800_000_000n,
+    createdBlock: async () => 147_500_000n,
+    ...over,
+  };
+}
+
 export function fakePublicApi(over: Partial<PublicApiDeps> = {}): PublicApiDeps {
-  return { chainId: 4663, status: fakeStatus(), tx: fakeTx(), ownership: fakeOwnership(), changelog: { text: SAMPLE_CHANGELOG, baseUrl: "https://sign.example" }, ...over };
+  return { chainId: 4663, status: fakeStatus(), tx: fakeTx(), ownership: fakeOwnership(), changelog: { text: SAMPLE_CHANGELOG, baseUrl: "https://sign.example" }, pots: fakePots(), ...over };
 }
 
 /** The whole signer server with the public API on fake data (fixed, fake settings: never the process environment). */

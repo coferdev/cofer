@@ -3,7 +3,7 @@
  * no sign-in, no keys, per-IP rate limited (rateLimit.ts), CORS open for GET. Only on-chain data, never anything
  * from Telegram. A failed chain or database read answers 503 with fixed text; the error is logged without URLs.
  */
-import { Hono } from "hono";
+import { Hono, type Context } from "hono";
 import { logError } from "../core/errors";
 import { badgeSvg, type BadgeState } from "./badge";
 import { cached, fail, ok, PUBLIC_HEADERS } from "./format";
@@ -12,6 +12,7 @@ import { readStatus, STATUS_CACHE_MS, type Status, type StatusDeps } from "./sta
 import { isTxHash, TX_CACHE_SECONDS, txExplainer, type TxDeps } from "./tx";
 import { OWNERSHIP_CACHE_MS, readOwnership, type Ownership, type OwnershipDeps } from "./ownership";
 import { atomFeed, FEED_CACHE_SECONDS, jsonFeed, parseChangelog } from "./changelog";
+import { perKeyCache, POT_CACHE_MS, POT_CACHE_SIZE, potParam, readPotSummary, type PotsDeps, type PotSummary } from "./pots";
 
 export interface PublicApiDeps {
   chainId: number;
@@ -20,6 +21,7 @@ export interface PublicApiDeps {
   ownership: OwnershipDeps;
   /** CHANGELOG.md as it is in this release, and the public address the feeds name as their own. */
   changelog: { text: string; baseUrl: string };
+  pots: PotsDeps;
   limiter?: Limiter;
   nowMs?: () => number;
 }
@@ -30,6 +32,8 @@ export const TEXT = {
   limited: "Too many requests. Wait a little and try again.",
   down: "Couldn't read the chain or the database just now. Try again in a minute.",
   badHash: "A transaction hash is 0x followed by 64 hex characters.",
+  badPot: "A group account address is 0x followed by 40 hex characters.",
+  noPot: "No Cofer group account at this address.",
   noTx: "No transaction with this hash on this chain (yet).",
 } as const;
 
@@ -39,6 +43,17 @@ export function publicApi(d: PublicApiDeps) {
   const status = cached<Status>(() => readStatus(d.status), STATUS_CACHE_MS, nowMs);
   const explainTx = txExplainer(d.tx);
   const ownership = cached<Ownership>(() => readOwnership(d.ownership), OWNERSHIP_CACHE_MS, nowMs);
+  // a group account must be one the factory made; the answer never changes, so it is kept
+  const potKnown = perKeyCache(async (a) => d.pots.isPot(a as `0x${string}`), 24 * 3600_000, 20_000, nowMs);
+  const summary = perKeyCache<PotSummary>((a) => readPotSummary(d.pots, a as `0x${string}`), POT_CACHE_MS, POT_CACHE_SIZE, nowMs);
+  /** The checked pot address, or the error answer. */
+  const pot = async (c: Context) => {
+    const a = potParam(c.req.param("pot") ?? "");
+    if (!a) return { res: fail(c, 400, "bad_request", TEXT.badPot) };
+    if (!(await potKnown(a)).value) return { res: fail(c, 404, "not_found", TEXT.noPot) };
+    return { a };
+  };
+
   // made once at start-up from this release's CHANGELOG.md
   const entries = parseChangelog(d.changelog.text);
   const atom = atomFeed(entries, d.changelog.baseUrl);
@@ -92,6 +107,13 @@ export function publicApi(d: PublicApiDeps) {
 
   app.get("/changelog.atom", (c) => c.body(atom, 200, { ...PUBLIC_HEADERS, "content-type": "application/atom+xml; charset=utf-8", "cache-control": `public, max-age=${FEED_CACHE_SECONDS}` }));
   app.get("/changelog.json", (c) => c.body(feedJson, 200, { ...PUBLIC_HEADERS, "content-type": "application/feed+json; charset=utf-8", "cache-control": `public, max-age=${FEED_CACHE_SECONDS}` }));
+
+  app.get("/pots/:pot", async (c) => {
+    const p = await pot(c);
+    if (!p.a) return p.res;
+    const s = await summary(p.a);
+    return ok(c, s.value, meta(s.at, POT_CACHE_MS / 1000));
+  });
 
   // last: anything else under /v1 (a sub-app's notFound is not used once it is mounted)
   app.all("*", (c) => fail(c, 404, "not_found", TEXT.notFound));

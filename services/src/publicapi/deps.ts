@@ -6,7 +6,7 @@ import { eq } from "drizzle-orm";
 import { getAddress, zeroAddress, type Address } from "viem";
 import { privateKeyToAccount } from "viem/accounts";
 import { db, schema } from "../db/client";
-import { aggregatorAbi, erc20Abi, factoryAbi, factoryAddress, feeRouterAbi, publicClient } from "../chain/clients";
+import { aggregatorAbi, erc20Abi, factoryAbi, factoryAddress, feeRouterAbi, potAbi, publicClient } from "../chain/clients";
 import { signerRpcUrl } from "../web/page";
 import { readFileSync } from "node:fs";
 import { CURSOR } from "../indexer/indexer";
@@ -46,6 +46,19 @@ export function livePublicApiDeps(e: Env): PublicApiDeps {
   // the factory's fee router is fixed at deploy; read once (until then, a value that matches no log)
   void client.readContract({ address: factoryAddress(), abi: factoryAbi, functionName: "feeRouter" }).then((r) => (router = r)).catch(() => {});
   const feeRouter = () => router ?? ("0x0000000000000000000000000000000000000000" as Address);
+  const feeRouterNow = async () => router ?? (router = await client.readContract({ address: factoryAddress(), abi: factoryAbi, functionName: "feeRouter" }));
+  /** A token's symbol and decimals: USDG, then the listed assets table, then the token itself; kept once read. */
+  const tokenInfo = memo(async (a: Address) => {
+    if (a.toLowerCase() === e.USDG_ADDRESS.toLowerCase()) return { symbol: "USDG", decimals: 6 };
+    const row = await db().query.assets.findFirst({ where: eq(schema.assets.address, getAddress(a)) }).catch(() => undefined);
+    if (row) return { symbol: row.symbol, decimals: row.decimals };
+    try {
+      const [symbol, decimals] = await Promise.all([client.readContract({ address: a, abi: erc20Abi, functionName: "symbol" }), client.readContract({ address: a, abi: erc20Abi, functionName: "decimals" })]);
+      return { symbol: String(symbol).slice(0, 16), decimals: Number(decimals) };
+    } catch {
+      return null;
+    }
+  });
   const relayer = privateKeyToAccount(e.RELAYER_PRIVATE_KEY as `0x${string}`).address;
   return {
     chainId: e.CHAIN_ID,
@@ -72,9 +85,18 @@ export function livePublicApiDeps(e: Env): PublicApiDeps {
     },
     // this release's CHANGELOG.md (services/src/publicapi/deps.ts is three folders below the repo's top)
     changelog: { text: readChangelog(), baseUrl: e.PUBLIC_URL },
+    pots: {
+      isPot: (a) => client.readContract({ address: factoryAddress(), abi: factoryAbi, functionName: "isPot", args: [a] }),
+      read: (pot, fn, args) => client.readContract({ address: pot, abi: potAbi, functionName: fn as never, args: args as never }),
+      balanceOf: (t, h) => client.readContract({ address: t, abi: erc20Abi, functionName: "balanceOf", args: [h] }),
+      token: (a) => tokenInfo(a),
+      planPaidUntil: async (pot) => BigInt(await client.readContract({ address: await feeRouterNow(), abi: feeRouterAbi, functionName: "planPaidUntil", args: [pot] })),
+      // only the created block is read from the pots table: never its Telegram columns
+      createdBlock: async (pot) => (await db().select({ b: schema.pots.createdBlock }).from(schema.pots).where(eq(schema.pots.address, pot)).limit(1))[0]?.b ?? null,
+    },
     ownership: {
       factory: factoryAddress(),
-      feeRouter: async () => router ?? (router = await client.readContract({ address: factoryAddress(), abi: factoryAbi, functionName: "feeRouter" })),
+      feeRouter: feeRouterNow,
       rpcUrl: signerRpcUrl(e),
       readFactory: (fn) => client.readContract({ address: factoryAddress(), abi: factoryAbi, functionName: fn as never }),
       readRouter: (r, fn, args) => client.readContract({ address: r, abi: feeRouterAbi, functionName: fn as never, args: args as never }),
@@ -89,17 +111,7 @@ export function livePublicApiDeps(e: Env): PublicApiDeps {
         },
         usdg: e.USDG_ADDRESS as Address,
         isPot: memo((a: Address) => client.readContract({ address: factoryAddress(), abi: factoryAbi, functionName: "isPot", args: [a] })),
-        token: memo(async (a: Address) => {
-          if (a.toLowerCase() === e.USDG_ADDRESS.toLowerCase()) return { symbol: "USDG", decimals: 6 };
-          const row = await db().query.assets.findFirst({ where: eq(schema.assets.address, a.toLowerCase()) }).catch(() => undefined);
-          if (row) return { symbol: row.symbol, decimals: row.decimals };
-          try {
-            const [symbol, decimals] = await Promise.all([client.readContract({ address: a, abi: erc20Abi, functionName: "symbol" }), client.readContract({ address: a, abi: erc20Abi, functionName: "decimals" })]);
-            return { symbol: String(symbol).slice(0, 16), decimals: Number(decimals) };
-          } catch {
-            return null;
-          }
-        }),
+        token: (a: Address) => tokenInfo(a),
       },
     },
   };

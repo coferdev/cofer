@@ -4,14 +4,14 @@
  */
 import { describe, expect, test } from "bun:test";
 import { fieldNameProblems, fieldWords } from "../src/publicapi/format";
-import { getJson, publicServer } from "./publicApiHarness";
+import { getJson, POT, publicServer } from "./publicApiHarness";
 import recorded from "./fixtures/tx-receipts-46630.json";
 
 /**
  * Every public JSON route with a valid sample request (later updates add theirs). The changelog feeds are not listed:
  * they follow the Atom and JSON Feed standards (whose fields include "title") and carry only CHANGELOG.md text.
  */
-export const PUBLIC_JSON_ROUTES = ["/v1/status", "/v1/proof/ownership", ...recorded.receipts.map((r) => `/v1/tx/${r.transactionHash}`)];
+export const PUBLIC_JSON_ROUTES = ["/v1/status", "/v1/proof/ownership", `/v1/pots/${POT}`, ...recorded.receipts.map((r) => `/v1/tx/${r.transactionHash}`)];
 
 describe("public API field names", () => {
   test("the guard splits names into words and catches forbidden ones", () => {
