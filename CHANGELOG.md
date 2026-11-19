@@ -31,6 +31,7 @@ Fixes from the 2026-11-01 review of `0.1.0` (commit `aba0779`). `contracts/src` 
 - Update 21 · 2026-11-19 20:00 UTC: Set-aside token alarm: Staff are alerted when a set-aside token waits 7 days and could now be claimed.
 - Update 22 · 2026-11-19 21:00 UTC: Pending admin changes ledger: Feed, route and fee changes wait 48 hours. Each one is now tracked.
 - Update 23 · 2026-11-19 22:00 UTC: Pending admin changes: What each queued change does, and when.
+- Update 24 · 2026-11-19 23:00 UTC: Admin change countdown: Staff are told 6 hours before a queued change can apply, and again when it does.
 
 ### Mainnet
 - Cofer is live on Robinhood Chain mainnet (chain 4663): factory, fee router, group account template and swap adapter deployed on 2026-11-06; addresses in contracts/deployments/4663.json.

@@ -23,6 +23,7 @@ import { relayerFundsProblem } from "../core/relayerFunds";
 import { INDEXER_LAG_ALERT, indexerLagProblem } from "../core/indexerLag";
 import { runLedgers } from "./ledgers";
 import { setAsideAlarm, SET_ASIDE_ALERT, type SetAsideAlarmDeps } from "./setAsideAlarm";
+import { adminCountdown, DUE_ALERT, SOON_ALERT, type AdminCountdownDeps } from "./adminCountdown";
 import { ROLES_ALERT, roleProblem, type RoleState } from "../core/roles";
 import { CURSOR } from "../indexer/indexer";
 import { OUTFLOW_ALERT, OUTFLOW_EVENTS, OUTFLOW_WINDOW_SEC, outflowAlert, outflowsOf, summarize, valueFromHolding, type Outflow, type PotEvent } from "../core/outflow";
@@ -540,6 +541,7 @@ export async function scheduleKeeper() {
   await q.upsertJobScheduler("server", { every: 60_000 }, { name: "server" });
   await q.upsertJobScheduler("ledgers", { every: 60_000 }, { name: "ledgers" });
   await q.upsertJobScheduler("set-asides", { every: 1_800_000 }, { name: "set-asides" });
+  await q.upsertJobScheduler("admin-countdown", { every: 300_000 }, { name: "admin-countdown" });
 }
 
 export function startKeeper() {
@@ -565,6 +567,8 @@ export function startKeeper() {
           return runLedgers();
         case "set-asides":
           return setAsideAlarm(setAsideAlarmDeps());
+        case "admin-countdown":
+          return adminCountdown(adminCountdownDeps());
         case "feeds":
           return { feeds: await feedHealth(), continuity: await multiplierContinuity() };
       }
@@ -596,6 +600,22 @@ function setAsideAlarmDeps(): SetAsideAlarmDeps {
       if (a.toLowerCase() === env().USDG_ADDRESS.toLowerCase()) return { symbol: "USDG", decimals: 6 };
       const row = await db().query.assets.findFirst({ where: eq(schema.assets.address, a) });
       return row ? { symbol: row.symbol, decimals: row.decimals } : null;
+    },
+    now: () => Math.floor(Date.now() / 1000),
+    alerts: alertDeps(),
+  };
+}
+
+/** The admin countdown's live data: the queued rows of the pending admin changes ledger. */
+function adminCountdownDeps(): AdminCountdownDeps {
+  const t = schema.pendingAdminChanges;
+  return {
+    queued: () => db().select({ id: t.id, kind: t.kind, subject: t.subject, newValue: t.newValue, maxStaleness: t.maxStaleness, eta: t.eta }).from(t).where(eq(t.state, "queued")),
+    openIds: async () =>
+      [...new Set((await db().select({ key: schema.alerts.key }).from(schema.alerts).where(sql`${schema.alerts.key} like ${`${SOON_ALERT}:%`} or ${schema.alerts.key} like ${`${DUE_ALERT}:%`}`)).map((r) => r.key.slice(r.key.indexOf(":") + 1)))],
+    token: async (a) => {
+      const row = await db().query.assets.findFirst({ where: eq(schema.assets.address, a) });
+      return row ? { symbol: row.symbol } : null;
     },
     now: () => Math.floor(Date.now() / 1000),
     alerts: alertDeps(),
