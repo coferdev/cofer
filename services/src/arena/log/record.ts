@@ -75,6 +75,9 @@ export class Recorder {
     this.put({ type: "TickRef", payload: [BigInt(p.hour), BigInt(p.first), BigInt(p.last)] });
   }
 
+  /** Optional observer (the replay tool's `me`): every engine output, and the game after each tick. Never changes the log. */
+  watch?: { emitted?: (e: GameEmitted) => void; tick?: (ts: number, g: Game) => void };
+
   private outputs(out: GameEmitted[]) {
     for (const e of out) {
       const x = outputEvent(e);
@@ -92,6 +95,7 @@ export class Recorder {
     const seq = this.put({ type: "OrderIn", payload: [o.seat as Hex, bytes, signature, BigInt(recvTs)] });
     const out = step(this.game, { t: "OrderIn", seq, recvTs, order: o });
     this.outputs(out);
+    if (this.watch?.emitted) out.forEach(this.watch.emitted);
     return out;
   }
 
@@ -105,6 +109,8 @@ export class Recorder {
       this.flush();
       this.outputs(out);
     }
+    if (this.watch?.emitted) out.forEach(this.watch.emitted);
+    this.watch?.tick?.(ts, this.game);
     return out;
   }
 
@@ -158,13 +164,14 @@ export interface ReplayResult {
  * The chain id is in h_0 (not in GameOpen), so the head only matches on the chain the game ran on.
  * `ticks(ts)` gives the tape's marks at a tick (from verified tape hours), or undefined if the tape has no such tick.
  */
-export function replayLog(chainId: number, log: Hex[], rules: Rules, ticks: Ticks, expectedHead?: Hex, score?: Omit<ScoreRules, "durationMs">, flaggedPairs: [string, string][] = []): ReplayResult {
+export function replayLog(chainId: number, log: Hex[], rules: Rules, ticks: Ticks, expectedHead?: Hex, score?: Omit<ScoreRules, "durationMs">, flaggedPairs: [string, string][] = [], watch?: Recorder["watch"]): ReplayResult {
   const problems: string[] = [];
   const first = decodeLogEvent(log[0]!);
   if (first.type !== "GameOpen") return { ok: false, head: "0x", problems: ["the log does not start with GameOpen"] };
   const p = first.payload as [Hex, Hex, string, Hex[], Hex[], bigint, bigint, bigint, bigint[]];
   const open: Open = { chainId, table: p[0], rulesHash: p[1], rulesJson: p[2], seats: [...p[3]], pubkeys: [...p[4]], lockedAt: Number(p[5]), endAt: Number(p[6]), lockBlock: p[7], tapeHours: p[8].map(Number) };
   const r = new Recorder(open, rules, false);
+  r.watch = watch;
   for (let i = 1; i < log.length; i++) {
     const e = decodeLogEvent(log[i]!);
     if (e.type === "OrderIn") {
