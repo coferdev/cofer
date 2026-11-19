@@ -9,6 +9,8 @@ import type { PotsDeps } from "../src/publicapi/pots";
 import type { MembersDeps, MemberRow } from "../src/publicapi/members";
 import type { BotVoteRow, OutsideEventRow, VotesDeps } from "../src/publicapi/votes";
 import type { EventRow, TimelineDeps } from "../src/publicapi/timeline";
+import type { ReceiptsDeps } from "../src/publicapi/receipts";
+import { encodeAbiParameters, encodeEventTopics, type Abi } from "viem";
 import { decodeEventLog } from "viem";
 import { coferPotAbi } from "../src/chain/abi";
 import { encodeAction, Kind } from "../src/core/proposal";
@@ -199,8 +201,40 @@ export function fakeTimeline(rows: EventRow[] = potEventRows()): TimelineDeps {
   };
 }
 
+/** A log built with a contract's own ABI (for event kinds no testnet transaction has emitted yet). */
+export function builtLog(abi: Abi, address: Address, eventName: string, args: Record<string, unknown>, logIndex = 0) {
+  const ev = abi.find((x) => x.type === "event" && x.name === eventName) as unknown as { inputs: { name: string; type: string; indexed?: boolean }[] };
+  const topics = encodeEventTopics({ abi, eventName, args } as never) as Hex[];
+  const data = encodeAbiParameters(ev.inputs.filter((i) => !i.indexed) as never, ev.inputs.filter((i) => !i.indexed).map((i) => args[i.name]) as never);
+  return { address, topics, data, logIndex };
+}
+
+/** An exit with one token paid and one set aside, in pot 0x50F1… (block 150000000). */
+export const SET_ASIDE_EXIT_TX = `0x${"5e".repeat(32)}` as Hex;
+export const EXIT_POT = "0x50F19AdD1EE10AF538C1F8bE5bcbA4011F100115" as Address;
+export const EXITER = "0xD6D8195a52Fa752A5bBaf76b598336FecAc9c585" as Address;
+export function setAsideExit(): TxReceiptLike & { blockTime: number } {
+  return {
+    transactionHash: SET_ASIDE_EXIT_TX,
+    blockNumber: 150_000_000n,
+    blockTime: 1_790_000_000,
+    status: "success",
+    from: EXITER,
+    to: EXIT_POT,
+    logs: [
+      builtLog(coferPotAbi, EXIT_POT, "ExitOwed", { asset: T_TSTA, account: EXITER, amount: 2n * 10n ** 17n }, 3),
+      builtLog(coferPotAbi, EXIT_POT, "Exited", { member: EXITER, to: EXITER, shares: 5n * 10n ** 18n, assets: [T_USDG, T_TSTA], amounts: [4_500_000n, 2n * 10n ** 17n] }, 4),
+    ],
+  };
+}
+
+export function fakeReceipts(extra: (TxReceiptLike & { blockTime?: number })[] = []): ReceiptsDeps {
+  const tx = fakeTx([setAsideExit(), ...extra]);
+  return { chainId: 46630, rpcUrl: "https://rpc.testnet.chain.robinhood.com", isPot: tx.explain.isPot, token: tx.explain.token, receipt: tx.receipt };
+}
+
 export function fakePublicApi(over: Partial<PublicApiDeps> = {}): PublicApiDeps {
-  return { chainId: 4663, status: fakeStatus(), tx: fakeTx(), ownership: fakeOwnership(), changelog: { text: SAMPLE_CHANGELOG, baseUrl: "https://sign.example" }, pots: fakePots(), members: fakeMembers(), votes: fakeVotes(), timeline: fakeTimeline(), ...over };
+  return { chainId: 4663, status: fakeStatus(), tx: fakeTx(), ownership: fakeOwnership(), changelog: { text: SAMPLE_CHANGELOG, baseUrl: "https://sign.example" }, pots: fakePots(), members: fakeMembers(), votes: fakeVotes(), timeline: fakeTimeline(), receipts: fakeReceipts(), ...over };
 }
 
 /** The whole signer server with the public API on fake data (fixed, fake settings: never the process environment). */

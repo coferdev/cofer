@@ -15,6 +15,7 @@ import { atomFeed, FEED_CACHE_SECONDS, jsonFeed, parseChangelog } from "./change
 import { limitParam, MEMBERS_CACHE_MS, MEMBERS_DEFAULT_LIMIT, MEMBERS_MAX_LIMIT, readMembers, type MembersDeps, type MembersPage } from "./members";
 import { readVotes, stateParam, VOTES_CACHE_MS, VOTES_MAX_LIMIT, type PublicVote, type VotesDeps } from "./votes";
 import { afterParam, readTimeline, TIMELINE_CACHE_MS, TIMELINE_MAX_LIMIT, type TimelineDeps, type TimelinePage } from "./timeline";
+import { RECEIPT_CACHE_SECONDS, receiptMaker, type ReceiptKind, type ReceiptsDeps } from "./receipts";
 import { perKeyCache, POT_CACHE_MS, POT_CACHE_SIZE, potParam, readPotSummary, type PotsDeps, type PotSummary } from "./pots";
 
 export interface PublicApiDeps {
@@ -28,6 +29,7 @@ export interface PublicApiDeps {
   members: MembersDeps;
   votes: VotesDeps;
   timeline: TimelineDeps;
+  receipts: ReceiptsDeps;
   limiter?: Limiter;
   nowMs?: () => number;
 }
@@ -44,6 +46,7 @@ export const TEXT = {
   badAfter: "after must be a member address from the previous page's next.",
   badState: "state must be one of open, ready, queued, executed, expired, stale, failed.",
   badVoteLimit: "limit must be a whole number from 1 to 100.",
+  noAction: (k: string) => `This transaction has no Cofer ${k}.`,
   badCursor: "after must be the next value of the previous page, like 153947820-4.",
   noTx: "No transaction with this hash on this chain (yet).",
 } as const;
@@ -96,6 +99,16 @@ export function publicApi(d: PublicApiDeps) {
     POT_CACHE_SIZE,
     nowMs,
   );
+
+  const makeReceipt = receiptMaker(d.receipts);
+  const receiptRoute = (kind: ReceiptKind) => async (c: Context) => {
+    const hash = c.req.param("tx") ?? "";
+    if (!isTxHash(hash)) return fail(c, 400, "bad_request", TEXT.badHash);
+    const r = await makeReceipt(kind, hash);
+    if (r === null) return fail(c, 404, "not_found", TEXT.noTx);
+    if (r === "none") return fail(c, 404, "not_found", TEXT.noAction(kind));
+    return ok(c, r, meta(nowMs(), RECEIPT_CACHE_SECONDS));
+  };
 
   // made once at start-up from this release's CHANGELOG.md
   const entries = parseChangelog(d.changelog.text);
@@ -190,6 +203,8 @@ export function publicApi(d: PublicApiDeps) {
     const t = await timelinePage(`${p.a}|${after}|${limit}`);
     return ok(c, t.value, meta(t.at, TIMELINE_CACHE_MS / 1000));
   });
+
+  app.get("/receipts/exit/:tx", receiptRoute("exit"));
 
   // last: anything else under /v1 (a sub-app's notFound is not used once it is mounted)
   app.all("*", (c) => fail(c, 404, "not_found", TEXT.notFound));

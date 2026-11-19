@@ -47,6 +47,7 @@ export function livePublicApiDeps(e: Env): PublicApiDeps {
   void client.readContract({ address: factoryAddress(), abi: factoryAbi, functionName: "feeRouter" }).then((r) => (router = r)).catch(() => {});
   const feeRouter = () => router ?? ("0x0000000000000000000000000000000000000000" as Address);
   const feeRouterNow = async () => router ?? (router = await client.readContract({ address: factoryAddress(), abi: factoryAbi, functionName: "feeRouter" }));
+  const isPotMemo = memo((a: Address) => client.readContract({ address: factoryAddress(), abi: factoryAbi, functionName: "isPot", args: [a] }));
   /** A token's symbol and decimals: USDG, then the listed assets table, then the token itself; kept once read. */
   const tokenInfo = memo(async (a: Address) => {
     if (a.toLowerCase() === e.USDG_ADDRESS.toLowerCase()) return { symbol: "USDG", decimals: 6 };
@@ -165,6 +166,13 @@ export function livePublicApiDeps(e: Env): PublicApiDeps {
             .limit(limit)
         ).map((r) => ({ ...r, args: r.args as Record<string, unknown> })),
     },
+    receipts: {
+      chainId: e.CHAIN_ID,
+      rpcUrl: signerRpcUrl(e),
+      isPot: isPotMemo,
+      token: (a) => tokenInfo(a),
+      receipt: (hash) => client.getTransactionReceipt({ hash }).catch((err: unknown) => (err instanceof Error && err.name === "TransactionReceiptNotFoundError" ? null : Promise.reject(err))),
+    },
     ownership: {
       factory: factoryAddress(),
       feeRouter: feeRouterNow,
@@ -181,7 +189,7 @@ export function livePublicApiDeps(e: Env): PublicApiDeps {
           return feeRouter();
         },
         usdg: e.USDG_ADDRESS as Address,
-        isPot: memo((a: Address) => client.readContract({ address: factoryAddress(), abi: factoryAbi, functionName: "isPot", args: [a] })),
+        isPot: isPotMemo,
         token: (a: Address) => tokenInfo(a),
       },
     },
