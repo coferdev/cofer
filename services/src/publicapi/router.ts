@@ -16,6 +16,7 @@ import { limitParam, MEMBERS_CACHE_MS, MEMBERS_DEFAULT_LIMIT, MEMBERS_MAX_LIMIT,
 import { readVotes, stateParam, VOTES_CACHE_MS, VOTES_MAX_LIMIT, type PublicVote, type VotesDeps } from "./votes";
 import { afterParam, readTimeline, TIMELINE_CACHE_MS, TIMELINE_MAX_LIMIT, type TimelineDeps, type TimelinePage } from "./timeline";
 import { RECEIPT_CACHE_SECONDS, receiptMaker, type ReceiptKind, type ReceiptsDeps } from "./receipts";
+import { voteReceipt, type VoteReceipt, type VoteReceiptDeps } from "../core/voteReceipt";
 import { perKeyCache, POT_CACHE_MS, POT_CACHE_SIZE, potParam, readPotSummary, type PotsDeps, type PotSummary } from "./pots";
 
 export interface PublicApiDeps {
@@ -30,6 +31,7 @@ export interface PublicApiDeps {
   votes: VotesDeps;
   timeline: TimelineDeps;
   receipts: ReceiptsDeps;
+  voteReceipts: VoteReceiptDeps;
   limiter?: Limiter;
   nowMs?: () => number;
 }
@@ -47,6 +49,8 @@ export const TEXT = {
   badState: "state must be one of open, ready, queued, executed, expired, stale, failed.",
   badVoteLimit: "limit must be a whole number from 1 to 100.",
   noAction: (k: string) => `This transaction has no Cofer ${k}.`,
+  badDigest: "A vote id is 0x followed by 64 hex characters.",
+  noVote: "No vote with this id is known to the API. Votes made outside the bot are listed at /v1/pots/:pot/votes with their transaction.",
   badCursor: "after must be the next value of the previous page, like 153947820-4.",
   noTx: "No transaction with this hash on this chain (yet).",
 } as const;
@@ -109,6 +113,9 @@ export function publicApi(d: PublicApiDeps) {
     if (r === "none") return fail(c, 404, "not_found", TEXT.noAction(kind));
     return ok(c, r, meta(nowMs(), RECEIPT_CACHE_SECONDS));
   };
+
+  // approvals can still change, so a vote receipt is kept only briefly
+  const voteReceipts = perKeyCache<VoteReceipt | null>((k) => voteReceipt(k as `0x${string}`, d.voteReceipts), 15_000, POT_CACHE_SIZE, nowMs);
 
   // made once at start-up from this release's CHANGELOG.md
   const entries = parseChangelog(d.changelog.text);
@@ -206,6 +213,14 @@ export function publicApi(d: PublicApiDeps) {
 
   app.get("/receipts/exit/:tx", receiptRoute("exit"));
   app.get("/receipts/deposit/:tx", receiptRoute("deposit"));
+
+  app.get("/receipts/vote/:digest", async (c) => {
+    const digest = c.req.param("digest");
+    if (!isTxHash(digest)) return fail(c, 400, "bad_request", TEXT.badDigest);
+    const v = await voteReceipts(digest.toLowerCase());
+    if (!v.value) return fail(c, 404, "not_found", TEXT.noVote);
+    return ok(c, v.value, meta(v.at, 15));
+  });
 
   // last: anything else under /v1 (a sub-app's notFound is not used once it is mounted)
   app.all("*", (c) => fail(c, 404, "not_found", TEXT.notFound));

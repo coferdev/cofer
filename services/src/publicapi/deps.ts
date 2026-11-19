@@ -8,6 +8,7 @@ import { privateKeyToAccount } from "viem/accounts";
 import { db, schema } from "../db/client";
 import { aggregatorAbi, erc20Abi, factoryAbi, factoryAddress, feeRouterAbi, potAbi, publicClient } from "../chain/clients";
 import { signerRpcUrl } from "../web/page";
+import { typedData } from "../core/proposal";
 import { readFileSync } from "node:fs";
 import { CURSOR } from "../indexer/indexer";
 import type { Env } from "../env";
@@ -173,6 +174,21 @@ export function livePublicApiDeps(e: Env): PublicApiDeps {
       isPot: isPotMemo,
       token: (a) => tokenInfo(a),
       receipt: (hash) => client.getTransactionReceipt({ hash }).catch((err: unknown) => (err instanceof Error && err.name === "TransactionReceiptNotFoundError" ? null : Promise.reject(err))),
+    },
+    voteReceipts: {
+      chainId: e.CHAIN_ID,
+      rpcUrl: signerRpcUrl(e),
+      // the vote's own fields only: never the proposer, the chat message or the stored summary
+      vote: async (digest) =>
+        (
+          await db()
+            .select({ pot: schema.proposals.pot, kind: schema.proposals.kind, data: schema.proposals.data, nonce: schema.proposals.nonce, epoch: schema.proposals.epoch, deadline: schema.proposals.deadline, status: schema.proposals.status, txHash: schema.proposals.txHash })
+            .from(schema.proposals)
+            .where(eq(sql`lower(${schema.proposals.id})`, digest.toLowerCase()))
+            .limit(1)
+        )[0] ?? null,
+      approvals: (digest) => db().select({ signer: schema.signatures.signer, signature: schema.signatures.signature, revoked: schema.signatures.revoked }).from(schema.signatures).where(eq(sql`lower(${schema.signatures.proposalId})`, digest.toLowerCase())),
+      verify: (signer, env, signature) => client.verifyTypedData({ address: signer, signature, ...typedData(env) }),
     },
     ownership: {
       factory: factoryAddress(),

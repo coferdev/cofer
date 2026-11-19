@@ -10,6 +10,7 @@ import type { MembersDeps, MemberRow } from "../src/publicapi/members";
 import type { BotVoteRow, OutsideEventRow, VotesDeps } from "../src/publicapi/votes";
 import type { EventRow, TimelineDeps } from "../src/publicapi/timeline";
 import type { ReceiptsDeps } from "../src/publicapi/receipts";
+import type { VoteReceiptDeps, VoteRow } from "../src/core/voteReceipt";
 import { encodeAbiParameters, encodeEventTopics, type Abi } from "viem";
 import { decodeEventLog } from "viem";
 import { coferPotAbi } from "../src/chain/abi";
@@ -233,8 +234,28 @@ export function fakeReceipts(extra: (TxReceiptLike & { blockTime?: number })[] =
   return { chainId: 46630, rpcUrl: "https://rpc.testnet.chain.robinhood.com", usdg: T_USDG, isPot: tx.explain.isPot, token: tx.explain.token, receipt: tx.receipt };
 }
 
+/** A vote at the in-process EVM's test pot (0x…c0fe, chain 4663), so its digest can be compared with hashProposal. */
+export const EVM_POT = "0x000000000000000000000000000000000000c0fe";
+export const VOTE_ROW: VoteRow = { pot: EVM_POT, kind: Kind.TRANSFER, data: encodeAction({ kind: Kind.TRANSFER, asset: T_USDG, to: POT_MEMBERS[0]!, amount: 10_000_000n }).data, nonce: "42", epoch: 7n, deadline: 2_000_000_000, status: "collecting", txHash: null };
+export const VOTE_SIGNERS = [POT_MEMBERS[0]!, POT_MEMBERS[1]!, POT_MEMBERS[2]!];
+
+export function fakeVoteReceipts(over: Partial<VoteReceiptDeps> = {}): VoteReceiptDeps {
+  return {
+    chainId: 4663,
+    rpcUrl: "https://rpc.mainnet.chain.robinhood.com",
+    vote: async () => VOTE_ROW,
+    approvals: async () => [
+      { signer: VOTE_SIGNERS[0]!, signature: "0x01", revoked: false },
+      { signer: VOTE_SIGNERS[1]!, signature: "0x02", revoked: false },
+      { signer: VOTE_SIGNERS[2]!, signature: "0x03", revoked: true },
+    ],
+    verify: async (signer) => signer === VOTE_SIGNERS[0],
+    ...over,
+  };
+}
+
 export function fakePublicApi(over: Partial<PublicApiDeps> = {}): PublicApiDeps {
-  return { chainId: 4663, status: fakeStatus(), tx: fakeTx(), ownership: fakeOwnership(), changelog: { text: SAMPLE_CHANGELOG, baseUrl: "https://sign.example" }, pots: fakePots(), members: fakeMembers(), votes: fakeVotes(), timeline: fakeTimeline(), receipts: fakeReceipts(), ...over };
+  return { chainId: 4663, status: fakeStatus(), tx: fakeTx(), ownership: fakeOwnership(), changelog: { text: SAMPLE_CHANGELOG, baseUrl: "https://sign.example" }, pots: fakePots(), members: fakeMembers(), votes: fakeVotes(), timeline: fakeTimeline(), receipts: fakeReceipts(), voteReceipts: fakeVoteReceipts(), ...over };
 }
 
 /** The whole signer server with the public API on fake data (fixed, fake settings: never the process environment). */

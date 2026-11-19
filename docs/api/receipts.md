@@ -24,3 +24,14 @@ priced for this deposit, just before it (the base of the share maths).
 Shares minted = paid x (total shares before + 10^12) / (`groupTotalBefore` + 1), rounded down. When the group held
 anything other than USDG, "paid" is first reduced by the group's entry spread. The `checks` give total shares and the
 settings at the block before, and the group's USDG before and after.
+
+## GET /v1/receipts/vote/:digest
+
+A vote by its id (the EIP-712 digest every approver signed): `signed` holds the exact domain, types and message,
+`digestMatches` says the digest made again from them equals the id, and `approvals` lists each approver's key, its
+signature, whether it was withdrawn, and `stillValid` (checked now; for keys that are smart accounts, through
+ERC-1271). `action` and `state` say what the vote does and where it stands.
+
+Recompute it yourself with the group account's own `hashProposal(kind, data, nonce, epoch, deadline)` (the first
+line of `checks`), or `hashTypedData(signed)` with viem (numbers as bigints). Votes made outside the bot are listed
+at [`/v1/pots/:pot/votes`](pots.md#get-v1potspotvotes) with their transaction. It may be cached for 15 seconds.
