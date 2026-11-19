@@ -12,7 +12,7 @@ import { readStatus, STATUS_CACHE_MS, type Status, type StatusDeps } from "./sta
 import { isTxHash, TX_CACHE_SECONDS, txExplainer, type TxDeps } from "./tx";
 import { OWNERSHIP_CACHE_MS, readOwnership, type Ownership, type OwnershipDeps } from "./ownership";
 import { atomFeed, FEED_CACHE_SECONDS, jsonFeed, parseChangelog } from "./changelog";
-import { limitParam, MEMBERS_CACHE_MS, MEMBERS_DEFAULT_LIMIT, MEMBERS_MAX_LIMIT, readMembers, type MembersDeps, type MembersPage } from "./members";
+import { limitParam, MEMBERS_CACHE_MS, MEMBERS_DEFAULT_LIMIT, MEMBERS_MAX_LIMIT, readKeyGroups, readMembers, type KeyGroupsDeps, type MembersDeps, type MembersPage } from "./members";
 import { readVotes, stateParam, VOTES_CACHE_MS, VOTES_MAX_LIMIT, type PublicVote, type VotesDeps } from "./votes";
 import { afterParam, readTimeline, TIMELINE_CACHE_MS, TIMELINE_MAX_LIMIT, type TimelineDeps, type TimelinePage } from "./timeline";
 import { RECEIPT_CACHE_SECONDS, receiptMaker, type ReceiptKind, type ReceiptsDeps } from "./receipts";
@@ -28,6 +28,7 @@ export interface PublicApiDeps {
   changelog: { text: string; baseUrl: string };
   pots: PotsDeps;
   members: MembersDeps;
+  keyGroups: KeyGroupsDeps;
   votes: VotesDeps;
   timeline: TimelineDeps;
   receipts: ReceiptsDeps;
@@ -51,6 +52,7 @@ export const TEXT = {
   noAction: (k: string) => `This transaction has no Cofer ${k === "spend" ? "allowance spend" : k}.`,
   badDigest: "A vote id is 0x followed by 64 hex characters.",
   noVote: "No vote with this id is known to the API. Votes made outside the bot are listed at /v1/pots/:pot/votes with their transaction.",
+  badAddress: "An address is 0x followed by 40 hex characters.",
   badCursor: "after must be the next value of the previous page, like 153947820-4.",
   noTx: "No transaction with this hash on this chain (yet).",
 } as const;
@@ -116,6 +118,8 @@ export function publicApi(d: PublicApiDeps) {
 
   // approvals can still change, so a vote receipt is kept only briefly
   const voteReceipts = perKeyCache<VoteReceipt | null>((k) => voteReceipt(k as `0x${string}`, d.voteReceipts), 15_000, POT_CACHE_SIZE, nowMs);
+
+  const keyGroups = perKeyCache((a) => readKeyGroups(d.keyGroups, a as `0x${string}`), MEMBERS_CACHE_MS, POT_CACHE_SIZE, nowMs);
 
   // made once at start-up from this release's CHANGELOG.md
   const entries = parseChangelog(d.changelog.text);
@@ -221,6 +225,13 @@ export function publicApi(d: PublicApiDeps) {
     const v = await voteReceipts(digest.toLowerCase());
     if (!v.value) return fail(c, 404, "not_found", TEXT.noVote);
     return ok(c, v.value, meta(v.at, 15));
+  });
+
+  app.get("/members/:address", async (c) => {
+    const a = potParam(c.req.param("address"));
+    if (!a) return fail(c, 400, "bad_request", TEXT.badAddress);
+    const g = await keyGroups(a);
+    return ok(c, g.value, meta(g.at, MEMBERS_CACHE_MS / 1000));
   });
 
   // last: anything else under /v1 (a sub-app's notFound is not used once it is mounted)

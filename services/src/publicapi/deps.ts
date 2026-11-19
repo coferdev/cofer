@@ -190,6 +190,26 @@ export function livePublicApiDeps(e: Env): PublicApiDeps {
       approvals: (digest) => db().select({ signer: schema.signatures.signer, signature: schema.signatures.signature, revoked: schema.signatures.revoked }).from(schema.signatures).where(eq(sql`lower(${schema.signatures.proposalId})`, digest.toLowerCase())),
       verify: (signer, env, signature) => client.verifyTypedData({ address: signer, signature, ...typedData(env) }),
     },
+    keyGroups: {
+      groupsOf: (member) =>
+        db()
+          .select({ pot: schema.members.pot, shares: schema.members.shares })
+          .from(schema.members)
+          .where(and(eq(sql`lower(${schema.members.address})`, member.toLowerCase()), eq(schema.members.active, true))),
+      async joinBlocksIn(member, pots) {
+        const out = new Map<string, bigint>();
+        if (!pots.length) return out;
+        const rows = await db()
+          .select({ pot: schema.chainEvents.address, block: schema.chainEvents.block })
+          .from(schema.chainEvents)
+          .where(and(inArray(schema.chainEvents.address, pots), eq(schema.chainEvents.name, "MemberAdded"), eq(sql`lower(${schema.chainEvents.args}->>'member')`, member.toLowerCase())));
+        for (const r of rows) {
+          const k = r.pot.toLowerCase();
+          if (!out.has(k) || out.get(k)! < r.block) out.set(k, r.block);
+        }
+        return out;
+      },
+    },
     ownership: {
       factory: factoryAddress(),
       feeRouter: feeRouterNow,

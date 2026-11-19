@@ -6,7 +6,7 @@ import type { StatusDeps } from "../src/publicapi/status";
 import type { TxDeps } from "../src/publicapi/tx";
 import type { OwnershipDeps } from "../src/publicapi/ownership";
 import type { PotsDeps } from "../src/publicapi/pots";
-import type { MembersDeps, MemberRow } from "../src/publicapi/members";
+import type { KeyGroupsDeps, MembersDeps, MemberRow } from "../src/publicapi/members";
 import type { BotVoteRow, OutsideEventRow, VotesDeps } from "../src/publicapi/votes";
 import type { EventRow, TimelineDeps } from "../src/publicapi/timeline";
 import type { ReceiptsDeps } from "../src/publicapi/receipts";
@@ -254,8 +254,20 @@ export function fakeVoteReceipts(over: Partial<VoteReceiptDeps> = {}): VoteRecei
   };
 }
 
+/** POT_MEMBERS[1] is in two groups; POT_MEMBERS[0] in one; anyone else in none. */
+export function fakeKeyGroups(): KeyGroupsDeps {
+  const rows: Record<string, { pot: string; shares: string }[]> = {
+    [POT_MEMBERS[0]!.toLowerCase()]: [{ pot: POT, shares: "10000000000000000000" }],
+    [POT_MEMBERS[1]!.toLowerCase()]: [{ pot: POT, shares: "15000000000000000000" }, { pot: "0x867851A44059BC0dB4202E78ecdC97bF55d8776e", shares: "1" }],
+  };
+  return {
+    groupsOf: async (m) => rows[m.toLowerCase()] ?? [],
+    joinBlocksIn: async (_m, pots) => new Map(pots.map((p, i) => [p.toLowerCase(), 147_600_000n + BigInt(i)])),
+  };
+}
+
 export function fakePublicApi(over: Partial<PublicApiDeps> = {}): PublicApiDeps {
-  return { chainId: 4663, status: fakeStatus(), tx: fakeTx(), ownership: fakeOwnership(), changelog: { text: SAMPLE_CHANGELOG, baseUrl: "https://sign.example" }, pots: fakePots(), members: fakeMembers(), votes: fakeVotes(), timeline: fakeTimeline(), receipts: fakeReceipts(), voteReceipts: fakeVoteReceipts(), ...over };
+  return { chainId: 4663, status: fakeStatus(), tx: fakeTx(), ownership: fakeOwnership(), changelog: { text: SAMPLE_CHANGELOG, baseUrl: "https://sign.example" }, pots: fakePots(), members: fakeMembers(), keyGroups: fakeKeyGroups(), votes: fakeVotes(), timeline: fakeTimeline(), receipts: fakeReceipts(), voteReceipts: fakeVoteReceipts(), ...over };
 }
 
 /** The whole signer server with the public API on fake data (fixed, fake settings: never the process environment). */

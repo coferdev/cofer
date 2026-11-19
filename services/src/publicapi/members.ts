@@ -45,3 +45,23 @@ export async function readMembers(d: MembersDeps, pot: Address, after: string | 
     next: rows.length > limit ? getAddress(page.at(-1)!.address) : null,
   };
 }
+
+/**
+ * GET /v1/members/:address: every group account where this key is an active member, with its shares there and the
+ * block it joined. From the indexer's members table (addresses and shares only) and the MemberAdded logs.
+ */
+export interface KeyGroupsDeps {
+  /** The pots where this address is an active member, with its shares there. */
+  groupsOf(member: string): Promise<{ pot: string; shares: string }[]>;
+  /** The block of this member's MemberAdded log in each pot (latest one). */
+  joinBlocksIn(member: string, pots: string[]): Promise<Map<string, bigint>>;
+}
+
+export async function readKeyGroups(d: KeyGroupsDeps, member: Address): Promise<{ address: Address; groups: { pot: Address; shares: string; joinBlock: bigint | null }[] }> {
+  const rows = await d.groupsOf(member);
+  const joins = await d.joinBlocksIn(member, rows.map((r) => r.pot));
+  return {
+    address: member,
+    groups: rows.map((r) => ({ pot: getAddress(r.pot), shares: r.shares, joinBlock: joins.get(r.pot.toLowerCase()) ?? null })).sort((a, b) => a.pot.toLowerCase().localeCompare(b.pot.toLowerCase())),
+  };
+}

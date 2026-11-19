@@ -76,3 +76,9 @@ Paged oldest first by block and log index, `limit` 1 to 200 (default 50). `next`
 following page (like `153947820-4`), or `null` when there is nothing newer yet. A page never changes when newer
 events arrive. Check it yourself: `cast logs --address <group account> --from-block <block>`. It may be cached for
 15 seconds.
+
+## GET /v1/members/:address
+
+Every group account where this key is an active member, with its `shares` there (18 decimals) and its `joinBlock`.
+A key in no group answers an empty list. Check it yourself: `memberInfo(<key>)` on each listed group account. It may
+be cached for 15 seconds.
