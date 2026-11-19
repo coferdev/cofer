@@ -5,9 +5,10 @@
 import { describe, expect, test } from "bun:test";
 import { fieldNameProblems, fieldWords } from "../src/publicapi/format";
 import { getJson, publicServer } from "./publicApiHarness";
+import recorded from "./fixtures/tx-receipts-46630.json";
 
 /** Every public JSON route with a valid sample request (later updates add theirs). */
-export const PUBLIC_JSON_ROUTES = ["/v1/status"];
+export const PUBLIC_JSON_ROUTES = ["/v1/status", ...recorded.receipts.map((r) => `/v1/tx/${r.transactionHash}`)];
 
 describe("public API field names", () => {
   test("the guard splits names into words and catches forbidden ones", () => {

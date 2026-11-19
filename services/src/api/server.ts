@@ -1,5 +1,5 @@
 import { readFileSync } from "node:fs";
-import { Hono } from "hono";
+import { Hono, type Context } from "hono";
 import { trpcServer } from "@hono/trpc-server";
 import { webhookCallback, type Bot } from "grammy";
 import { appRouter, type ApiCtx } from "./router";
@@ -11,6 +11,9 @@ import type { ProposalDeps } from "../services/proposals";
 import type { CardAdapter } from "../cards/CardAdapter";
 import { dashboardRoutes, type DashboardDeps } from "../dashboard/routes";
 import { publicApi, type PublicApiDeps } from "../publicapi/router";
+import { isTxHash } from "../publicapi/tx";
+import { TX_PAGE_CSP, txFormPage, txResultPage } from "../web/txPage";
+import { explorerFor } from "../chain/addresses";
 
 export async function buildSignerBundle(): Promise<string> {
   const out = await Bun.build({ entrypoints: [new URL("../web/client.ts", import.meta.url).pathname], target: "browser", minify: true });
@@ -70,7 +73,29 @@ export function createServer(opts: { deps: ProposalDeps; cards: CardAdapter | nu
   if (opts.dashboard) app.route("/api/dashboard", dashboardRoutes(opts.dashboard));
 
   // the public read-only API: on-chain data only, rate limited, CORS open for GET (publicapi/router.ts)
-  if (opts.publicApi) app.route("/v1", publicApi(opts.publicApi).app);
+  const pub = opts.publicApi ? publicApi(opts.publicApi) : null;
+  if (pub) {
+    app.route("/v1", pub.app);
+    // the transaction explainer page: no script, rate limited with the public API
+    const page = (c: Context, html: string, status: 200 | 400 | 404 | 429 = 200) => {
+      c.header("content-security-policy", TX_PAGE_CSP);
+      c.header("x-frame-options", "DENY");
+      c.header("cache-control", status === 200 ? "public, max-age=300" : "no-store");
+      return c.html(html, status);
+    };
+    app.get("/tx", (c) => {
+      const h = (c.req.query("hash") ?? "").trim();
+      if (!h) return page(c, txFormPage());
+      return isTxHash(h) ? c.redirect(`/tx/${h}`, 302) : page(c, txFormPage("A transaction hash is 0x followed by 64 hex characters."), 400);
+    });
+    app.get("/tx/:hash", async (c) => {
+      if (pub.limit(c.req.header("x-forwarded-for")) > 0) return page(c, txFormPage("Too many requests. Wait a little and try again."), 429);
+      const h = c.req.param("hash");
+      if (!isTxHash(h)) return page(c, txFormPage("A transaction hash is 0x followed by 64 hex characters."), 400);
+      const ex = await pub.explainTx(h);
+      return ex ? page(c, txResultPage(ex, explorerFor(e.CHAIN_ID, e.EXPLORER_URL))) : page(c, txFormPage("No transaction with this hash on this chain (yet)."), 404);
+    });
+  }
 
   app.use(
     "/trpc/*",

@@ -6,14 +6,36 @@ import { eq } from "drizzle-orm";
 import { getAddress, zeroAddress, type Address } from "viem";
 import { privateKeyToAccount } from "viem/accounts";
 import { db, schema } from "../db/client";
-import { aggregatorAbi, factoryAbi, factoryAddress, publicClient } from "../chain/clients";
+import { aggregatorAbi, erc20Abi, factoryAbi, factoryAddress, publicClient } from "../chain/clients";
 import { CURSOR } from "../indexer/indexer";
 import type { Env } from "../env";
 import type { PublicApiDeps } from "./router";
 import type { FeedReading } from "./status";
 
+/** Remembers each answer for an address (contracts' identities and token details do not change). */
+function memo<T>(f: (a: Address) => Promise<T>, max = 5000): (a: Address) => Promise<T> {
+  const m = new Map<string, Promise<T>>();
+  return (a) => {
+    const k = a.toLowerCase();
+    let p = m.get(k);
+    if (!p) {
+      p = f(a).catch((err) => {
+        m.delete(k); // a failed read is tried again next time
+        throw err;
+      });
+      m.set(k, p);
+      if (m.size > max) m.delete(m.keys().next().value!);
+    }
+    return p;
+  };
+}
+
 export function livePublicApiDeps(e: Env): PublicApiDeps {
   const client = publicClient();
+  let router: Address | undefined;
+  // the factory's fee router is fixed at deploy; read once (until then, a value that matches no log)
+  void client.readContract({ address: factoryAddress(), abi: factoryAbi, functionName: "feeRouter" }).then((r) => (router = r)).catch(() => {});
+  const feeRouter = () => router ?? ("0x0000000000000000000000000000000000000000" as Address);
   const relayer = privateKeyToAccount(e.RELAYER_PRIVATE_KEY as `0x${string}`).address;
   return {
     chainId: e.CHAIN_ID,
@@ -37,6 +59,29 @@ export function livePublicApiDeps(e: Env): PublicApiDeps {
       },
       relayerHasGas: async () => (await client.getBalance({ address: relayer })) >= e.RELAYER_MIN_ETH,
       now: () => Math.floor(Date.now() / 1000),
+    },
+    tx: {
+      receipt: (hash) => client.getTransactionReceipt({ hash }).catch((err: unknown) => (err instanceof Error && err.name === "TransactionReceiptNotFoundError" ? null : Promise.reject(err))),
+      blockTime: async (n) => Number((await client.getBlock({ blockNumber: n })).timestamp),
+      explain: {
+        factory: factoryAddress(),
+        get feeRouter() {
+          return feeRouter();
+        },
+        usdg: e.USDG_ADDRESS as Address,
+        isPot: memo((a: Address) => client.readContract({ address: factoryAddress(), abi: factoryAbi, functionName: "isPot", args: [a] })),
+        token: memo(async (a: Address) => {
+          if (a.toLowerCase() === e.USDG_ADDRESS.toLowerCase()) return { symbol: "USDG", decimals: 6 };
+          const row = await db().query.assets.findFirst({ where: eq(schema.assets.address, a.toLowerCase()) }).catch(() => undefined);
+          if (row) return { symbol: row.symbol, decimals: row.decimals };
+          try {
+            const [symbol, decimals] = await Promise.all([client.readContract({ address: a, abi: erc20Abi, functionName: "symbol" }), client.readContract({ address: a, abi: erc20Abi, functionName: "decimals" })]);
+            return { symbol: String(symbol).slice(0, 16), decimals: Number(decimals) };
+          } catch {
+            return null;
+          }
+        }),
+      },
     },
   };
 }

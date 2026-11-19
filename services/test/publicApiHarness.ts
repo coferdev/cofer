@@ -3,6 +3,10 @@ import { createServer } from "../src/api/server";
 import { parseEnv } from "../src/env";
 import type { PublicApiDeps } from "../src/publicapi/router";
 import type { StatusDeps } from "../src/publicapi/status";
+import type { TxDeps } from "../src/publicapi/tx";
+import type { Address, Hex } from "viem";
+import type { TxReceiptLike } from "../src/core/txExplain";
+import recorded from "./fixtures/tx-receipts-46630.json";
 
 export const NOW = 1_800_000_000; // unix seconds
 export const USDG = "0x5fc5360D0400a0Fd4f2af552ADD042D716F1d168";
@@ -25,8 +29,39 @@ export function fakeStatus(over: Partial<StatusDeps> = {}): StatusDeps {
   };
 }
 
+/** Testnet tokens in the recorded receipts (read from the chain on 2026-11-16). */
+export const TESTNET_TOKENS: Record<string, { symbol: string; decimals: number }> = {
+  "0x14119629e364a53ceda500d0c1111dbb136a7398": { symbol: "USDG", decimals: 6 },
+  "0x3232ddde4c6a3fe39fd17696791d50b54bc52ffe": { symbol: "TSTA", decimals: 18 },
+  "0xe17565603c40583717e1d6923b8a0dda615522b9": { symbol: "TSTB", decimals: 18 },
+};
+
+/** A recorded receipt as the explainer takes it. */
+export function recordedReceipt(hash: string): TxReceiptLike & { blockTime: number } {
+  const r = recorded.receipts.find((x) => x.transactionHash === hash);
+  if (!r) throw new Error(`no recorded receipt ${hash}`);
+  return { ...r, blockNumber: BigInt(r.blockNumber), status: r.status as "success" | "reverted", from: r.from as Address, to: r.to as Address | null, transactionHash: r.transactionHash as Hex, logs: r.logs.map((l) => ({ ...l, address: l.address as Address, topics: l.topics as Hex[], data: l.data as Hex })) };
+}
+
+export function fakeTx(extra: (TxReceiptLike & { blockTime?: number })[] = [], over: Partial<TxDeps> = {}): TxDeps {
+  const all = [...recorded.receipts.map((r) => recordedReceipt(r.transactionHash)), ...extra];
+  const pots = new Set(recorded.pots.map((p) => p.toLowerCase()));
+  return {
+    receipt: async (hash) => all.find((r) => r.transactionHash.toLowerCase() === hash.toLowerCase()) ?? null,
+    blockTime: async (n) => all.find((r) => r.blockNumber === n)?.blockTime ?? 0,
+    explain: {
+      factory: recorded.factory as Address,
+      feeRouter: recorded.feeRouter as Address,
+      usdg: "0x14119629e364A53ceda500d0c1111DBB136A7398",
+      isPot: async (a) => pots.has(a.toLowerCase()),
+      token: async (a) => TESTNET_TOKENS[a.toLowerCase()] ?? null,
+    },
+    ...over,
+  };
+}
+
 export function fakePublicApi(over: Partial<PublicApiDeps> = {}): PublicApiDeps {
-  return { chainId: 4663, status: fakeStatus(), ...over };
+  return { chainId: 4663, status: fakeStatus(), tx: fakeTx(), ...over };
 }
 
 /** The whole signer server with the public API on fake data (fixed, fake settings: never the process environment). */

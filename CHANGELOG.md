@@ -11,6 +11,7 @@ Fixes from the 2026-11-01 review of `0.1.0` (commit `aba0779`). `contracts/src` 
 - Update 01 · 2026-11-18 20:00 UTC: Public status endpoint: Chain, latest block, indexer lag and feed ages.
 - Update 02 · 2026-11-19 01:00 UTC: Status badge: Indexer live or behind, and which chain.
 - Update 03 · 2026-11-19 02:00 UTC: Predict a group's address: Worked out offline, as the factory does.
+- Update 04 · 2026-11-19 03:00 UTC: Transaction explainer: Paste a hash. Every amount and address.
 
 ### Mainnet
 - Cofer is live on Robinhood Chain mainnet (chain 4663): factory, fee router, group account template and swap adapter deployed on 2026-11-06; addresses in contracts/deployments/4663.json.
