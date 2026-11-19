@@ -25,3 +25,16 @@ curl https://<signer site>/v1/pots/0x362B6794E6374b400aA186C1a67AC2c060af2E50
 | `createdBlock` | the block the factory created it in (from the indexer) | the factory's `PotCreated` log |
 
 It may be cached for 30 seconds.
+
+## GET /v1/pots/:pot/members
+
+```bash
+curl "https://<signer site>/v1/pots/0x362B…2E50/members?limit=50"
+```
+
+Each member by address only: `address`, `active` (false once removed or fully exited), `shares` (18 decimals) and
+`joinBlock` (the block of their `MemberAdded` log). No names, usernames or Telegram ids.
+
+Paged in address order: up to `limit` (1 to 200, default 50) per page; `next` is the `after` value for the next page,
+`null` on the last. Check it yourself: `members()(address[])` and `memberInfo(address)` on the group account, and its
+`MemberAdded` logs. It may be cached for 15 seconds.

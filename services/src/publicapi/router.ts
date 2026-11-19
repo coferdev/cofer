@@ -12,6 +12,7 @@ import { readStatus, STATUS_CACHE_MS, type Status, type StatusDeps } from "./sta
 import { isTxHash, TX_CACHE_SECONDS, txExplainer, type TxDeps } from "./tx";
 import { OWNERSHIP_CACHE_MS, readOwnership, type Ownership, type OwnershipDeps } from "./ownership";
 import { atomFeed, FEED_CACHE_SECONDS, jsonFeed, parseChangelog } from "./changelog";
+import { limitParam, MEMBERS_CACHE_MS, MEMBERS_DEFAULT_LIMIT, MEMBERS_MAX_LIMIT, readMembers, type MembersDeps, type MembersPage } from "./members";
 import { perKeyCache, POT_CACHE_MS, POT_CACHE_SIZE, potParam, readPotSummary, type PotsDeps, type PotSummary } from "./pots";
 
 export interface PublicApiDeps {
@@ -22,6 +23,7 @@ export interface PublicApiDeps {
   /** CHANGELOG.md as it is in this release, and the public address the feeds name as their own. */
   changelog: { text: string; baseUrl: string };
   pots: PotsDeps;
+  members: MembersDeps;
   limiter?: Limiter;
   nowMs?: () => number;
 }
@@ -34,6 +36,8 @@ export const TEXT = {
   badHash: "A transaction hash is 0x followed by 64 hex characters.",
   badPot: "A group account address is 0x followed by 40 hex characters.",
   noPot: "No Cofer group account at this address.",
+  badLimit: "limit must be a whole number from 1 to 200.",
+  badAfter: "after must be a member address from the previous page's next.",
   noTx: "No transaction with this hash on this chain (yet).",
 } as const;
 
@@ -53,6 +57,16 @@ export function publicApi(d: PublicApiDeps) {
     if (!(await potKnown(a)).value) return { res: fail(c, 404, "not_found", TEXT.noPot) };
     return { a };
   };
+
+  const membersPage = perKeyCache<MembersPage>(
+    (k) => {
+      const [a, after, limit] = k.split("|");
+      return readMembers(d.members, a as `0x${string}`, after || null, Number(limit));
+    },
+    MEMBERS_CACHE_MS,
+    POT_CACHE_SIZE,
+    nowMs,
+  );
 
   // made once at start-up from this release's CHANGELOG.md
   const entries = parseChangelog(d.changelog.text);
@@ -113,6 +127,17 @@ export function publicApi(d: PublicApiDeps) {
     if (!p.a) return p.res;
     const s = await summary(p.a);
     return ok(c, s.value, meta(s.at, POT_CACHE_MS / 1000));
+  });
+
+  app.get("/pots/:pot/members", async (c) => {
+    const p = await pot(c);
+    if (!p.a) return p.res;
+    const limit = limitParam(c.req.query("limit"), MEMBERS_DEFAULT_LIMIT, MEMBERS_MAX_LIMIT);
+    if (limit === null) return fail(c, 400, "bad_request", TEXT.badLimit);
+    const after = c.req.query("after") ?? "";
+    if (after && !potParam(after)) return fail(c, 400, "bad_request", TEXT.badAfter);
+    const m = await membersPage(`${p.a}|${after.toLowerCase()}|${limit}`);
+    return ok(c, m.value, meta(m.at, MEMBERS_CACHE_MS / 1000));
   });
 
   // last: anything else under /v1 (a sub-app's notFound is not used once it is mounted)

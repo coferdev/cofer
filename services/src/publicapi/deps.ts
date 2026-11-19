@@ -2,7 +2,7 @@
  * The public API's live data sources: the chain RPC (server side, never sent to a browser) and the indexer's
  * database. Read-only.
  */
-import { eq } from "drizzle-orm";
+import { and, asc, eq, gt, inArray, sql } from "drizzle-orm";
 import { getAddress, zeroAddress, type Address } from "viem";
 import { privateKeyToAccount } from "viem/accounts";
 import { db, schema } from "../db/client";
@@ -93,6 +93,29 @@ export function livePublicApiDeps(e: Env): PublicApiDeps {
       planPaidUntil: async (pot) => BigInt(await client.readContract({ address: await feeRouterNow(), abi: feeRouterAbi, functionName: "planPaidUntil", args: [pot] })),
       // only the created block is read from the pots table: never its Telegram columns
       createdBlock: async (pot) => (await db().select({ b: schema.pots.createdBlock }).from(schema.pots).where(eq(schema.pots.address, pot)).limit(1))[0]?.b ?? null,
+    },
+    members: {
+      // only address, active and shares from the members table; no Telegram data exists there or is joined in
+      members: (pot, after, limit) =>
+        db()
+          .select({ address: schema.members.address, active: schema.members.active, shares: schema.members.shares })
+          .from(schema.members)
+          .where(after ? and(eq(schema.members.pot, pot), gt(sql`lower(${schema.members.address})`, after.toLowerCase())) : eq(schema.members.pot, pot))
+          .orderBy(asc(sql`lower(${schema.members.address})`))
+          .limit(limit),
+      async joinBlocks(pot, members) {
+        const out = new Map<string, bigint>();
+        if (!members.length) return out;
+        const rows = await db()
+          .select({ block: schema.chainEvents.block, member: sql<string>`${schema.chainEvents.args}->>'member'` })
+          .from(schema.chainEvents)
+          .where(and(eq(schema.chainEvents.address, pot), eq(schema.chainEvents.name, "MemberAdded"), inArray(sql`lower(${schema.chainEvents.args}->>'member')`, members.map((m) => m.toLowerCase()))));
+        for (const r of rows) {
+          const k = r.member.toLowerCase();
+          if (!out.has(k) || out.get(k)! < r.block) out.set(k, r.block);
+        }
+        return out;
+      },
     },
     ownership: {
       factory: factoryAddress(),

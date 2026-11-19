@@ -6,6 +6,7 @@ import type { StatusDeps } from "../src/publicapi/status";
 import type { TxDeps } from "../src/publicapi/tx";
 import type { OwnershipDeps } from "../src/publicapi/ownership";
 import type { PotsDeps } from "../src/publicapi/pots";
+import type { MembersDeps, MemberRow } from "../src/publicapi/members";
 import type { Address, Hex } from "viem";
 import type { TxReceiptLike } from "../src/core/txExplain";
 import recorded from "./fixtures/tx-receipts-46630.json";
@@ -122,8 +123,24 @@ export function fakePots(over: Partial<PotsDeps> = {}, reads: Record<string, unk
   };
 }
 
+/** The members table for POT (one removed member) and their MemberAdded blocks. */
+export const MEMBER_ROWS: MemberRow[] = [
+  { address: POT_MEMBERS[0]!, active: true, shares: "10000000000000000000" },
+  { address: POT_MEMBERS[1]!, active: true, shares: "15000000000000000000" },
+  { address: POT_MEMBERS[2]!, active: true, shares: "0" },
+  { address: "0x00000000000000000000000000000000000000d1", active: false, shares: "0" },
+];
+
+export function fakeMembers(rows: MemberRow[] = MEMBER_ROWS): MembersDeps {
+  const sorted = [...rows].sort((a, b) => a.address.toLowerCase().localeCompare(b.address.toLowerCase()));
+  return {
+    members: async (pot, after, limit) => (pot.toLowerCase() === POT.toLowerCase() ? sorted.filter((r) => !after || r.address.toLowerCase() > after.toLowerCase()).slice(0, limit) : []),
+    joinBlocks: async (_pot, ms) => new Map(ms.map((m, i) => [m.toLowerCase(), 147_500_000n + BigInt(i)])),
+  };
+}
+
 export function fakePublicApi(over: Partial<PublicApiDeps> = {}): PublicApiDeps {
-  return { chainId: 4663, status: fakeStatus(), tx: fakeTx(), ownership: fakeOwnership(), changelog: { text: SAMPLE_CHANGELOG, baseUrl: "https://sign.example" }, pots: fakePots(), ...over };
+  return { chainId: 4663, status: fakeStatus(), tx: fakeTx(), ownership: fakeOwnership(), changelog: { text: SAMPLE_CHANGELOG, baseUrl: "https://sign.example" }, pots: fakePots(), members: fakeMembers(), ...over };
 }
 
 /** The whole signer server with the public API on fake data (fixed, fake settings: never the process environment). */
