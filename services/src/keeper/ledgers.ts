@@ -7,6 +7,8 @@ import { db, schema } from "../db/client";
 import { logError } from "../core/errors";
 import { runProjection, type EventIn, type LedgerStore, type Projection } from "../indexer/projections/runner";
 import { setAsidesProjection, type SetAsideChange } from "../indexer/projections/setAsides";
+import { adminQueueProjection, type AdminOp } from "../indexer/projections/adminQueue";
+import { env } from "../env";
 
 type Tx = Parameters<Parameters<ReturnType<typeof db>["transaction"]>[0]>[0];
 
@@ -50,12 +52,29 @@ export async function writeSetAsides(tx: Tx, changes: SetAsideChange[]) {
       });
 }
 
+export async function writeAdminOps(tx: Tx, ops: AdminOp[]) {
+  const t = schema.pendingAdminChanges;
+  for (const o of ops) {
+    if (o.op === "queue") {
+      const c = o.change;
+      await tx.update(t).set({ state: "replaced", resolvedBlock: c.queuedBlock, resolvedTx: c.queuedTx }).where(and(eq(t.state, "queued"), eq(t.kind, c.kind), eq(sql`lower(${t.subject})`, c.subject.toLowerCase()), sql`${t.id} <> ${c.id}`));
+      await tx.insert(t).values({ id: c.id, kind: c.kind, subject: c.subject, newValue: c.newValue, maxStaleness: c.maxStaleness, eta: c.eta, queuedBlock: c.queuedBlock, queuedTx: c.queuedTx, state: "queued" }).onConflictDoNothing();
+    } else {
+      const latest = await tx.select({ id: t.id }).from(t).where(and(eq(t.state, "queued"), eq(t.kind, o.kind), eq(sql`lower(${t.subject})`, o.subject.toLowerCase()))).orderBy(sql`${t.queuedBlock} desc`).limit(1);
+      if (latest[0]) await tx.update(t).set({ state: "applied", resolvedBlock: o.block, resolvedTx: o.tx }).where(eq(t.id, latest[0].id));
+    }
+  }
+}
+
 /** Every ledger the job runs, with its writer. Later ledgers add themselves here. */
-export const LEDGERS: { projection: Projection<never>; write: (tx: Tx, changes: never[]) => Promise<void> }[] = [{ projection: setAsidesProjection as Projection<never>, write: writeSetAsides as never }];
+export const LEDGERS = (): { projection: Projection<never>; write: (tx: Tx, changes: never[]) => Promise<void> }[] => [
+  { projection: setAsidesProjection as Projection<never>, write: writeSetAsides as never },
+  { projection: adminQueueProjection(env().FACTORY_ADDRESS) as Projection<never>, write: writeAdminOps as never },
+];
 
 export async function runLedgers(): Promise<Record<string, number>> {
   const out: Record<string, number> = {};
-  for (const l of LEDGERS) {
+  for (const l of LEDGERS()) {
     try {
       out[l.projection.name] = await runProjection(l.projection, sqlStore(l.write));
     } catch (e) {

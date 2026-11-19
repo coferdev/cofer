@@ -8,3 +8,4 @@ counts nothing twice, and rebuilding it from the start gives the same table. Cha
 | Table | Built from | What it holds |
 |---|---|---|
 | `set_asides` | `ExitOwed`, `OwedClaimed` | per group account, token and recipient: amount set aside during exits, amount claimed; open = set aside - claimed (equals the group account's `owed(token, recipient)`). Recipients that are not members are included. |
+| `pending_admin_changes` | the factory's `FeedQueued`/`FeedApplied`, `AdapterQueued`/`AdapterSet`, `SwapFeeQueued`/`SwapFeeSet` | every change queued behind the 48-hour timelock: what (`kind`, `subject`, `new_value`), the earliest time it can apply (`eta`), and its `state`: `queued`, `applied`, or `replaced` by a newer queued change for the same thing |

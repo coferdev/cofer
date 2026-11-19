@@ -209,3 +209,23 @@ export const setAsides = pgTable(
   },
   (t) => [primaryKey({ columns: [t.pot, t.asset, t.account] }), index("set_asides_account_idx").on(t.account)],
 );
+
+/** Admin changes queued behind the factory's 48-hour timelock (feed, adapter, swap fee) and what became of each
+ *  (keeper ledger, from the factory's chain_events). Chain data only. */
+export const pendingAdminChanges = pgTable(
+  "pending_admin_changes",
+  {
+    id: text("id").primaryKey(), // queue log: txHash:logIndex
+    kind: text("kind").notNull(), // feed | adapter | swap fee
+    subject: text("subject").notNull(),
+    newValue: text("new_value").notNull(),
+    maxStaleness: integer("max_staleness"),
+    eta: bigint("eta", { mode: "number" }).notNull(),
+    queuedBlock: bigint("queued_block", { mode: "bigint" }).notNull(),
+    queuedTx: text("queued_tx").notNull(),
+    state: text("state").notNull(), // queued | applied | replaced
+    resolvedBlock: bigint("resolved_block", { mode: "bigint" }),
+    resolvedTx: text("resolved_tx"),
+  },
+  (t) => [index("pending_admin_changes_state_idx").on(t.state)],
+);
