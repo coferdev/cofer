@@ -4,11 +4,16 @@
  * gzips the hour (about 14 MB an hour gzipped).
  *
  *   bun src/arena/marks/main.ts --out <dir> [--chain 4663|46630] [--rpc <url>] [--minutes N] [--quiet]
+ *                               [--keep-days 30] [--min-free-gb 10]
+ *
+ * Disk: each closed hour is gzipped (about 14 MB); hours older than --keep-days are deleted when an hour closes; if
+ * the disk's free space falls under --min-free-gb, the tape stops being written (marks still run) and it says so
+ * once a minute, so the tape can never fill the disk.
  *
  * Public data only: no keys, no database writes. The Redis stream, the database sink and the active/standby lock
  * are added with the engine (ROLE=marks in src/index.ts after the hourly updates finish).
  */
-import { mkdirSync, appendFileSync, writeFileSync, readFileSync, unlinkSync, existsSync } from "node:fs";
+import { mkdirSync, appendFileSync, writeFileSync, readFileSync, unlinkSync, existsSync, readdirSync, statfsSync } from "node:fs";
 import { join } from "node:path";
 import { createPublicClient, http, type Address } from "viem";
 import { fetchCanonicalStocks } from "../../stocks/canonical";
@@ -30,11 +35,37 @@ const chainId = Number(arg("chain", "4663"));
 const rpc = arg("rpc", "https://rpc.mainnet.chain.robinhood.com")!;
 const minutes = Number(arg("minutes", "0"));
 const quiet = process.argv.includes("--quiet");
+const keepDays = Number(arg("keep-days", "30"));
+const minFreeBytes = Number(arg("min-free-gb", "10")) * 1024 ** 3;
 mkdirSync(out, { recursive: true });
 
 const log = (m: string) => console.log(`${new Date().toISOString()} ${m}`);
 
+let diskLow = false;
+const checkDisk = () => {
+  try {
+    const f = statfsSync(out);
+    const free = Number(f.bavail) * Number(f.bsize);
+    diskLow = free < minFreeBytes;
+    if (diskLow) log(`disk low: ${(free / 1024 ** 3).toFixed(1)} GB free, under ${minFreeBytes / 1024 ** 3} GB: the tape is not being written`);
+  } catch (e) {
+    log(`disk check failed: ${String(e).slice(0, 80)}`);
+  }
+};
+checkDisk();
+setInterval(checkDisk, 60_000);
+
+/** Delete closed hours older than keepDays (their gz file and head). */
+const prune = (closedHour: number) => {
+  const oldest = closedHour - keepDays * 24;
+  for (const f of readdirSync(out)) {
+    const m = /^tape-(\d+)\.(ndjson\.gz|head)$/.exec(f);
+    if (m && Number(m[1]) < oldest) unlinkSync(join(out, f));
+  }
+};
+
 const sink = (e: EncodedEvent) => {
+  if (diskLow) return;
   appendFileSync(join(out, `tape-${e.hourId}.ndjson`), JSON.stringify({ seq: e.seq, kind: e.kind, encoded: e.encoded, chainHash: e.chainHash }) + "\n");
 };
 const onHourClosed = (hourId: number, head: string, n: number) => {
@@ -44,6 +75,7 @@ const onHourClosed = (hourId: number, head: string, n: number) => {
     writeFileSync(`${raw}.gz`, Bun.gzipSync(readFileSync(raw)));
     unlinkSync(raw);
   }
+  prune(hourId);
   log(`hour ${hourId} closed: ${n} events, tapeHead ${head}`);
 };
 const tape = new TapeWriter(chainId, sink, onHourClosed);

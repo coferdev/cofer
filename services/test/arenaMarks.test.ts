@@ -86,6 +86,12 @@ describe("mark rule", () => {
     expect(computeMark("BTC", [q("chainlink", "63800", { srcTs: Math.floor(T / 1000) - 86_401 }), q("arcus", "63800")], T, null).status).toBe("NO_QUORUM");
     expect(computeMark("BTC", [q("chainlink", "63800", { srcTs: Math.floor(T / 1000) - 86_400 }), q("arcus", "63800")], T, null).status).toBe("OK");
   });
+  test("Chainlink: our RPC read must be within 5 s; the round itself may be hours old (up to 24 h)", () => {
+    const sec = Math.floor(T / 1000);
+    const oldRound = { srcTs: sec - 6 * 3600 }; // round last updated 6 hours ago
+    expect(computeMark("BTC", [q("chainlink", "63800", { ...oldRound, recvMs: T - 1_000 }), q("arcus", "63800")], T, null).status).toBe("OK");
+    expect(computeMark("BTC", [q("chainlink", "63800", { ...oldRound, recvMs: T - 5_001 }), q("arcus", "63800")], T, null).status).toBe("NO_QUORUM");
+  });
   test("a quote received after the tick does not count", () => {
     expect(computeMark("BTC", [q("lighter", "63800", { recvMs: T + 1 }), q("arcus", "63800")], T, null).status).toBe("NO_QUORUM");
   });
