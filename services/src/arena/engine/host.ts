@@ -11,6 +11,7 @@ import type { Hex } from "viem";
 import { decodeOrder, encodeOrder } from "../log/events";
 import { type Open, Recorder } from "../log/record";
 import type { Mark } from "../marks/median";
+import { lbZadd } from "../scoring/leaderboard";
 import { type ScoreRules, type Standing, rank } from "../scoring/score";
 import type { GameEmitted } from "./game";
 import type { Rules } from "./orders";
@@ -65,6 +66,11 @@ export class GameHost {
   tick(ts: number, marks: Map<string, Mark>): SeatEvent[] {
     if (this.closed) return [];
     return seatEvents(this.rec.tick(ts, marks));
+  }
+
+  /** The ZADD arguments for `lb:<table>` at the last tick (every seat). */
+  lb(): (number | string)[] {
+    return lbZadd(this.board(this.open.seats.length), this.rec.game.startAt);
   }
 
   board(n: number): Standing[] {

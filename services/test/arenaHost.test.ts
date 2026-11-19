@@ -48,6 +48,7 @@ describe("the game host", () => {
     const end = h.rec.end();
     expect(replayLog(46630, h.rec.log, rules, (ts) => tape.get(ts), end).problems).toEqual([]);
     expect(h.board(1)[0]!.seat).toBe(SEATS[0]!);
+    expect(h.lb()[1]).toBe(SEATS[0]!.toLowerCase());
   });
 
   test("refused before the log: not canonical, another table, another seat's key, garbage, after close", () => {
