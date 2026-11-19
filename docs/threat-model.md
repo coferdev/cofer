@@ -26,7 +26,9 @@ What Cofer protects, against whom, and what it does not protect. Roles and funct
 ## What this does not protect
 
 - **After-hours moves within the 12-hour deposit limit.** A big move after the US close (for example on earnings) can make a deposit's oracle price differ from the market by more than the 0.5% entry spread for up to 12 hours; a member who deposits then and exits in kind takes the difference from the others. Accepted in SECURITY.md with the feed data behind the 12-hour choice.
-- **The audit's contract fixes are not live yet.** H-2, M-1 and L-1 are fixed in `contracts/src` but wait for the owner's re-audit and a new deploy.
+- **No human audit yet.** The contracts, including the H-2, M-1 and L-1 fixes that have been live since the 2026-11-06 deploy, have an automated pre-audit (9.0/10); a human audit is pending.
+- **The 5,000 USDG group deposit limit is not in the contracts.** The bot and the signer page enforce it; a direct call to a group account's contract can deposit more.
+- **One key does too much today.** The guardian, all four fee sinks and one of the three Safe signers are the same wallet. The split into separate keys is planned (see SECURITY.md, Roles).
 - **Members who do not act in the exit window.** The window protects members who read the group's notices and exit in time; a colluding majority can still take, after the wait, from members who stay.
 - **A replaced signer-page script.** The page's checks run inside the page; whoever can change the script the site serves can skip them. Members who want independent checks can use their own browser wallet.
 - **Members' own devices and passkeys.** Anyone who controls a member's phone or passkey can act as that member.

@@ -33,6 +33,10 @@ Notes on these choices:
   on-chain. What happens to the "perks" and "burn" shares is decided by whoever holds that wallet.
 - One key holds three things: the guardian role, all four fee sinks, and 1 of the 2 signatures
   the Safe needs. The Safe still needs a second owner's signature for anything an owner can do.
+- **Key split (planned, Day 0 of v2):** each job gets its own key: a fresh Safe signer replaces this key as a Safe
+  owner (`swapOwner`), the four fee sinks move to four separate addresses (`FeeRouter.setSinks`, split unchanged at
+  80/10/5/5), and a fresh guardian is set (`CoferFactory.setGuardian`). This table is updated, with the transaction
+  links, once the Safe owners have executed those transactions.
 - If that key leaks, an attacker can pause new deposits and new pots, and can take all fees:
   those already distributed to it and those still waiting in `FeeRouter`, because anyone can call
   `distribute` and it pays that wallet. To act as the owner they would still need a second Safe
@@ -109,13 +113,23 @@ Notes on these choices:
   *What limits it:* the window is seconds long and closes by itself at the feed's next update;
   nothing is lost, the action is only refused.
 
+- **The 5,000 USDG group deposit limit is not in the contracts.**
+  The beta limit is enforced by the bot and the signer page only. Someone who calls a group account's contract
+  directly can deposit more.
+  *Reason:* the contracts are deployed and not upgradeable; the limit is a launch-period setting.
+  *What limits it:* every deposit flow Cofer offers checks it before signing; a direct deposit only adds the
+  depositor's own money to that group, at the same price rules as any deposit.
+
 ## Known open issues (not accepted, waiting for the owner)
 
-None. The audit's contract findings are fixed in code (below) and wait for the owner's re-audit.
+None. The review's contract findings are fixed and live (below). A human audit is pending; the contracts have an
+automated pre-audit (9.0/10).
 
-## Fixed in code, pending re-audit
+## Fixed and live since the 2026-11-06 mainnet deploy
 
-These changes are in `contracts/src` after the reviewed version (`v0.1.0`, commit `aba0779`). They are not live until the owner's re-audit and a new deploy.
+These changes are in `contracts/src` after the reviewed version (`v0.1.0`, commit `aba0779`). They have been live on
+Robinhood Chain since the mainnet deploy on 2026-11-06 (deploy block 107497957), and the deployed code matches the
+local build (`bun run check-deploy`).
 
 | ID | Issue | Fix | Checked by |
 | --- | --- | --- | --- |
@@ -127,4 +141,5 @@ These changes are in `contracts/src` after the reviewed version (`v0.1.0`, commi
 
 | Date | Commit | Kind | Result |
 | --- | --- | --- | --- |
-| 2026-11-01 | `aba0779` | Full review of contracts and services | 2 High, 3 Medium, 1 Low. Fixes outside `contracts/src` are being applied; the issues above remain open. |
+| 2026-11-01 | `aba0779` | Full review of contracts and services | 2 High, 3 Medium, 1 Low. All fixed; the contract fixes are live since the 2026-11-06 deploy. |
+| 2026-11-06 | mainnet deploy | Deploy of the fixed contracts | H-2, M-1 and L-1 live. Automated pre-audit 9.0/10; human audit pending. |

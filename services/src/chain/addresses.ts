@@ -29,6 +29,7 @@ export const RHC = {
 export const FEEDS: Record<string, Address> = {
   USDG: getAddress("0x8bEeE3503F6860D5dac4cE26b5eEe92982951c2e"),
   ETH: getAddress("0x78F3556b67E17Df817D51Ef5a990cDaF09E8d3A9"),
+  BTC: getAddress("0xa2c5184bF03d373Dc9dE4876eb4Bce595B460251"), // "BTC / USD", 8 decimals (re-read on-chain 2026-11-19)
   AAPL: getAddress("0xBb11A21267cFDb63d4935d99a499133DD1744ACb"),
   TSLA: getAddress("0x7A6b81ba7FbCB90104d8C496158Cf383cD7233b1"),
   NVDA: getAddress("0x379EC4f7C378F34a1B47E4F3cbeBCbAC3E8E9F15"),
