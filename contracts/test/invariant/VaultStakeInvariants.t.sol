@@ -71,7 +71,11 @@ contract VaultStakeHandler {
         }
     }
 
+    /// At most MAX_POSITIONS positions, so the invariant's full walk over them stays cheap (128,000 calls per run).
+    uint256 public constant MAX_POSITIONS = 40;
+
     function stake(uint256 who, uint256 amount, uint8 term) external {
+        if (ids.length >= MAX_POSITIONS) return;
         address a = stakers[who % 3];
         amount = 1 + (amount % (cofr.balanceOf(a) / 4 + 1));
         if (cofr.balanceOf(a) < amount) return;
