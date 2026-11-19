@@ -3,7 +3,7 @@
  * (core/receipts.ts). A mined transaction never changes, so each receipt is kept once made.
  */
 import type { Hex } from "viem";
-import { depositReceipt, exitReceipt, type ReceiptDeps } from "../core/receipts";
+import { depositReceipt, exitReceipt, spendReceipt, type ReceiptDeps } from "../core/receipts";
 import type { TxReceiptLike } from "../core/txExplain";
 
 export const RECEIPT_CACHE_SIZE = 500;
@@ -14,7 +14,7 @@ export interface ReceiptsDeps extends ReceiptDeps {
   receipt(hash: Hex): Promise<TxReceiptLike | null>;
 }
 
-const BUILDERS = { exit: exitReceipt, deposit: depositReceipt } as const;
+const BUILDERS = { exit: exitReceipt, deposit: depositReceipt, spend: spendReceipt } as const;
 export type ReceiptKind = keyof typeof BUILDERS;
 
 export function receiptMaker(d: ReceiptsDeps) {

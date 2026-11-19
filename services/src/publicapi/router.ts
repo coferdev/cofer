@@ -48,7 +48,7 @@ export const TEXT = {
   badAfter: "after must be a member address from the previous page's next.",
   badState: "state must be one of open, ready, queued, executed, expired, stale, failed.",
   badVoteLimit: "limit must be a whole number from 1 to 100.",
-  noAction: (k: string) => `This transaction has no Cofer ${k}.`,
+  noAction: (k: string) => `This transaction has no Cofer ${k === "spend" ? "allowance spend" : k}.`,
   badDigest: "A vote id is 0x followed by 64 hex characters.",
   noVote: "No vote with this id is known to the API. Votes made outside the bot are listed at /v1/pots/:pot/votes with their transaction.",
   badCursor: "after must be the next value of the previous page, like 153947820-4.",
@@ -213,6 +213,7 @@ export function publicApi(d: PublicApiDeps) {
 
   app.get("/receipts/exit/:tx", receiptRoute("exit"));
   app.get("/receipts/deposit/:tx", receiptRoute("deposit"));
+  app.get("/receipts/spend/:tx", receiptRoute("spend"));
 
   app.get("/receipts/vote/:digest", async (c) => {
     const digest = c.req.param("digest");

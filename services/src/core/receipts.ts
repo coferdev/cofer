@@ -134,3 +134,51 @@ export async function depositReceipt(r: TxReceiptLike, d: ReceiptDeps & { usdg: 
     ],
   };
 }
+
+export interface SpendReceipt {
+  kind: "spend";
+  chainId: number;
+  tx: Hex;
+  block: bigint;
+  pot: Address;
+  spender: Address;
+  to: Address;
+  /** USDG spent, raw (6 decimals). */
+  amount: bigint;
+  memo: Hex;
+  /** What is left of the spender's allowance this period, raw (6 decimals). */
+  allowanceLeft: bigint;
+  usdg: Address;
+  checks: CheckLine[];
+}
+
+export async function spendReceipt(r: TxReceiptLike, d: ReceiptDeps & { usdg: Address }): Promise<SpendReceipt | null> {
+  if (r.status !== "success") return null;
+  const sp = (await potLogs(r, d)).find((l) => l.eventName === "AllowanceSpent");
+  if (!sp) return null;
+  const x = sp.args as { member: Address; to: Address; amount: bigint; memo: Hex; remaining: bigint };
+  const before = r.blockNumber - 1n;
+  const pot = sp.address;
+  const to = getAddress(x.to);
+  const info = "memberInfo(address)((bool,uint256,uint128,uint32,uint64,uint128))";
+  return {
+    kind: "spend",
+    chainId: d.chainId,
+    tx: r.transactionHash,
+    block: r.blockNumber,
+    pot,
+    spender: getAddress(x.member),
+    to,
+    amount: BigInt(x.amount),
+    memo: x.memo,
+    allowanceLeft: BigInt(x.remaining),
+    usdg: getAddress(d.usdg),
+    checks: [
+      { what: "The AllowanceSpent log in this transaction (spender, recipient, amount, memo, what is left)", command: `cast receipt ${r.transactionHash} --rpc-url ${d.rpcUrl}` },
+      { what: `The spender's allowance before (block ${before}): allowance, period, period start and spent are the third to sixth values`, command: castCall(d.rpcUrl, pot, info, [getAddress(x.member)], before) },
+      { what: `The same after (block ${r.blockNumber}): spent went up by the amount (or restarted with a new period)`, command: castCall(d.rpcUrl, pot, info, [getAddress(x.member)], r.blockNumber) },
+      { what: `The recipient's USDG before (block ${before}); compare with the next line, the difference is the amount`, command: castCall(d.rpcUrl, d.usdg, "balanceOf(address)(uint256)", [to], before) },
+      { what: `The recipient's USDG after (block ${r.blockNumber})`, command: castCall(d.rpcUrl, d.usdg, "balanceOf(address)(uint256)", [to], r.blockNumber) },
+    ],
+  };
+}

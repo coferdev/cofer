@@ -35,3 +35,9 @@ ERC-1271). `action` and `state` say what the vote does and where it stands.
 Recompute it yourself with the group account's own `hashProposal(kind, data, nonce, epoch, deadline)` (the first
 line of `checks`), or `hashTypedData(signed)` with viem (numbers as bigints). Votes made outside the bot are listed
 at [`/v1/pots/:pot/votes`](pots.md#get-v1potspotvotes) with their transaction. It may be cached for 15 seconds.
+
+## GET /v1/receipts/spend/:tx
+
+An allowance spend (a member spending from their own allowance, no vote): `spender`, `to`, `amount` (USDG, raw, 6
+decimals), `memo` (as recorded on chain), and `allowanceLeft` this period. The `checks` read the spender's
+`memberInfo` and the recipient's USDG at the block before and the block of the spend.
