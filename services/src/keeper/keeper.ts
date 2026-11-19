@@ -21,6 +21,7 @@ import { serverChecks } from "./serverHealth";
 import { voteAlertClears } from "../relayer/voteAlerts";
 import { relayerFundsProblem } from "../core/relayerFunds";
 import { INDEXER_LAG_ALERT, indexerLagProblem } from "../core/indexerLag";
+import { runLedgers } from "./ledgers";
 import { ROLES_ALERT, roleProblem, type RoleState } from "../core/roles";
 import { CURSOR } from "../indexer/indexer";
 import { OUTFLOW_ALERT, OUTFLOW_EVENTS, OUTFLOW_WINDOW_SEC, outflowAlert, outflowsOf, summarize, valueFromHolding, type Outflow, type PotEvent } from "../core/outflow";
@@ -536,6 +537,7 @@ export async function scheduleKeeper() {
   await q.upsertJobScheduler("ops", { every: 300_000 }, { name: "ops" });
   await q.upsertJobScheduler("health", { every: HEALTH_EVERY_MS }, { name: "health" });
   await q.upsertJobScheduler("server", { every: 60_000 }, { name: "server" });
+  await q.upsertJobScheduler("ledgers", { every: 60_000 }, { name: "ledgers" });
 }
 
 export function startKeeper() {
@@ -557,6 +559,8 @@ export function startKeeper() {
           return healthPing();
         case "server":
           return serverChecks();
+        case "ledgers":
+          return runLedgers();
         case "feeds":
           return { feeds: await feedHealth(), continuity: await multiplierContinuity() };
       }

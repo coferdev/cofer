@@ -194,3 +194,18 @@ export const feedReadings = pgTable("feed_readings", {
   mismatchSince: bigint("mismatch_since", { mode: "number" }), // unix seconds; set while feed and multiplier disagree
   seenAt: timestamp("seen_at", { withTimezone: true }).notNull().defaultNow(),
 });
+
+/** Tokens set aside during exits (ExitOwed) and claims of them (OwedClaimed), per group account, token and recipient
+ *  (keeper ledger, from chain_events). Open = set_aside - claimed. Chain data only. */
+export const setAsides = pgTable(
+  "set_asides",
+  {
+    pot: text("pot").notNull(),
+    asset: text("asset").notNull(),
+    account: text("account").notNull(),
+    setAside: numeric("set_aside", { precision: 78, scale: 0 }).notNull().default("0"),
+    claimed: numeric("claimed", { precision: 78, scale: 0 }).notNull().default("0"),
+    lastBlock: bigint("last_block", { mode: "bigint" }).notNull(),
+  },
+  (t) => [primaryKey({ columns: [t.pot, t.asset, t.account] }), index("set_asides_account_idx").on(t.account)],
+);
