@@ -20,6 +20,7 @@ Cofer is a shared money account for your Telegram group, on Robinhood Chain.
 • Where it goes: your exit goes to your own Cofer address, or to a different address you type. That must be a wallet that supports Robinhood Chain. Many exchange deposit addresses do not.
 • Nobody can recover your key, not even us. If you lose your passkey or your wallet, you lose access to your money. With a passkey: make sure your phone or browser backs it up (iCloud Keychain or Google Password Manager). With a wallet: keep a backup of its recovery phrase.
 • Cofer is in beta: each group is limited to 5,000 USDG while we test. Stocks can lose value. This is software for a group to manage its own money, not financial advice.
+• $COFR contract address (Robinhood Chain): 0x2edd2762ec5a928f749380309eca0e33941b3e3e. Only this address is ours; any other token with the same ticker is not Cofer.
 
 Main commands:
 • /start: set up your key (send it to me in a private chat).
@@ -61,12 +62,15 @@ describe("statement", () => {
 
   test("the network name and the beta limit come from the code", () => {
     expect(NOTICE_TEXT).toContain(`on ${NETWORK_NAME}.`);
+    expect(NOTICE_TEXT).toContain("• $COFR contract address (Robinhood Chain): 0x2edd2762ec5a928f749380309eca0e33941b3e3e. Only this address is ours; any other token with the same ticker is not Cofer.");
+    expect(NOTICE_TEXT.indexOf("$COFR contract address")).toBeLessThan(NOTICE_TEXT.indexOf("Main commands:"));
     expect(NOTICE_TEXT).toContain(`limited to ${usdgText(BETA_DEPOSIT_CAP_USDG!)} USDG`);
     // change either setting and the text follows
     const other = noticeText(2_500_000_000n, "Test Chain");
     expect(other).toContain("limited to 2,500 USDG");
     expect(other).toContain("Test Chain only: send USDG to that address on Test Chain only.");
-    expect(other).not.toContain("Robinhood Chain");
+    // the $COFR token lives on Robinhood Chain whatever network the bot runs on; nothing else may name it
+    expect(other.split("\n").filter((l) => !l.includes("$COFR contract address")).join("\n")).not.toContain("Robinhood Chain");
     expect(noticeText(null)).not.toMatch(/limited to|USDG while we test/);
   });
 
@@ -109,5 +113,22 @@ describe("statement", () => {
   test("the staff copy in docs/runbook.md is the same text", () => {
     const runbook = readFileSync(join(import.meta.dir, "..", "..", "docs", "runbook.md"), "utf8");
     expect(runbook).toContain(NOTICE_TEXT.split("\n").map((l) => (l ? `> ${l}` : ">")).join("\n"));
+  });
+});
+
+describe("the real $COFR address", () => {
+  test("/help ends with the real address and the copycat warning, then the statement pointer", async () => {
+    const { helpText } = await import("../src/bot/help");
+    const { COFR_CA, COFR_LINE } = await import("../src/core/cofr");
+    expect(COFR_CA).toBe("0x2edd2762ec5a928f749380309eca0e33941b3e3e");
+    for (const cardsOn of [false, true]) {
+      const lines = helpText({ cardsOn }).split("\n");
+      expect(lines.slice(-3)).toEqual([COFR_LINE, "", "Read the statement: send /start to me in a private chat."]);
+    }
+  });
+  test("the README names the same address with the warning", () => {
+    const readme = require("node:fs").readFileSync(require("node:path").join(import.meta.dir, "../../README.md"), "utf8");
+    expect(readme).toContain("0x2edd2762ec5a928f749380309eca0e33941b3e3e");
+    expect(readme).toContain("Only this address is ours; any other token with the same ticker is not Cofer.");
   });
 });

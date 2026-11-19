@@ -5,6 +5,7 @@
  * docs/runbook.md. The beta limit and the network name come from the code, so they cannot drift.
  */
 import { BETA_DEPOSIT_CAP_USDG, usdgText } from "./betaCap";
+import { COFR_LINE } from "./cofr";
 import { NETWORK_NAME } from "./exitDestination";
 
 export const NOTICE_TITLE = "Before you start";
@@ -48,6 +49,7 @@ export function noticeText(cap: bigint | null = BETA_DEPOSIT_CAP_USDG, network: 
     `• Where it goes: your exit goes to your own Cofer address, or to a different address you type. That must be a wallet that supports ${network}. Many exchange deposit addresses do not.`,
     "• Nobody can recover your key, not even us. If you lose your passkey or your wallet, you lose access to your money. With a passkey: make sure your phone or browser backs it up (iCloud Keychain or Google Password Manager). With a wallet: keep a backup of its recovery phrase.",
     beta,
+    `• ${COFR_LINE}`,
     "",
     ...NOTICE_COMMANDS,
   ].join("\n");

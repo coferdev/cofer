@@ -130,6 +130,7 @@ rephrasing it. This is the staff copy; a test keeps it equal to what the bot sen
 > • Where it goes: your exit goes to your own Cofer address, or to a different address you type. That must be a wallet that supports Robinhood Chain. Many exchange deposit addresses do not.
 > • Nobody can recover your key, not even us. If you lose your passkey or your wallet, you lose access to your money. With a passkey: make sure your phone or browser backs it up (iCloud Keychain or Google Password Manager). With a wallet: keep a backup of its recovery phrase.
 > • Cofer is in beta: each group is limited to 5,000 USDG while we test. Stocks can lose value. This is software for a group to manage its own money, not financial advice.
+> • $COFR contract address (Robinhood Chain): 0x2edd2762ec5a928f749380309eca0e33941b3e3e. Only this address is ours; any other token with the same ticker is not Cofer.
 >
 > Main commands:
 > • /start: set up your key (send it to me in a private chat).
