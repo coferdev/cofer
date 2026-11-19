@@ -19,4 +19,9 @@ body[data-cofer-navigation-ready] [data-framer-name="Navigation"]{visibility:hid
 #cofer-ca .cofer-ca-copy:focus-visible{outline:2px solid #f3f3f1;outline-offset:2px}
 html.cofer-has-ca body{padding-bottom:84px!important}
 @media(max-width:430px){#cofer-ca{font-size:12px;gap:7px;padding:6px 6px 6px 12px;bottom:max(12px,env(safe-area-inset-bottom))}#cofer-ca .cofer-ca-copy{padding:7px 11px;min-width:66px}html.cofer-has-ca body{padding-bottom:72px!important}}
+#cofer-ca .cofer-ca-live{display:inline-flex;align-items:center;gap:6px;padding:4px 9px;margin-left:-6px;border-radius:999px;background:rgba(127,224,163,.09);border:1px solid rgba(127,224,163,.26);color:#7fe0a3;font:600 11px/1 'Geist Mono',ui-monospace,Menlo,monospace;letter-spacing:.1em}
+#cofer-ca .cofer-ca-live i{width:6px;height:6px;border-radius:50%;background:#7fe0a3;box-shadow:0 0 0 0 rgba(127,224,163,.5);animation:cofer-ca-pulse 2.4s ease-out infinite}
+@keyframes cofer-ca-pulse{0%{box-shadow:0 0 0 0 rgba(127,224,163,.45)}70%{box-shadow:0 0 0 6px rgba(127,224,163,0)}100%{box-shadow:0 0 0 0 rgba(127,224,163,0)}}
+@media(prefers-reduced-motion:reduce){#cofer-ca .cofer-ca-live i{animation:none}}
+@media(max-width:430px){#cofer-ca .cofer-ca-live{padding:3px 7px;gap:5px;font-size:10px;margin-left:-4px}}
 

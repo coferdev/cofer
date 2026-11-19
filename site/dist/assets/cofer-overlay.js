@@ -39,7 +39,7 @@
  const home=/^\/(index\.html)?$/.test(location.pathname)
  const ca='0x2edd2762ec5a928f749380309eca0e33941b3e3e',short=ca.slice(0,6)+'…'+ca.slice(-4),scan='https://robinhoodchain.blockscout.com/token/'+ca
  const bar=()=>{if(!home||document.getElementById('cofer-ca'))return;const b=document.createElement('div');b.id='cofer-ca';b.setAttribute('role','region');b.setAttribute('aria-label','$COFR contract address')
-  b.innerHTML='<span class="cofer-ca-label">$COFR CA:</span><a class="cofer-ca-addr" href="'+scan+'" target="_blank" rel="noopener noreferrer" title="'+ca+' on the Robinhood Chain explorer">'+short+'</a><button type="button" class="cofer-ca-copy" aria-label="Copy the full contract address">Copy</button>'
+  b.innerHTML='<span class="cofer-ca-live" aria-label="Live on Robinhood Chain mainnet"><i aria-hidden="true"></i>LIVE</span><span class="cofer-ca-label">$COFR CA:</span><a class="cofer-ca-addr" href="'+scan+'" target="_blank" rel="noopener noreferrer" title="'+ca+' on the Robinhood Chain explorer">'+short+'</a><button type="button" class="cofer-ca-copy" aria-label="Copy the full contract address">Copy</button>'
   const btn=b.querySelector('button');let t
   btn.addEventListener('click',async e=>{e.preventDefault();e.stopPropagation();try{await navigator.clipboard.writeText(ca)}catch{const x=document.createElement('textarea');x.value=ca;document.body.appendChild(x);x.select();try{document.execCommand('copy')}catch{}x.remove()}btn.textContent='Copied';btn.dataset.done='';clearTimeout(t);t=setTimeout(()=>{btn.textContent='Copy';delete btn.dataset.done},1600)})
   document.body.appendChild(b);document.documentElement.classList.add('cofer-has-ca')}
