@@ -6,7 +6,8 @@ import { eq } from "drizzle-orm";
 import { getAddress, zeroAddress, type Address } from "viem";
 import { privateKeyToAccount } from "viem/accounts";
 import { db, schema } from "../db/client";
-import { aggregatorAbi, erc20Abi, factoryAbi, factoryAddress, publicClient } from "../chain/clients";
+import { aggregatorAbi, erc20Abi, factoryAbi, factoryAddress, feeRouterAbi, publicClient } from "../chain/clients";
+import { signerRpcUrl } from "../web/page";
 import { CURSOR } from "../indexer/indexer";
 import type { Env } from "../env";
 import type { PublicApiDeps } from "./router";
@@ -59,6 +60,13 @@ export function livePublicApiDeps(e: Env): PublicApiDeps {
       },
       relayerHasGas: async () => (await client.getBalance({ address: relayer })) >= e.RELAYER_MIN_ETH,
       now: () => Math.floor(Date.now() / 1000),
+    },
+    ownership: {
+      factory: factoryAddress(),
+      feeRouter: async () => router ?? (router = await client.readContract({ address: factoryAddress(), abi: factoryAbi, functionName: "feeRouter" })),
+      rpcUrl: signerRpcUrl(e),
+      readFactory: (fn) => client.readContract({ address: factoryAddress(), abi: factoryAbi, functionName: fn as never }),
+      readRouter: (r, fn, args) => client.readContract({ address: r, abi: feeRouterAbi, functionName: fn as never, args: args as never }),
     },
     tx: {
       receipt: (hash) => client.getTransactionReceipt({ hash }).catch((err: unknown) => (err instanceof Error && err.name === "TransactionReceiptNotFoundError" ? null : Promise.reject(err))),

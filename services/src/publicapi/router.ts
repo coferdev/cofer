@@ -10,11 +10,13 @@ import { cached, fail, ok, PUBLIC_HEADERS } from "./format";
 import { clientKey, limiter, type Limiter } from "./rateLimit";
 import { readStatus, STATUS_CACHE_MS, type Status, type StatusDeps } from "./status";
 import { isTxHash, TX_CACHE_SECONDS, txExplainer, type TxDeps } from "./tx";
+import { OWNERSHIP_CACHE_MS, readOwnership, type Ownership, type OwnershipDeps } from "./ownership";
 
 export interface PublicApiDeps {
   chainId: number;
   status: StatusDeps;
   tx: TxDeps;
+  ownership: OwnershipDeps;
   limiter?: Limiter;
   nowMs?: () => number;
 }
@@ -33,6 +35,7 @@ export function publicApi(d: PublicApiDeps) {
   const lim = d.limiter ?? limiter();
   const status = cached<Status>(() => readStatus(d.status), STATUS_CACHE_MS, nowMs);
   const explainTx = txExplainer(d.tx);
+  const ownership = cached<Ownership>(() => readOwnership(d.ownership), OWNERSHIP_CACHE_MS, nowMs);
   /** 0 when this client may make a request now, else the milliseconds to wait (shared by /v1 and the /tx page). */
   const limit = (forwardedFor: string | undefined) => lim.take(clientKey(forwardedFor), nowMs());
   const meta = (at: number, cacheSeconds: number) => ({ chainId: d.chainId, generatedAt: new Date(at).toISOString(), cacheSeconds });
@@ -73,6 +76,11 @@ export function publicApi(d: PublicApiDeps) {
     const e = await explainTx(hash);
     if (!e) return fail(c, 404, "not_found", TEXT.noTx);
     return ok(c, e, meta(nowMs(), TX_CACHE_SECONDS));
+  });
+
+  app.get("/proof/ownership", async (c) => {
+    const o = await ownership();
+    return ok(c, o.value, meta(o.at, OWNERSHIP_CACHE_MS / 1000));
   });
 
   // last: anything else under /v1 (a sub-app's notFound is not used once it is mounted)

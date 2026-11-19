@@ -4,6 +4,7 @@ import { parseEnv } from "../src/env";
 import type { PublicApiDeps } from "../src/publicapi/router";
 import type { StatusDeps } from "../src/publicapi/status";
 import type { TxDeps } from "../src/publicapi/tx";
+import type { OwnershipDeps } from "../src/publicapi/ownership";
 import type { Address, Hex } from "viem";
 import type { TxReceiptLike } from "../src/core/txExplain";
 import recorded from "./fixtures/tx-receipts-46630.json";
@@ -60,8 +61,33 @@ export function fakeTx(extra: (TxReceiptLike & { blockTime?: number })[] = [], o
   };
 }
 
+/** Mainnet's factory and fee router as contracts/deployments/4663.json records them. */
+export const MAINNET = {
+  factory: "0x5d03d53A5630ceCC545Be46635779094A11E47D7" as Address,
+  feeRouter: "0x3a90EC4e5107BC2e86ACC1a4d576A2daE1478527" as Address,
+  owner: "0x5ACD09eAe4f160e2f2e2356e6eF0496EF6f0f064" as Address,
+  guardian: "0x3f3424cdDc8Ef20EC8CDc9D104DEf1AB293E2833" as Address,
+};
+const ZERO_ADDR = "0x0000000000000000000000000000000000000000";
+
+export function fakeOwnership(factoryOver: Record<string, unknown> = {}, routerOver: Record<string, unknown> = {}): OwnershipDeps {
+  const f: Record<string, unknown> = { owner: MAINNET.owner, pendingOwner: ZERO_ADDR, guardian: MAINNET.guardian, depositsPaused: false, creationPaused: false, swapFeeBps: 30, pendingSwapFeeBps: 0, pendingSwapFeeEta: 0n, ...factoryOver };
+  const r: Record<string, unknown> = { owner: MAINNET.owner, pendingOwner: ZERO_ADDR, ...routerOver };
+  const bps = [8000, 1000, 500, 500];
+  return {
+    factory: MAINNET.factory,
+    feeRouter: async () => MAINNET.feeRouter,
+    rpcUrl: "https://rpc.mainnet.chain.robinhood.com",
+    readFactory: async (fn) => {
+      if (!(fn in f)) throw new Error(`no fake for factory.${fn}`);
+      return f[fn];
+    },
+    readRouter: async (_r, fn, args) => (fn === "sinks" ? MAINNET.guardian : fn === "bps" ? bps[Number(args![0])] : r[fn]),
+  };
+}
+
 export function fakePublicApi(over: Partial<PublicApiDeps> = {}): PublicApiDeps {
-  return { chainId: 4663, status: fakeStatus(), tx: fakeTx(), ...over };
+  return { chainId: 4663, status: fakeStatus(), tx: fakeTx(), ownership: fakeOwnership(), ...over };
 }
 
 /** The whole signer server with the public API on fake data (fixed, fake settings: never the process environment). */
