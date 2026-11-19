@@ -10,6 +10,7 @@ import type { KeyGroupsDeps, MembersDeps, MemberRow } from "../src/publicapi/mem
 import type { BotVoteRow, OutsideEventRow, VotesDeps } from "../src/publicapi/votes";
 import type { EventRow, TimelineDeps } from "../src/publicapi/timeline";
 import type { ReceiptsDeps } from "../src/publicapi/receipts";
+import type { SetAsidesDeps } from "../src/publicapi/setAsides";
 import type { VoteReceiptDeps, VoteRow } from "../src/core/voteReceipt";
 import { encodeAbiParameters, encodeEventTopics, type Abi } from "viem";
 import { decodeEventLog } from "viem";
@@ -266,8 +267,23 @@ export function fakeKeyGroups(): KeyGroupsDeps {
   };
 }
 
+/** EXITER has one open set-aside (TSTA) and one fully claimed (USDG); anyone else has none. */
+export function fakeSetAsides(): SetAsidesDeps {
+  return {
+    rpcUrl: "https://rpc.testnet.chain.robinhood.com",
+    token: async (a) => TESTNET_TOKENS[a.toLowerCase()] ?? null,
+    rowsFor: async (acc) =>
+      acc.toLowerCase() === EXITER.toLowerCase()
+        ? [
+            { pot: EXIT_POT, asset: T_TSTA, setAside: "200000000000000000", claimed: "50000000000000000", lastBlock: 150_000_100n },
+            { pot: EXIT_POT, asset: T_USDG, setAside: "5000000", claimed: "5000000", lastBlock: 150_000_050n },
+          ]
+        : [],
+  };
+}
+
 export function fakePublicApi(over: Partial<PublicApiDeps> = {}): PublicApiDeps {
-  return { chainId: 4663, status: fakeStatus(), tx: fakeTx(), ownership: fakeOwnership(), changelog: { text: SAMPLE_CHANGELOG, baseUrl: "https://sign.example" }, pots: fakePots(), members: fakeMembers(), keyGroups: fakeKeyGroups(), votes: fakeVotes(), timeline: fakeTimeline(), receipts: fakeReceipts(), voteReceipts: fakeVoteReceipts(), ...over };
+  return { chainId: 4663, status: fakeStatus(), tx: fakeTx(), ownership: fakeOwnership(), changelog: { text: SAMPLE_CHANGELOG, baseUrl: "https://sign.example" }, pots: fakePots(), members: fakeMembers(), keyGroups: fakeKeyGroups(), votes: fakeVotes(), timeline: fakeTimeline(), receipts: fakeReceipts(), setAsides: fakeSetAsides(), voteReceipts: fakeVoteReceipts(), ...over };
 }
 
 /** The whole signer server with the public API on fake data (fixed, fake settings: never the process environment). */

@@ -210,6 +210,17 @@ export function livePublicApiDeps(e: Env): PublicApiDeps {
         return out;
       },
     },
+    setAsides: {
+      rpcUrl: signerRpcUrl(e),
+      token: (a) => tokenInfo(a),
+      rowsFor: async (account) =>
+        (
+          await db()
+            .select({ pot: schema.setAsides.pot, asset: schema.setAsides.asset, setAside: schema.setAsides.setAside, claimed: schema.setAsides.claimed, lastBlock: schema.setAsides.lastBlock })
+            .from(schema.setAsides)
+            .where(eq(sql`lower(${schema.setAsides.account})`, account.toLowerCase()))
+        ).map((r) => ({ ...r, setAside: String(r.setAside), claimed: String(r.claimed) })),
+    },
     ownership: {
       factory: factoryAddress(),
       feeRouter: feeRouterNow,

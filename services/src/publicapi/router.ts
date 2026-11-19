@@ -17,6 +17,7 @@ import { readVotes, stateParam, VOTES_CACHE_MS, VOTES_MAX_LIMIT, type PublicVote
 import { afterParam, readTimeline, TIMELINE_CACHE_MS, TIMELINE_MAX_LIMIT, type TimelineDeps, type TimelinePage } from "./timeline";
 import { RECEIPT_CACHE_SECONDS, receiptMaker, type ReceiptKind, type ReceiptsDeps } from "./receipts";
 import { voteReceipt, type VoteReceipt, type VoteReceiptDeps } from "../core/voteReceipt";
+import { readSetAsides, SET_ASIDES_CACHE_MS, type SetAsidesDeps } from "./setAsides";
 import { perKeyCache, POT_CACHE_MS, POT_CACHE_SIZE, potParam, readPotSummary, type PotsDeps, type PotSummary } from "./pots";
 
 export interface PublicApiDeps {
@@ -29,6 +30,7 @@ export interface PublicApiDeps {
   pots: PotsDeps;
   members: MembersDeps;
   keyGroups: KeyGroupsDeps;
+  setAsides: SetAsidesDeps;
   votes: VotesDeps;
   timeline: TimelineDeps;
   receipts: ReceiptsDeps;
@@ -120,6 +122,8 @@ export function publicApi(d: PublicApiDeps) {
   const voteReceipts = perKeyCache<VoteReceipt | null>((k) => voteReceipt(k as `0x${string}`, d.voteReceipts), 15_000, POT_CACHE_SIZE, nowMs);
 
   const keyGroups = perKeyCache((a) => readKeyGroups(d.keyGroups, a as `0x${string}`), MEMBERS_CACHE_MS, POT_CACHE_SIZE, nowMs);
+
+  const setAsides = perKeyCache((a) => readSetAsides(d.setAsides, a as `0x${string}`), SET_ASIDES_CACHE_MS, POT_CACHE_SIZE, nowMs);
 
   // made once at start-up from this release's CHANGELOG.md
   const entries = parseChangelog(d.changelog.text);
@@ -232,6 +236,13 @@ export function publicApi(d: PublicApiDeps) {
     if (!a) return fail(c, 400, "bad_request", TEXT.badAddress);
     const g = await keyGroups(a);
     return ok(c, g.value, meta(g.at, MEMBERS_CACHE_MS / 1000));
+  });
+
+  app.get("/set-asides/:address", async (c) => {
+    const a = potParam(c.req.param("address"));
+    if (!a) return fail(c, 400, "bad_request", TEXT.badAddress);
+    const r = await setAsides(a);
+    return ok(c, r.value, meta(r.at, SET_ASIDES_CACHE_MS / 1000));
   });
 
   // last: anything else under /v1 (a sub-app's notFound is not used once it is mounted)

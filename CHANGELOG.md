@@ -27,6 +27,7 @@ Fixes from the 2026-11-01 review of `0.1.0` (commit `aba0779`). `contracts/src` 
 - Update 17 · 2026-11-19 16:00 UTC: Receipt checker: Any RPC you choose. It names the line that fails.
 - Update 18 · 2026-11-19 17:00 UTC: One key, every group: Every group where an address is a member.
 - Update 19 · 2026-11-19 18:00 UTC: Set-aside ledger: Every token set aside at an exit, claimed or not, for any address.
+- Update 20 · 2026-11-19 19:00 UTC: Anything set aside for me?: Open set-aside tokens, with the claim call.
 
 ### Mainnet
 - Cofer is live on Robinhood Chain mainnet (chain 4663): factory, fee router, group account template and swap adapter deployed on 2026-11-06; addresses in contracts/deployments/4663.json.
