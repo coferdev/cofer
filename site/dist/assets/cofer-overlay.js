@@ -1,7 +1,7 @@
 (() => {
- const bot='https://t.me/coferappbot',community='https://t.me/usecoferonRH',xPage='https://x.com/UseCofer';
- const newTab=new Set([community,xPage]);
- const destinations={'Open in Telegram':bot,'Telegram bot':bot,'Telegram':community,'Community':community,'Telegram Community':community,'X / Twitter':xPage,'Features':'#platform','Explore account':'#platform','Shared account':'#platform','Shares':'#platform','Group buys':'#platform','How it works':'/how-it-works.html','Friends':'#flow','Travel':'#flow','Communities':'#flow','The system':'#system','Experience':'#developers','Explore how it works':'/how-it-works.html','Account rules':'#proof','Development':'#proof','Rules':'#proof','Questions':'#proof','Explore':'#platform'};
+ const bot='https://t.me/coferappbot',community='https://t.me/usecoferonRH',xPage='https://x.com/UseCofer',repo='https://github.com/coferdev/cofer';
+ const newTab=new Set([community,xPage,repo]);
+ const destinations={'Open in Telegram':bot,'Telegram bot':bot,'Telegram':community,'Community':community,'Telegram Community':community,'X / Twitter':xPage,'GitHub':repo,'Features':'#platform','Explore account':'#platform','Shared account':'#platform','Shares':'#platform','Group buys':'#platform','How it works':'/how-it-works.html','Friends':'#flow','Travel':'#flow','Communities':'#flow','The system':'#system','Experience':'#developers','Explore how it works':'/how-it-works.html','Account rules':'#proof','Development':'#proof','Rules':'#proof','Questions':'#proof','Explore':'#platform'};
  const icons={GitHub:'<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 .8a11.2 11.2 0 0 0-3.54 21.83c.56.1.77-.24.77-.54v-2.16c-3.14.68-3.8-1.33-3.8-1.33-.51-1.3-1.25-1.65-1.25-1.65-1.02-.7.08-.69.08-.69 1.13.08 1.73 1.16 1.73 1.16 1 1.72 2.63 1.22 3.27.93.1-.72.39-1.22.7-1.5-2.51-.29-5.15-1.26-5.15-5.58 0-1.23.44-2.23 1.16-3.02-.12-.28-.5-1.43.11-2.98 0 0 .94-.3 3.08 1.15a10.7 10.7 0 0 1 5.6 0c2.14-1.45 3.08-1.15 3.08-1.15.61 1.55.23 2.7.11 2.98.72.79 1.15 1.79 1.15 3.02 0 4.33-2.64 5.29-5.16 5.57.4.35.76 1.03.76 2.08v3.07c0 .3.2.65.77.54A11.2 11.2 0 0 0 12 .8z"/></svg>','X / Twitter':'<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M18.9 2H22l-6.8 7.8L23.2 22H17l-4.9-7.4L5.6 22H2.5l7.2-8.3L1.9 2h6.4l4.4 6.7L18.9 2zm-1.1 18h1.7L7.4 3.9H5.6L17.8 20z"/></svg>',Telegram:'<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M21.5 3.2 2.6 10.5c-1.3.5-1.3 1.2-.2 1.5l4.9 1.5 1.9 5.8c.2.6.1.9.8.9.5 0 .8-.2 1.1-.5l2.4-2.3 5 3.7c.9.5 1.6.3 1.8-.8L23 4.5c.3-1.3-.5-1.8-1.5-1.3zM8 13.2 19 6.3c.5-.3.9-.1.5.2l-9.1 8.2-.4 4-2-5.5z"/></svg>'};
  icons.Community=icons.Telegram;icons['Telegram Community']=icons.Telegram;
  let previousFocus;
@@ -15,3 +15,33 @@
  const fixTitle=()=>{if(document.title!=='Cofer — Your group chat gets a shared account')document.title='Cofer — Your group chat gets a shared account'};fixTitle();const titleNode=document.querySelector('title');if(titleNode)new MutationObserver(fixTitle).observe(titleNode,{childList:true,characterData:true,subtree:true});document.querySelectorAll('a').forEach(update);const heading=document.querySelector('h1');if(heading)heading.setAttribute('aria-label','Your group chat gets a shared account. Everyone has a say.');
  const observer=new MutationObserver(records=>{for(const record of records){for(const node of record.addedNodes)updateWithin(node)}});observer.observe(document.documentElement,{childList:true,subtree:true});
 })();
+;(() => {
+ // Cofer is live on Robinhood Chain mainnet: the home page's "in development" wording, and the $COFR contract-address bar.
+ const live={
+  'IN DEVELOPMENT':'LIVE ON MAINNET',
+  '  in development':'  live on Robinhood Chain',
+  'Create, join, decide and exit. Scroll through the stages or select one to see how the group account is designed to work.':'Create, join, decide and exit. Scroll through the stages or select one to see how the group account works.',
+  'cofer / planned account':'cofer / group account',
+  'ACCOUNT / PLANNED':'ACCOUNT / LIVE',
+  'STATUS / DEVELOPMENT':'STATUS / LIVE',
+  'Planned defaults from the product specification. Cofer is in development and the account is not yet live.':'Defaults from the product specification, live on Robinhood Chain mainnet.',
+  'DEFAULT · NON-UNANIMOUS NON-SWAP':'DEFAULT · NON-UNANIMOUS VOTES',
+  'SIG/01 — ILLUSTRATIVE SIGNAL · NOT LIVE ACCOUNT DATA':'SIG/01 — ILLUSTRATIVE SIGNAL · SAMPLE DATA',
+  'Most non-unanimous votes wait through an exit window. Swaps are an exception.':'Non-unanimous votes wait through an exit window, swaps included.',
+  '// Illustrative rules, not a live integration':'// Illustrative example of the account rules',
+  'in development':'live on mainnet',
+  'NOT LIVE':'LIVE',
+  'Development':'Status',
+  '© 2026 COFER · PRODUCT IN DEVELOPMENT':'© 2026 COFER · LIVE ON ROBINHOOD CHAIN'
+ }
+ const fix=root=>{const w=document.createTreeWalker(root,NodeFilter.SHOW_TEXT);let n;while((n=w.nextNode())){const v=live[n.data];if(v!==undefined&&n.data!==v)n.data=v}}
+ const start=()=>{fix(document.body);new MutationObserver(ms=>{for(const m of ms){if(m.type==='characterData'){const v=live[m.target.data];if(v!==undefined&&m.target.data!==v)m.target.data=v}else for(const a of m.addedNodes)if(a.nodeType===1)fix(a);else if(a.nodeType===3){const v=live[a.data];if(v!==undefined)a.data=v}}}).observe(document.body,{subtree:true,childList:true,characterData:true})}
+ const home=/^\/(index\.html)?$/.test(location.pathname)
+ const ca='0x2edd2762ec5a928f749380309eca0e33941b3e3e',short=ca.slice(0,6)+'…'+ca.slice(-4),scan='https://robinhoodchain.blockscout.com/token/'+ca
+ const bar=()=>{if(!home||document.getElementById('cofer-ca'))return;const b=document.createElement('div');b.id='cofer-ca';b.setAttribute('role','region');b.setAttribute('aria-label','$COFR contract address')
+  b.innerHTML='<span class="cofer-ca-label">$COFR CA:</span><a class="cofer-ca-addr" href="'+scan+'" target="_blank" rel="noopener noreferrer" title="'+ca+' on the Robinhood Chain explorer">'+short+'</a><button type="button" class="cofer-ca-copy" aria-label="Copy the full contract address">Copy</button>'
+  const btn=b.querySelector('button');let t
+  btn.addEventListener('click',async e=>{e.preventDefault();e.stopPropagation();try{await navigator.clipboard.writeText(ca)}catch{const x=document.createElement('textarea');x.value=ca;document.body.appendChild(x);x.select();try{document.execCommand('copy')}catch{}x.remove()}btn.textContent='Copied';btn.dataset.done='';clearTimeout(t);t=setTimeout(()=>{btn.textContent='Copy';delete btn.dataset.done},1600)})
+  document.body.appendChild(b);document.documentElement.classList.add('cofer-has-ca')}
+ if(document.readyState==='loading')document.addEventListener('DOMContentLoaded',()=>{start();bar()});else{start();bar()}
+})()
