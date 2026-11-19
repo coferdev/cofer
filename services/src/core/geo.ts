@@ -44,6 +44,16 @@ export function groupCanBuyStocks(members: MemberRegion[]): GroupStockGate {
 
 /** Comprehensive-sanctions regions (ISO alpha-2). The live list comes from config and is reviewed monthly. */
 export const SANCTIONED_DEFAULT: ReadonlySet<string> = new Set(["CU", "IR", "KP", "SY"]);
+/** Sanctioned subdivisions (ISO 3166-2), matched against the edge's IP region: Crimea, Sevastopol, Donetsk, Luhansk. */
+export const SANCTIONED_REGIONS_DEFAULT: ReadonlySet<string> = new Set(["UA-43", "UA-40", "UA-14", "UA-09"]);
+
+/** The ISO 3166-2 code from the edge's country and region code (Cloudflare sends "UA" and "43"; some edges send "UA-43"). */
+export function subdivisionOf(ipCountry?: string | null, regionCode?: string | null): string | undefined {
+  const c = ipCountry?.trim().toUpperCase();
+  const r = regionCode?.trim().toUpperCase();
+  if (!c || !r) return undefined;
+  return r.includes("-") ? r : `${c}-${r}`;
+}
 /** Friend Tables (paid entry) are off here, as well as on hosting or VPN networks. */
 export const FRIEND_BLOCKED: ReadonlySet<string> = new Set(["US", "GB", "CA", "AE", "CH", "SG"]);
 export const STOCK_PRIZE_BLOCKED: ReadonlySet<string> = new Set([...STOCK_EXCLUDED, "SG"]);
@@ -55,12 +65,14 @@ export type ArenaGate = { play: boolean; prize: boolean; reason?: "region" | "de
 export function arenaGate(
   mode: ArenaMode,
   hasStocks: boolean,
-  r: MemberRegion & { asnClass?: AsnClass },
+  r: MemberRegion & { asnClass?: AsnClass; ipRegion?: string | null },
   sanctioned: ReadonlySet<string> = SANCTIONED_DEFAULT,
+  sanctionedRegions: ReadonlySet<string> = SANCTIONED_REGIONS_DEFAULT,
 ): ArenaGate {
   const d = r.declared?.toUpperCase() || undefined;
   const ip = r.ipCountry?.toUpperCase() || undefined;
-  if ((d && sanctioned.has(d)) || (ip && sanctioned.has(ip))) return { play: false, prize: false, reason: "region" };
+  const sub = r.ipRegion?.toUpperCase() || undefined;
+  if ((d && sanctioned.has(d)) || (ip && sanctioned.has(ip)) || (sub && sanctionedRegions.has(sub))) return { play: false, prize: false, reason: "region" };
   if (mode === "PRACTICE") return { play: true, prize: false };
   if (!d) return mode === "FREEROLL" ? { play: true, prize: false, reason: "declare-region" } : { play: false, prize: false, reason: "declare-region" };
   const hosting = r.asnClass === "hosting" || r.asnClass === "vpn";

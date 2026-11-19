@@ -40,6 +40,8 @@ describe("arena eligibility", () => {
     expect(decide(ask({ seated: [{ ...s, player: "0xc1", credentialId: "cred-1" }] }))).toMatchObject({ ok: false, refusal: "credential-seated" });
     expect(decide(ask({ chatMember: false }))).toMatchObject({ ok: false, refusal: "not-in-chat" });
     expect(decide(ask({ chatMember: true })).ok).toBe(true);
+    expect(decide(ask({ declared: "UA", ipCountry: "UA", ipRegion: "UA-43" }))).toMatchObject({ ok: false, refusal: "region" });
+    expect(decide(ask({ mode: "FRIEND", asnClass: "vpn" }))).toMatchObject({ ok: false, refusal: "network" });
   });
 
   test("Freeroll prizes need a 72 h old account, one Practice game and no cluster flag; the seat is still given", () => {

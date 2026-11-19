@@ -10,7 +10,8 @@
  * Every decision is returned with its reason for the geo_checks audit row; raw IPs are never part of it.
  */
 import { type Hex, encodeAbiParameters, hashTypedData } from "viem";
-import { type ArenaGate, type AsnClass, SANCTIONED_DEFAULT, arenaGate } from "../../core/geo";
+import { type ArenaGate, type AsnClass, arenaGate } from "../../core/geo";
+import { type RegionSettings, defaultRegionSettings } from "./regions";
 
 /** The escrow accepts expiry ≤ block.timestamp + 10 min; a minute of margin for clock drift. */
 export const ELIGIBILITY_TTL_S = 9 * 60;
@@ -29,6 +30,8 @@ export interface EligibilityAsk {
   credentialId: string; // passkey credential ID
   declared?: string | null;
   ipCountry?: string | null;
+  /** ISO 3166-2 subdivision from the edge (geo.ts subdivisionOf), when the edge sends one. */
+  ipRegion?: string | null;
   asnClass?: AsnClass;
   accountCreatedAt: number; // ms
   practiceGamesFinished: number;
@@ -46,8 +49,8 @@ export type Decision =
   | { ok: true; prizeEligible: boolean; prizeReason?: string; gate: ArenaGate }
   | { ok: false; refusal: Refusal; gate: ArenaGate };
 
-export function decide(q: EligibilityAsk, sanctioned: ReadonlySet<string> = SANCTIONED_DEFAULT): Decision {
-  const gate = arenaGate(q.mode, q.hasStocks, { declared: q.declared, ipCountry: q.ipCountry, asnClass: q.asnClass }, sanctioned);
+export function decide(q: EligibilityAsk, regions: RegionSettings = defaultRegionSettings): Decision {
+  const gate = arenaGate(q.mode, q.hasStocks, { declared: q.declared, ipCountry: q.ipCountry, ipRegion: q.ipRegion, asnClass: q.asnClass }, regions.countries, regions.subdivisions);
   if (!gate.play) return { ok: false, refusal: gate.reason ?? "region", gate };
   const lc = (s: string) => s.toLowerCase();
   if (q.seated.some((s) => lc(s.player) === lc(q.player))) return { ok: false, refusal: "seated", gate };
@@ -90,8 +93,8 @@ export type Issued =
   | { ok: true; prizeEligible: boolean; prizeReason?: string; expiry: number; eligibility: Hex; decision: Decision }
   | { ok: false; refusal: Refusal; decision: Decision };
 
-export async function issue(q: EligibilityAsk, sign: DigestSigner, sanctioned?: ReadonlySet<string>): Promise<Issued> {
-  const d = decide(q, sanctioned);
+export async function issue(q: EligibilityAsk, sign: DigestSigner, regions?: RegionSettings): Promise<Issued> {
+  const d = decide(q, regions);
   if (!d.ok) return { ok: false, refusal: d.refusal, decision: d };
   const expiry = BigInt(Math.floor(q.now / 1000) + ELIGIBILITY_TTL_S);
   const sig = await sign(eligibilityDigest(q.chainId, q.table, q.player, q.mode, d.prizeEligible, expiry));
