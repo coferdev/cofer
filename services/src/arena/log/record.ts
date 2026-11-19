@@ -8,7 +8,9 @@
  */
 import type { Hex } from "viem";
 import type { Mark } from "../marks/median";
-import { type Game, type GameEmitted, newGame, step } from "../engine/game";
+import { encodeAbiParameters } from "viem";
+import { type Game, type GameEmitted, finish, newGame, step } from "../engine/game";
+import { type ScoreRules, type Standing, rank } from "../scoring/score";
 import type { Order, Rules } from "../engine/orders";
 import { HOUR_MS } from "../marks/tape";
 import { LogChain } from "./chain";
@@ -99,17 +101,49 @@ export class Recorder {
     return out;
   }
 
-  /** Close the log (the GameClose event with standings is added by the result builder). */
+  /** Stop at the last tick without closing (a partial log, e.g. for a live check). */
   end(): Hex {
     this.flush();
     return this.chain.head;
   }
+
+  /**
+   * Game end: positions close at the last valid marks (engine/game.ts finish), the seats are ranked, and GameClose
+   * (endAt, the standings rows) is the last event. Returns the standings and the final head.
+   */
+  close(score: Omit<ScoreRules, "durationMs">, flaggedPairs: [string, string][] = []): { standings: Standing[]; head: Hex } {
+    this.flush();
+    const g = this.game;
+    finish(g, g.endAt);
+    const inputs = g.seats.map((seat, index) => {
+      const a = g.samples.get(seat)!;
+      const s = g.book.seats.get(seat)!;
+      return { seat, index, finalEquity: s.ledger.cash, maxDdBps: a.maxDdBps, fills: a.fills, exposedMs: a.exposedMs, eliminatedAt: s.ledger.eliminatedAt };
+    });
+    const standings = rank(inputs, { ...score, durationMs: g.endAt - g.startAt }, flaggedPairs);
+    this.put({ type: "GameClose", payload: [BigInt(g.endAt), encodeStandings(standings)] });
+    return { standings, head: this.chain.head };
+  }
 }
+
+export const STANDING_ROW = [{ type: "tuple[]", components: [
+  { name: "rank", type: "uint256" }, { name: "seat", type: "address" }, { name: "finalEquity", type: "int256" },
+  { name: "maxDrawdownBps", type: "uint256" }, { name: "score1e6", type: "int256" }, { name: "activityOk", type: "bool" },
+  { name: "eliminatedAt", type: "uint64" }, { name: "flags", type: "uint256" },
+] }] as const;
+
+export const encodeStandings = (rows: Standing[]): Hex => encodeAbiParameters(STANDING_ROW, [rows.map((r) => ({
+  rank: BigInt(r.rank), seat: r.seat as Hex, finalEquity: r.finalEquity, maxDrawdownBps: r.maxDrawdownBps, score1e6: r.score1e6,
+  activityOk: r.activityOk, eliminatedAt: BigInt(r.eliminatedAt ?? 0), flags: BigInt(r.flags),
+}))]);
 
 export interface ReplayResult {
   ok: boolean;
   head: Hex;
   problems: string[];
+  /** The rebuilt recorder (its chain gives eventsRoot; its standings come from GameClose when the log is closed). */
+  recorder?: Recorder;
+  standings?: Standing[];
 }
 
 /**
@@ -117,7 +151,7 @@ export interface ReplayResult {
  * The chain id is in h_0 (not in GameOpen), so the head only matches on the chain the game ran on.
  * `ticks(ts)` gives the tape's marks at a tick (from verified tape hours), or undefined if the tape has no such tick.
  */
-export function replayLog(chainId: number, log: Hex[], rules: Rules, ticks: Ticks, expectedHead?: Hex): ReplayResult {
+export function replayLog(chainId: number, log: Hex[], rules: Rules, ticks: Ticks, expectedHead?: Hex, score?: Omit<ScoreRules, "durationMs">, flaggedPairs: [string, string][] = []): ReplayResult {
   const problems: string[] = [];
   const first = decodeLogEvent(log[0]!);
   if (first.type !== "GameOpen") return { ok: false, head: "0x", problems: ["the log does not start with GameOpen"] };
@@ -143,11 +177,16 @@ export function replayLog(chainId: number, log: Hex[], rules: Rules, ticks: Tick
       }
     }
   }
-  const head = r.end();
+  let standings: Standing[] | undefined;
+  let head: Hex;
+  if (decodeLogEvent(log[log.length - 1]!).type === "GameClose") {
+    if (!score) return { ok: false, head: "0x", problems: ["a closed log needs the scoring rules"] };
+    ({ standings, head } = r.close(score, flaggedPairs));
+  } else head = r.end();
   const n = Math.max(log.length, r.log.length);
   for (let i = 0; i < n && problems.length < 20; i++) {
     if (log[i] !== r.log[i]) problems.push(`#${i}: the log says ${log[i] ? decodeLogEvent(log[i]!).type : "nothing"}, the replay gives ${r.log[i] ? decodeLogEvent(r.log[i]!).type : "nothing"}`);
   }
   if (expectedHead && head !== expectedHead) problems.push(`head ${head} is not the posted ${expectedHead}`);
-  return { ok: problems.length === 0, head, problems };
+  return { ok: problems.length === 0, head, problems, recorder: r, standings };
 }
