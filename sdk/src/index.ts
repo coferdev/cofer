@@ -1,2 +1,3 @@
 /** Cofer SDK: read-only helpers for Cofer on Robinhood Chain. */
 export { FACTORIES, cloneCreationCode, potSalt, predictPotAddress, type PredictInput } from "./predict";
+export { buildExit, destinationProblem, DEST_TEXT, EXIT_ABI, type BlockedAddresses, type ExitInput, type ExitKit, type Reader } from "./exit";

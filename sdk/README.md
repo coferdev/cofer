@@ -41,3 +41,27 @@ cast call 0x5d03d53A5630ceCC545Be46635779094A11E47D7 "predictPot(address,bytes32
 ```
 
 The tests compare the SDK with answers recorded from both live factories.
+
+## buildExit
+
+Everything a member's exit needs: the exact call, what it pays now, the destination checks the signer page uses, and
+the steps to check it on a block explorer.
+
+```ts
+import { buildExit } from "./sdk/src";
+import { createPublicClient, http } from "viem";
+
+const client = createPublicClient({ transport: http("https://rpc.mainnet.chain.robinhood.com") });
+const kit = await buildExit({ pot: "0x…", shares: "1000000000000000000", to: "0x…your key…" }, client);
+// kit.refused  null, or the reason (for example "That is the zero address. Anything sent there is lost.")
+// kit.call     { to: <group account>, data: "0xcff40759…", function: "exit(uint256,address)", args }
+// kit.preview  [{ asset, amount }] raw amounts per token, from the pot's previewExit
+// kit.steps    the explorer steps
+```
+
+- The call is sent by the member's own key account to the group account. Exits use no price and no vote, and
+  nothing can pause them.
+- Pass `blocked` (factory, fee router, adapters, USDG, listed Stock Tokens, other group accounts) to refuse every
+  contract address the signer page refuses; the reasons are word for word the same.
+- Without a reader it works offline and `preview` is `null`.
+- The tests run the call inside the real group account code, and compare every refusal with the signer page's.
