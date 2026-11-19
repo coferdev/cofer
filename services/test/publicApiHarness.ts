@@ -8,6 +8,9 @@ import type { OwnershipDeps } from "../src/publicapi/ownership";
 import type { PotsDeps } from "../src/publicapi/pots";
 import type { MembersDeps, MemberRow } from "../src/publicapi/members";
 import type { BotVoteRow, OutsideEventRow, VotesDeps } from "../src/publicapi/votes";
+import type { EventRow, TimelineDeps } from "../src/publicapi/timeline";
+import { decodeEventLog } from "viem";
+import { coferPotAbi } from "../src/chain/abi";
 import { encodeAction, Kind } from "../src/core/proposal";
 import type { Address, Hex } from "viem";
 import type { TxReceiptLike } from "../src/core/txExplain";
@@ -174,8 +177,30 @@ export function fakeVotes(over: Partial<VotesDeps> = {}): VotesDeps {
   };
 }
 
+/** POT's logs from the recorded testnet receipts, stored as the indexer stores them (big numbers as strings), plus one
+ *  event the explainer does not describe. */
+export function potEventRows(): EventRow[] {
+  const rows: EventRow[] = [];
+  for (const r of recorded.receipts)
+    for (const l of r.logs) {
+      if (l.address.toLowerCase() !== POT.toLowerCase()) continue;
+      const ev = decodeEventLog({ abi: coferPotAbi, data: l.data as Hex, topics: l.topics as [Hex, ...Hex[]] });
+      rows.push({ block: BigInt(r.blockNumber), logIndex: l.logIndex, txHash: r.transactionHash, name: ev.eventName, args: JSON.parse(JSON.stringify(ev.args, (_k, v) => (typeof v === "bigint" ? v.toString() : v))) });
+    }
+  rows.push({ block: 999_999_999n, logIndex: 0, txHash: `0x${"ee".repeat(32)}`, name: "SomethingNew", args: {} });
+  return rows.sort((a, b) => (a.block === b.block ? a.logIndex - b.logIndex : a.block < b.block ? -1 : 1));
+}
+
+export function fakeTimeline(rows: EventRow[] = potEventRows()): TimelineDeps {
+  return {
+    explain: { usdg: T_USDG, token: async (a) => TESTNET_TOKENS[a.toLowerCase()] ?? null },
+    events: async (pot, after, limit) =>
+      pot.toLowerCase() !== POT.toLowerCase() ? [] : rows.filter((r) => !after || r.block > after.block || (r.block === after.block && r.logIndex > after.logIndex)).slice(0, limit),
+  };
+}
+
 export function fakePublicApi(over: Partial<PublicApiDeps> = {}): PublicApiDeps {
-  return { chainId: 4663, status: fakeStatus(), tx: fakeTx(), ownership: fakeOwnership(), changelog: { text: SAMPLE_CHANGELOG, baseUrl: "https://sign.example" }, pots: fakePots(), members: fakeMembers(), votes: fakeVotes(), ...over };
+  return { chainId: 4663, status: fakeStatus(), tx: fakeTx(), ownership: fakeOwnership(), changelog: { text: SAMPLE_CHANGELOG, baseUrl: "https://sign.example" }, pots: fakePots(), members: fakeMembers(), votes: fakeVotes(), timeline: fakeTimeline(), ...over };
 }
 
 /** The whole signer server with the public API on fake data (fixed, fake settings: never the process environment). */

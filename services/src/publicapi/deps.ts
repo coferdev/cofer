@@ -2,7 +2,7 @@
  * The public API's live data sources: the chain RPC (server side, never sent to a browser) and the indexer's
  * database. Read-only.
  */
-import { and, asc, count, desc, eq, gt, inArray, sql } from "drizzle-orm";
+import { and, asc, count, desc, eq, gt, inArray, or, sql } from "drizzle-orm";
 import { getAddress, zeroAddress, type Address } from "viem";
 import { privateKeyToAccount } from "viem/accounts";
 import { db, schema } from "../db/client";
@@ -148,6 +148,22 @@ export function livePublicApiDeps(e: Env): PublicApiDeps {
           return { name: r.name as "ProposalQueued" | "ProposalExecuted", digest: a.digest, kind: Number(a.kind), eta: a.eta === undefined ? null : Number(a.eta), txHash: r.txHash, block: r.block };
         });
       },
+    },
+    timeline: {
+      explain: { usdg: e.USDG_ADDRESS as Address, token: (a) => tokenInfo(a) },
+      events: async (pot, after, limit) =>
+        (
+          await db()
+            .select({ block: schema.chainEvents.block, logIndex: schema.chainEvents.logIndex, txHash: schema.chainEvents.txHash, name: schema.chainEvents.name, args: schema.chainEvents.args })
+            .from(schema.chainEvents)
+            .where(
+              after
+                ? and(eq(schema.chainEvents.address, pot), or(gt(schema.chainEvents.block, after.block), and(eq(schema.chainEvents.block, after.block), gt(schema.chainEvents.logIndex, after.logIndex))))
+                : eq(schema.chainEvents.address, pot),
+            )
+            .orderBy(asc(schema.chainEvents.block), asc(schema.chainEvents.logIndex))
+            .limit(limit)
+        ).map((r) => ({ ...r, args: r.args as Record<string, unknown> })),
     },
     ownership: {
       factory: factoryAddress(),

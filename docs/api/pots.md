@@ -59,3 +59,20 @@ the exit window, for a queued vote), `approvals` out of `approvalsNeeded`, and `
 
 Check it yourself: the group account's `ProposalQueued` and `ProposalExecuted` logs, and `requiredVotes()`.
 It may be cached for 15 seconds.
+
+## GET /v1/pots/:pot/timeline
+
+```bash
+curl "https://<signer site>/v1/pots/0x362B…2E50/timeline?limit=50"
+```
+
+Everything a group account did, in block order: deposits, exits, allowance spends, claims, votes queued and run,
+sends, swaps, members added or removed, settings and plan payments. Each event has its `block`, `logIndex`,
+`txHash`, `event` (the log's name), `kind`, `text` (the same plain words as the
+[transaction explainer](tx.md)) and `args` (the log's fields, big numbers as decimal strings). Events it does not
+describe are left out, never guessed at.
+
+Paged oldest first by block and log index, `limit` 1 to 200 (default 50). `next` is the `after` value for the
+following page (like `153947820-4`), or `null` when there is nothing newer yet. A page never changes when newer
+events arrive. Check it yourself: `cast logs --address <group account> --from-block <block>`. It may be cached for
+15 seconds.

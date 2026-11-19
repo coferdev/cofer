@@ -85,6 +85,194 @@ const shares = (x: unknown) => `${formatUnits(BigInt(x as bigint), 18)} shares`;
 /** The pot's rule (CoferPot.requiredVotes): a share of members, rounded up, when thresholdBps > 0; else the fixed count. */
 const needs = (threshold: unknown, bps: unknown) => (Number(bps) > 0 ? `${pct(bps)} of members to approve (rounded up)` : `${threshold} approval(s)`);
 
+/**
+ * One Cofer event in plain words, from its decoded fields (log arguments, or the indexer's stored copy of them, where
+ * big numbers are decimal strings). Null for an event it does not describe.
+ */
+export async function describeEvent(role: ContractRole, eventName: string, x: Record<string, unknown>, g: Address, d: Pick<ExplainDeps, "token" | "usdg">): Promise<{ kind: TxKind; text: string } | null> {
+  const amt = async (token: unknown, raw: unknown) => {
+    const t = await d.token(a(token));
+    const v = BigInt(raw as bigint);
+    return t ? `${formatUnits(v, t.decimals)} ${t.symbol}` : `${v} raw units of token ${a(token)}`;
+  };
+  let text: string;
+  let kind: TxKind;
+  switch (`${role}:${eventName}`) {
+    case "group account:Deposited":
+      kind = "deposit";
+      text = `${a(x.member)} deposited ${await amt(d.usdg, x.amount)} into group account ${g} and received ${shares(x.shares)}.`;
+      break;
+    case "group account:Exited": {
+      kind = "exit";
+      const assets = x.assets as Address[];
+      const amounts = x.amounts as bigint[];
+      const parts = await Promise.all(assets.map((t, i) => amt(t, amounts[i])));
+      text = `${a(x.member)} exited group account ${g} with ${shares(x.shares)}, paid out to ${a(x.to)}: ${parts.length ? parts.join(", ") : "nothing"}.`;
+      break;
+    }
+    case "group account:ExitOwed":
+      kind = "exit";
+      text = `${await amt(x.asset, x.amount)} could not be sent to ${a(x.account)} during the exit, so it was set aside for them to claim later.`;
+      break;
+    case "group account:OwedClaimed":
+      kind = "claim";
+      text = `${a(x.account)} claimed ${await amt(x.asset, x.amount)} that had been set aside for them in group account ${g}.`;
+      break;
+    case "group account:AllowanceSpent":
+      kind = "allowance spend";
+      text = `${a(x.member)} spent ${await amt(d.usdg, x.amount)} of their allowance from group account ${g}, to ${a(x.to)}. Left this period: ${await amt(d.usdg, x.remaining)}.`;
+      break;
+    case "group account:Swapped":
+      kind = "swap";
+      text = `Group account ${g} swapped ${await amt(x.tokenIn, x.amountIn)} for ${await amt(x.tokenOut, x.amountOut)} through adapter ${a(x.adapter)} (swap fee ${await amt(x.tokenIn, x.fee)}).`;
+      break;
+    case "group account:Transferred":
+      kind = "vote executed";
+      text = `Group account ${g} sent ${await amt(x.asset, x.amount)} to ${a(x.to)}, as voted.`;
+      break;
+    case "group account:ProposalExecuted":
+      kind = "vote executed";
+      text = `A vote to ${KIND_NAMES[Number(x.kind)] ?? `do action ${x.kind}`} ran in group account ${g}, with ${x.approvals} approval(s). Vote id ${x.digest}.`;
+      break;
+    case "group account:ProposalQueued":
+      kind = "vote queued";
+      text = `A vote to ${KIND_NAMES[Number(x.kind)] ?? `do action ${x.kind}`} passed in group account ${g} and waits for the exit window: it can run after ${utc(x.eta as bigint)}. Members who disagree can exit before then. Vote id ${x.digest}.`;
+      break;
+    case "group account:VoteRevoked":
+      kind = "group settings";
+      text = `${a(x.member)} withdrew their approval of vote ${x.digest} in group account ${g}.`;
+      break;
+    case "group account:MemberAdded":
+      kind = "group settings";
+      text = `${a(x.member)} became a member of group account ${g}.`;
+      break;
+    case "group account:MemberRemoved":
+      kind = "group settings";
+      text = `${a(x.member)} is no longer a member of group account ${g}.`;
+      break;
+    case "group account:AllowanceSet":
+      kind = "group settings";
+      text = `${a(x.member)} now has an allowance of ${await amt(d.usdg, x.amount)} every ${hrs(x.period)} in group account ${g}.`;
+      break;
+    case "group account:ThresholdSet":
+      kind = "group settings";
+      text = `Group account ${g} now needs ${needs(x.threshold, x.thresholdBps)}.`;
+      break;
+    case "group account:ConfigSet":
+      kind = "group settings";
+      text = `Group account ${g} settings: exit window ${hrs(x.guardDelay)}, swap price limit ${pct(x.maxSlipBps)}, entry spread ${pct(x.entrySpreadBps)}, deposits ${x.depositsOpen ? "open" : "closed"}.`;
+      break;
+    case "group account:Initialized":
+      kind = "group created";
+      text = `Group account ${g} was set up with ${(x.members as Address[]).length} member(s): ${(x.members as Address[]).map(a).join(", ")}.`;
+      break;
+    case "group account:AssetAdded":
+      kind = "group settings";
+      text = `Group account ${g} now holds ${await tokenName(d, x.asset)}.`;
+      break;
+    case "group account:AssetRemoved":
+      kind = "group settings";
+      text = `Group account ${g} no longer holds ${await tokenName(d, x.asset)}.`;
+      break;
+    case "group account:EpochBumped":
+      kind = "group settings";
+      text = `Group account ${g}'s membership changed, so open votes signed before it need signing again (round ${x.epoch}).`;
+      break;
+    case "group account:PlanPaid":
+      kind = "plan payment";
+      text = `Group account ${g} paid the plan for ${x.months} month(s): ${await amt(d.usdg, x.cost)}.`;
+      break;
+    case "factory:PotCreated":
+      kind = "group created";
+      text = `The factory created group account ${a(x.pot)} for creator ${a(x.creator)}, with ${(x.members as Address[]).length} member(s); a vote needs ${needs(x.threshold, x.thresholdBps)}.`;
+      break;
+    case "factory:OwnershipTransferStarted":
+      kind = "admin change";
+      text = `The factory's owner ${a(x.from)} offered ownership to ${a(x.to)} (it moves only when ${a(x.to)} accepts).`;
+      break;
+    case "factory:OwnershipTransferred":
+      kind = "admin change";
+      text = `The factory's owner changed from ${a(x.from)} to ${a(x.to)}.`;
+      break;
+    case "factory:GuardianSet":
+      kind = "admin change";
+      text = `The factory's guardian is now ${a(x.guardian)}.`;
+      break;
+    case "factory:DepositsPaused":
+      kind = "admin change";
+      text = x.paused ? "Deposits into every group account were paused. Exits are never paused." : "Deposits into group accounts were resumed.";
+      break;
+    case "factory:CreationPaused":
+      kind = "admin change";
+      text = x.paused ? "Creating new group accounts was paused." : "Creating new group accounts was resumed.";
+      break;
+    case "factory:SwapFeeQueued":
+      kind = "admin change";
+      text = `A new swap fee of ${pct(x.bps)} was queued. It can apply after ${utc(x.eta as bigint)}.`;
+      break;
+    case "factory:SwapFeeSet":
+      kind = "admin change";
+      text = `The swap fee is now ${pct(x.bps)}.`;
+      break;
+    case "factory:AssetListed":
+      kind = "admin change";
+      text = `${await tokenName(d, x.asset)} was listed with price feed ${a(x.feed)} (age limit ${hrs(x.maxStaleness)}${x.isStock ? ", a Stock Token" : ""}).`;
+      break;
+    case "factory:AssetBuyable":
+      kind = "admin change";
+      text = `${await tokenName(d, x.asset)} can ${x.buyable ? "now" : "no longer"} be bought with /buy.`;
+      break;
+    case "factory:FeedQueued":
+      kind = "admin change";
+      text = `A new price feed ${a(x.feed)} for ${await tokenName(d, x.asset)} was queued (age limit ${hrs(x.maxStaleness)}). It can apply after ${utc(x.eta as bigint)}.`;
+      break;
+    case "factory:FeedApplied":
+      kind = "admin change";
+      text = `${await tokenName(d, x.asset)} now uses price feed ${a(x.feed)} (age limit ${hrs(x.maxStaleness)}).`;
+      break;
+    case "factory:AdapterQueued":
+      kind = "admin change";
+      text = `Swap adapter ${a(x.adapter)} was queued. It can be turned on after ${utc(x.eta as bigint)}.`;
+      break;
+    case "factory:AdapterSet":
+      kind = "admin change";
+      text = `Swap adapter ${a(x.adapter)} was ${x.allowed ? "turned on" : "turned off"}.`;
+      break;
+    case "fee router:PlanPaid":
+      kind = "plan payment";
+      text = `The fee router recorded a plan payment from group account ${a(x.pot)}: ${x.months} month(s), ${await amt(d.usdg, x.cost)}, paid until ${utc(x.paidUntil as bigint)}.`;
+      break;
+    case "fee router:Distributed":
+      kind = "fee distribution";
+      text = `The fee router sent ${await amt(x.token, x.total)} on to the four fee wallets.`;
+      break;
+    case "fee router:PlanPriceSet":
+      kind = "admin change";
+      text = `The plan price is now ${await amt(d.usdg, x.pricePerMonth)} a month.`;
+      break;
+    case "fee router:SinksSet":
+      kind = "admin change";
+      text = `The fee wallets are now ${(x.sinks as Address[]).map((s, i) => `${a(s)} (${pct((x.bps as number[])[i])})`).join(", ")}.`;
+      break;
+    case "fee router:FactorySet":
+      kind = "admin change";
+      text = `The fee router now works with factory ${a(x.factory)}.`;
+      break;
+    case "fee router:OwnershipTransferStarted":
+      kind = "admin change";
+      text = `The fee router's owner ${a(x.from)} offered ownership to ${a(x.to)} (it moves only when ${a(x.to)} accepts).`;
+      break;
+    case "fee router:OwnershipTransferred":
+      kind = "admin change";
+      text = `The fee router's owner changed from ${a(x.from)} to ${a(x.to)}.`;
+      break;
+    default:
+      kind = "other Cofer";
+      return null; // an event this explainer does not describe: left out by the timeline
+  }
+  return { kind, text };
+}
+
 /** JSON-ready copies of decoded arguments: big numbers as decimal strings. */
 function plain(v: unknown): unknown {
   if (typeof v === "bigint") return v.toString();
@@ -102,11 +290,6 @@ export async function explainReceipt(r: TxReceiptLike, d: ExplainDeps, time: num
     if (!potCache.has(k)) potCache.set(k, await d.isPot(x));
     return potCache.get(k)!;
   };
-  const amt = async (token: unknown, raw: unknown) => {
-    const t = await d.token(a(token));
-    const v = BigInt(raw as bigint);
-    return t ? `${formatUnits(v, t.decimals)} ${t.symbol}` : `${v} raw units of token ${a(token)}`;
-  };
 
   const events: (ExplainedEvent & { kind: TxKind })[] = [];
   for (const log of r.logs) {
@@ -121,183 +304,9 @@ export async function explainReceipt(r: TxReceiptLike, d: ExplainDeps, time: num
       continue; // a log this contract version does not define: left out
     }
     const g = a(log.address);
-    const x = ev.args;
-    let text: string;
-    let kind: TxKind;
-    switch (`${role}:${ev.eventName}`) {
-      case "group account:Deposited":
-        kind = "deposit";
-        text = `${a(x.member)} deposited ${await amt(d.usdg, x.amount)} into group account ${g} and received ${shares(x.shares)}.`;
-        break;
-      case "group account:Exited": {
-        kind = "exit";
-        const assets = x.assets as Address[];
-        const amounts = x.amounts as bigint[];
-        const parts = await Promise.all(assets.map((t, i) => amt(t, amounts[i])));
-        text = `${a(x.member)} exited group account ${g} with ${shares(x.shares)}, paid out to ${a(x.to)}: ${parts.length ? parts.join(", ") : "nothing"}.`;
-        break;
-      }
-      case "group account:ExitOwed":
-        kind = "exit";
-        text = `${await amt(x.asset, x.amount)} could not be sent to ${a(x.account)} during the exit, so it was set aside for them to claim later.`;
-        break;
-      case "group account:OwedClaimed":
-        kind = "claim";
-        text = `${a(x.account)} claimed ${await amt(x.asset, x.amount)} that had been set aside for them in group account ${g}.`;
-        break;
-      case "group account:AllowanceSpent":
-        kind = "allowance spend";
-        text = `${a(x.member)} spent ${await amt(d.usdg, x.amount)} of their allowance from group account ${g}, to ${a(x.to)}. Left this period: ${await amt(d.usdg, x.remaining)}.`;
-        break;
-      case "group account:Swapped":
-        kind = "swap";
-        text = `Group account ${g} swapped ${await amt(x.tokenIn, x.amountIn)} for ${await amt(x.tokenOut, x.amountOut)} through adapter ${a(x.adapter)} (swap fee ${await amt(x.tokenIn, x.fee)}).`;
-        break;
-      case "group account:Transferred":
-        kind = "vote executed";
-        text = `Group account ${g} sent ${await amt(x.asset, x.amount)} to ${a(x.to)}, as voted.`;
-        break;
-      case "group account:ProposalExecuted":
-        kind = "vote executed";
-        text = `A vote to ${KIND_NAMES[Number(x.kind)] ?? `do action ${x.kind}`} ran in group account ${g}, with ${x.approvals} approval(s). Vote id ${x.digest}.`;
-        break;
-      case "group account:ProposalQueued":
-        kind = "vote queued";
-        text = `A vote to ${KIND_NAMES[Number(x.kind)] ?? `do action ${x.kind}`} passed in group account ${g} and waits for the exit window: it can run after ${utc(x.eta as bigint)}. Members who disagree can exit before then. Vote id ${x.digest}.`;
-        break;
-      case "group account:VoteRevoked":
-        kind = "group settings";
-        text = `${a(x.member)} withdrew their approval of vote ${x.digest} in group account ${g}.`;
-        break;
-      case "group account:MemberAdded":
-        kind = "group settings";
-        text = `${a(x.member)} became a member of group account ${g}.`;
-        break;
-      case "group account:MemberRemoved":
-        kind = "group settings";
-        text = `${a(x.member)} is no longer a member of group account ${g}.`;
-        break;
-      case "group account:AllowanceSet":
-        kind = "group settings";
-        text = `${a(x.member)} now has an allowance of ${await amt(d.usdg, x.amount)} every ${hrs(x.period)} in group account ${g}.`;
-        break;
-      case "group account:ThresholdSet":
-        kind = "group settings";
-        text = `Group account ${g} now needs ${needs(x.threshold, x.thresholdBps)}.`;
-        break;
-      case "group account:ConfigSet":
-        kind = "group settings";
-        text = `Group account ${g} settings: exit window ${hrs(x.guardDelay)}, swap price limit ${pct(x.maxSlipBps)}, entry spread ${pct(x.entrySpreadBps)}, deposits ${x.depositsOpen ? "open" : "closed"}.`;
-        break;
-      case "group account:Initialized":
-        kind = "group created";
-        text = `Group account ${g} was set up with ${(x.members as Address[]).length} member(s): ${(x.members as Address[]).map(a).join(", ")}.`;
-        break;
-      case "group account:AssetAdded":
-        kind = "group settings";
-        text = `Group account ${g} now holds ${await tokenName(d, x.asset)}.`;
-        break;
-      case "group account:AssetRemoved":
-        kind = "group settings";
-        text = `Group account ${g} no longer holds ${await tokenName(d, x.asset)}.`;
-        break;
-      case "group account:EpochBumped":
-        kind = "group settings";
-        text = `Group account ${g}'s membership changed, so open votes signed before it need signing again (round ${x.epoch}).`;
-        break;
-      case "group account:PlanPaid":
-        kind = "plan payment";
-        text = `Group account ${g} paid the plan for ${x.months} month(s): ${await amt(d.usdg, x.cost)}.`;
-        break;
-      case "factory:PotCreated":
-        kind = "group created";
-        text = `The factory created group account ${a(x.pot)} for creator ${a(x.creator)}, with ${(x.members as Address[]).length} member(s); a vote needs ${needs(x.threshold, x.thresholdBps)}.`;
-        break;
-      case "factory:OwnershipTransferStarted":
-        kind = "admin change";
-        text = `The factory's owner ${a(x.from)} offered ownership to ${a(x.to)} (it moves only when ${a(x.to)} accepts).`;
-        break;
-      case "factory:OwnershipTransferred":
-        kind = "admin change";
-        text = `The factory's owner changed from ${a(x.from)} to ${a(x.to)}.`;
-        break;
-      case "factory:GuardianSet":
-        kind = "admin change";
-        text = `The factory's guardian is now ${a(x.guardian)}.`;
-        break;
-      case "factory:DepositsPaused":
-        kind = "admin change";
-        text = x.paused ? "Deposits into every group account were paused. Exits are never paused." : "Deposits into group accounts were resumed.";
-        break;
-      case "factory:CreationPaused":
-        kind = "admin change";
-        text = x.paused ? "Creating new group accounts was paused." : "Creating new group accounts was resumed.";
-        break;
-      case "factory:SwapFeeQueued":
-        kind = "admin change";
-        text = `A new swap fee of ${pct(x.bps)} was queued. It can apply after ${utc(x.eta as bigint)}.`;
-        break;
-      case "factory:SwapFeeSet":
-        kind = "admin change";
-        text = `The swap fee is now ${pct(x.bps)}.`;
-        break;
-      case "factory:AssetListed":
-        kind = "admin change";
-        text = `${await tokenName(d, x.asset)} was listed with price feed ${a(x.feed)} (age limit ${hrs(x.maxStaleness)}${x.isStock ? ", a Stock Token" : ""}).`;
-        break;
-      case "factory:AssetBuyable":
-        kind = "admin change";
-        text = `${await tokenName(d, x.asset)} can ${x.buyable ? "now" : "no longer"} be bought with /buy.`;
-        break;
-      case "factory:FeedQueued":
-        kind = "admin change";
-        text = `A new price feed ${a(x.feed)} for ${await tokenName(d, x.asset)} was queued (age limit ${hrs(x.maxStaleness)}). It can apply after ${utc(x.eta as bigint)}.`;
-        break;
-      case "factory:FeedApplied":
-        kind = "admin change";
-        text = `${await tokenName(d, x.asset)} now uses price feed ${a(x.feed)} (age limit ${hrs(x.maxStaleness)}).`;
-        break;
-      case "factory:AdapterQueued":
-        kind = "admin change";
-        text = `Swap adapter ${a(x.adapter)} was queued. It can be turned on after ${utc(x.eta as bigint)}.`;
-        break;
-      case "factory:AdapterSet":
-        kind = "admin change";
-        text = `Swap adapter ${a(x.adapter)} was ${x.allowed ? "turned on" : "turned off"}.`;
-        break;
-      case "fee router:PlanPaid":
-        kind = "plan payment";
-        text = `The fee router recorded a plan payment from group account ${a(x.pot)}: ${x.months} month(s), ${await amt(d.usdg, x.cost)}, paid until ${utc(x.paidUntil as bigint)}.`;
-        break;
-      case "fee router:Distributed":
-        kind = "fee distribution";
-        text = `The fee router sent ${await amt(x.token, x.total)} on to the four fee wallets.`;
-        break;
-      case "fee router:PlanPriceSet":
-        kind = "admin change";
-        text = `The plan price is now ${await amt(d.usdg, x.pricePerMonth)} a month.`;
-        break;
-      case "fee router:SinksSet":
-        kind = "admin change";
-        text = `The fee wallets are now ${(x.sinks as Address[]).map((s, i) => `${a(s)} (${pct((x.bps as number[])[i])})`).join(", ")}.`;
-        break;
-      case "fee router:FactorySet":
-        kind = "admin change";
-        text = `The fee router now works with factory ${a(x.factory)}.`;
-        break;
-      case "fee router:OwnershipTransferStarted":
-        kind = "admin change";
-        text = `The fee router's owner ${a(x.from)} offered ownership to ${a(x.to)} (it moves only when ${a(x.to)} accepts).`;
-        break;
-      case "fee router:OwnershipTransferred":
-        kind = "admin change";
-        text = `The fee router's owner changed from ${a(x.from)} to ${a(x.to)}.`;
-        break;
-      default:
-        kind = "other Cofer";
-        text = `${role === "group account" ? `Group account ${g}` : `The ${role}`}: ${ev.eventName}.`;
-    }
-    events.push({ contract: role, address: g, event: ev.eventName, logIndex: log.logIndex, text, args: plain(x) as Record<string, unknown>, kind });
+    const desc = (await describeEvent(role, ev.eventName, ev.args, g, d)) ?? { kind: "other Cofer" as TxKind, text: `${role === "group account" ? `Group account ${g}` : `The ${role}`}: ${ev.eventName}.` };
+    const { kind, text } = desc;
+    events.push({ contract: role, address: g, event: ev.eventName, logIndex: log.logIndex, text, args: plain(ev.args) as Record<string, unknown>, kind });
   }
 
   const toCofer = r.to !== null && (r.to.toLowerCase() === factory || r.to.toLowerCase() === router || (await isPot(r.to)));
@@ -323,7 +332,7 @@ export async function explainReceipt(r: TxReceiptLike, d: ExplainDeps, time: num
   };
 }
 
-async function tokenName(d: ExplainDeps, t: unknown): Promise<string> {
+async function tokenName(d: Pick<ExplainDeps, "token">, t: unknown): Promise<string> {
   const info = await d.token(a(t));
   return info ? `${info.symbol} (${a(t)})` : `token ${a(t)}`;
 }
