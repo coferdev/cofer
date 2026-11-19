@@ -1,7 +1,7 @@
 import { describe, expect, test } from "bun:test";
 import type { Mark } from "../src/arena/marks/median";
 import type { Symbol } from "../src/arena/marks/markets";
-import { type Book, type Emitted, type Order, PRACTICE_RULES, addSeat, ingest, newBook, onTick } from "../src/arena/engine/orders";
+import { type Book, type Emitted, type Order, PRACTICE_RULES, addSeat, ingest, listExpiry, newBook, onTick } from "../src/arena/engine/orders";
 
 const PX = (n: number) => BigInt(Math.round(n * 1e8));
 const T0 = 1_800_000_000_000;
@@ -178,5 +178,36 @@ describe("arena orders", () => {
     const a = run();
     expect(run()).toBe(a);
     expect(a).toContain('"t":"Fill"');
+  });
+});
+
+describe("arena option orders", () => {
+  test("OPT_BUY at the next fresh tick at the ask; OPT_SELL refused in the hold, then sells at the bid", () => {
+    const b = book();
+    const exp = T0 + 3_600_000;
+    const ids = listExpiry(b, "BTC", exp, PX(100_000));
+    expect(ids).toHaveLength(22);
+    const opt = { type: "CALL" as const, strike: PX(100_000), expiry: exp, contracts: 10n };
+    ingest(b, order({ kind: "OPT_BUY", product: "OPTION", option: opt }), T0, ++seq);
+    const e = tick(b, 2, PX(100_000));
+    const f = e.find((x) => x.t === "OptFill") as { chips: bigint } | undefined;
+    expect(f && f.chips < 0n).toBe(true);
+    const s = b.seats.get(A)!;
+    expect(s.ledger.cash).toBe(PRACTICE_RULES.stack + f!.chips);
+    ingest(b, order({ kind: "OPT_SELL", product: "OPTION", option: opt }), T0 + 10_000, ++seq);
+    expect(rejects(tick(b, 12, PX(100_000)))).toEqual(["HOLD"]);
+    ingest(b, order({ kind: "OPT_SELL", product: "OPTION", option: opt }), T0 + 70_000, ++seq);
+    const g = tick(b, 72, PX(100_000)).find((x) => x.t === "OptFill") as { chips: bigint };
+    expect(g.chips).toBeGreaterThan(0n);
+    expect(g.chips).toBeLessThan(-f!.chips); // the spread is lost
+    expect(s.options.size).toBe(0);
+  });
+
+  test("an unlisted series is refused; a stock option on a closed market is refused with CLOSED_MARKET", () => {
+    const b = book();
+    ingest(b, order({ kind: "OPT_BUY", product: "OPTION", option: { type: "PUT", strike: PX(1), expiry: T0 + 3_600_000, contracts: 1n } }), T0, ++seq);
+    expect(rejects(tick(b, 2, PX(100_000)))).toEqual(["MARKET"]);
+    ingest(b, order({ kind: "OPT_BUY", product: "OPTION", symbol: "NVDA", option: { type: "PUT", strike: PX(180), expiry: T0 + 3_600_000, contracts: 1n } }), T0 + 3_000, ++seq);
+    expect(rejects(onTick(b, T0 + 5_000, marks(mk("NVDA", null, T0 + 5_000, "CLOSED"))))).toEqual(["CLOSED_MARKET"]);
   });
 });

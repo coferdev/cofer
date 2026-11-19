@@ -1,6 +1,6 @@
 /**
  * Orders, fills and the minimum hold (spec §4.4). Pure: time enters only as the logged `recvTs` of an order and the
- * `ts` of a tick, and every decision is a function of the log. Options (OPT_BUY / OPT_SELL) are handled by options.ts.
+ * `ts` of a tick, and every decision is a function of the log. Option orders (OPT_BUY / OPT_SELL) price through options.ts.
  *
  *   - Next tick, never the screen price: an order can fill only at a tick with ts > recvTs + Δ.
  *   - Fresh after the order: that tick's mark must be built only from venue quotes received after recvTs + Δ.
@@ -10,9 +10,10 @@
 import { MARKETS, type MarketClass, type Symbol, isSymbol } from "../marks/markets";
 import type { Mark } from "../marks/median";
 import { type Marks, type Seat, fillPerp, freeMargin, newSeat, spotBuy, spotSell } from "./ledger";
+import { type OptPos, type OptType, buyOption, listStrikes, sellOption, seriesId } from "./options";
 
-export type OrderKind = "MARKET" | "LIMIT" | "STOP" | "TAKE_PROFIT" | "CLOSE" | "CANCEL";
-export type Product = "SPOT" | "PERP";
+export type OrderKind = "MARKET" | "LIMIT" | "STOP" | "TAKE_PROFIT" | "CLOSE" | "CANCEL" | "OPT_BUY" | "OPT_SELL";
+export type Product = "SPOT" | "PERP" | "OPTION";
 export type Side = "BUY" | "SELL";
 
 /** An order as the engine logs it, after the signature and the session key were checked at ingress. */
@@ -30,6 +31,7 @@ export interface Order {
   limitPx?: bigint;
   triggerPx?: bigint;
   reduceOnly?: boolean;
+  option?: { type: OptType; strike: bigint; expiry: number; contracts: bigint };
   cancelRef?: string;
   clientId: string;
   validUntil?: number; // ms
@@ -37,7 +39,7 @@ export interface Order {
 
 export type Reason =
   | "NO_MARK" | "HOLD" | "MARGIN" | "CLOSED_MARKET" | "RATE" | "NONCE" | "CAP" | "ELIMINATED"
-  | "QTY" | "MARKET" | "EXPIRED" | "NOT_FOUND" | "RESTING_LIMIT";
+  | "QTY" | "MARKET" | "EXPIRED" | "NOT_FOUND" | "LATE";
 
 export interface Rules {
   markets: Symbol[];
@@ -50,11 +52,15 @@ export interface Rules {
   noMarkMs: number; // a MARKET with no fresh valid mark this long after Δ is cancelled
   ordersPerSec: number;
   maxResting: number;
+  /** Option underlyings, σ per symbol (WAD, fixed for the game, in the rules JSON) and the premium budget. */
+  optionMarkets: Symbol[];
+  sigma: Partial<Record<Symbol, bigint>>;
+  premiumBudgetBps: bigint;
 }
 
 export const PRACTICE_RULES: Rules = {
   markets: ["BTC", "ETH", "NVDA", "TSLA", "SPY"],
-  products: ["SPOT", "PERP"],
+  products: ["SPOT", "PERP", "OPTION"],
   leverageCap: { crypto: 20n, stock: 10n },
   stack: 10_000_000_000n,
   fillDelayMs: 1_000,
@@ -63,6 +69,9 @@ export const PRACTICE_RULES: Rules = {
   noMarkMs: 30_000,
   ordersPerSec: 2,
   maxResting: 100,
+  optionMarkets: ["BTC", "ETH", "NVDA", "TSLA", "SPY"],
+  sigma: { BTC: 520_000_000_000_000_000n, ETH: 680_000_000_000_000_000n, NVDA: 450_000_000_000_000_000n, TSLA: 600_000_000_000_000_000n, SPY: 200_000_000_000_000_000n },
+  premiumBudgetBps: 5_000n,
 };
 
 interface Live {
@@ -77,7 +86,8 @@ export interface SeatState {
   ledger: Seat;
   lastNonce: bigint;
   recent: number[]; // recvTs of orders in the last second (the rate limit)
-  lastIncrease: Map<string, number>;
+  lastIncrease: Map<string, number>; // by symbol, or by option series id
+  options: Map<string, OptPos>;
 }
 
 export interface Book {
@@ -85,24 +95,41 @@ export interface Book {
   seats: Map<string, SeatState>;
   live: Live[]; // every order waiting for a tick, in seq order
   lastValid: Marks; // last OK mark per symbol (valuation, and halted symbols)
+  listed: Set<string>; // option series open for buying
 }
 
 export type Emitted =
   | { t: "Accepted"; seat: string; clientId: string; seq: number }
   | { t: "Reject"; seat: string; clientId: string; reason: Reason; ts: number }
   | { t: "Fill"; seat: string; clientId: string; symbol: Symbol; product: Product; dq: bigint; px: bigint; fee: bigint; realised: bigint; ts: number }
+  | { t: "OptFill"; seat: string; clientId: string; series: string; contracts: bigint; chips: bigint; ts: number }
   | { t: "Fired"; seat: string; clientId: string; ts: number }
   | { t: "Cancelled"; seat: string; clientId: string; ref: string; ts: number };
 
-export const newBook = (rules: Rules): Book => ({ rules, seats: new Map(), live: [], lastValid: new Map() });
+export const newBook = (rules: Rules): Book => ({ rules, seats: new Map(), live: [], lastValid: new Map(), listed: new Set() });
+
+/** List an expiry for a symbol at the mark at its creation (spec §4.1 step 2; game.ts decides when). */
+export function listExpiry(b: Book, sym: Symbol, expiry: number, mark: bigint): string[] {
+  const ids: string[] = [];
+  for (const k of listStrikes(sym, mark)) for (const t of ["CALL", "PUT"] as const) ids.push(seriesId(sym, t, k, expiry));
+  for (const id of ids) b.listed.add(id);
+  return ids;
+}
+
+/** An expiry passed: its series can no longer be bought. */
+export function delistExpiry(b: Book, sym: Symbol, expiry: number): void {
+  for (const id of [...b.listed]) if (id.startsWith(`${sym}:`) && id.endsWith(`:${expiry}`)) b.listed.delete(id);
+}
 
 export function addSeat(b: Book, seat: string): SeatState {
-  const s: SeatState = { ledger: newSeat(b.rules.stack), lastNonce: -1n, recent: [], lastIncrease: new Map() };
+  const s: SeatState = { ledger: newSeat(b.rules.stack), lastNonce: -1n, recent: [], lastIncrease: new Map(), options: new Map() };
   b.seats.set(seat, s);
   return s;
 }
 
 const abs = (x: bigint) => (x < 0n ? -x : x);
+/** Orders that run at the next fresh tick (not resting until a price): they time out with NO_MARK. */
+const now_ = (o: Order, l: Live) => o.kind === "MARKET" || o.kind === "OPT_BUY" || o.kind === "OPT_SELL" || l.firedAt !== undefined;
 const resting = (k: OrderKind) => k === "LIMIT" || k === "STOP" || k === "TAKE_PROFIT";
 
 /** An order arrives (OrderIn, logged with its engine receive time and seq). */
@@ -136,6 +163,12 @@ function shape(r: Rules, o: Order): Reason | null {
   if (!isSymbol(o.symbol) || !r.markets.includes(o.symbol)) return "MARKET";
   if (!r.products.includes(o.product)) return "MARKET";
   if (o.kind === "CLOSE") return null;
+  if (o.kind === "OPT_BUY" || o.kind === "OPT_SELL") {
+    if (o.product !== "OPTION" || !r.optionMarkets.includes(o.symbol) || r.sigma[o.symbol] === undefined) return "MARKET";
+    const x = o.option;
+    return x && (x.type === "CALL" || x.type === "PUT") && x.strike > 0n && x.contracts > 0n ? null : "QTY";
+  }
+  if (o.product === "OPTION") return "MARKET";
   if (o.side !== "BUY" && o.side !== "SELL") return "QTY";
   const sizes = [o.qty, o.notional, o.pctFreeBps].filter((v) => v !== undefined).length;
   const triggerKind = o.kind === "STOP" || o.kind === "TAKE_PROFIT";
@@ -207,15 +240,16 @@ function step(b: Book, s: SeatState, l: Live, ts: number, marks: Map<string, Mar
   const sym = o.symbol as Symbol;
   const m = marks.get(sym);
   if (m?.status === "CLOSED") {
-    if (o.kind === "MARKET" || l.firedAt !== undefined) return rej("CLOSED_MARKET");
+    if (now_(o, l)) return rej("CLOSED_MARKET");
     return "keep";
   }
   const fresh = m && m.status === "OK" && m.mark !== null && m.venueFreshFromMs !== null && m.venueFreshFromMs > from;
   if (!fresh) {
-    if ((o.kind === "MARKET" || l.firedAt !== undefined) && ts > from + b.rules.noMarkMs) return rej("NO_MARK");
+    if (now_(o, l) && ts > from + b.rules.noMarkMs) return rej("NO_MARK");
     return "keep";
   }
   const px = m!.mark!;
+  if (o.kind === "OPT_BUY" || o.kind === "OPT_SELL") return option(b, s, l, ts, px, out);
   const pos = posOf(s, o, sym);
 
   if ((o.kind === "STOP" || o.kind === "TAKE_PROFIT") && l.firedAt === undefined) {
@@ -290,5 +324,29 @@ function close(b: Book, s: SeatState, l: Live, ts: number, marks: Map<string, Ma
       if (r.ok) out.push({ t: "Fill", seat: o.seat, clientId: o.clientId, symbol: x, product: "SPOT", dq: -h, px, fee: r.fee, realised: 0n, ts });
     }
   }
+  return "done";
+}
+
+/** OPT_BUY at the ask, OPT_SELL (an open long only) at the bid, at the fresh tick's mark; selling respects the hold. */
+function option(b: Book, s: SeatState, l: Live, ts: number, S: bigint, out: Emitted[]): "done" {
+  const o = l.o;
+  const x = o.option!;
+  const sym = o.symbol as Symbol;
+  const id = seriesId(sym, x.type, x.strike, x.expiry);
+  const sigma = b.rules.sigma[sym]!;
+  const rej = (reason: Reason): "done" => (out.push({ t: "Reject", seat: o.seat, clientId: o.clientId, reason, ts }), "done");
+  if (o.kind === "OPT_BUY") {
+    const r = buyOption(s.options, s.ledger.cash, { sym, ...x }, S, sigma, ts, b.rules.stack, b.rules.premiumBudgetBps, b.listed);
+    if (!r.ok) return rej(r.reason);
+    s.ledger.cash = r.cashAfter!;
+    s.lastIncrease.set(id, ts);
+    out.push({ t: "OptFill", seat: o.seat, clientId: o.clientId, series: id, contracts: x.contracts, chips: -r.chips, ts });
+    return "done";
+  }
+  if (inHold(b, s, id, ts)) return rej("HOLD");
+  const r = sellOption(s.options, id, x.contracts, S, sigma, ts);
+  if (!r.ok) return rej(r.reason);
+  s.ledger.cash += r.chips;
+  out.push({ t: "OptFill", seat: o.seat, clientId: o.clientId, series: id, contracts: -x.contracts, chips: r.chips, ts });
   return "done";
 }
