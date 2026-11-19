@@ -7,6 +7,8 @@ import type { TxDeps } from "../src/publicapi/tx";
 import type { OwnershipDeps } from "../src/publicapi/ownership";
 import type { PotsDeps } from "../src/publicapi/pots";
 import type { MembersDeps, MemberRow } from "../src/publicapi/members";
+import type { BotVoteRow, OutsideEventRow, VotesDeps } from "../src/publicapi/votes";
+import { encodeAction, Kind } from "../src/core/proposal";
 import type { Address, Hex } from "viem";
 import type { TxReceiptLike } from "../src/core/txExplain";
 import recorded from "./fixtures/tx-receipts-46630.json";
@@ -139,8 +141,41 @@ export function fakeMembers(rows: MemberRow[] = MEMBER_ROWS): MembersDeps {
   };
 }
 
+const d = (n: number) => `0x${String(n).padStart(64, "0")}`;
+/** The bot's votes for POT: one per state, all made with real encoded actions. */
+export const BOT_VOTES: BotVoteRow[] = [
+  { id: d(1), ...enc({ kind: Kind.TRANSFER, asset: T_USDG, to: POT_MEMBERS[0]!, amount: 10_000_000n }), status: "collecting", deadline: 1_800_100_000, queuedEta: null, txHash: null, createdAt: new Date("2026-12-01T10:00:00Z") },
+  { id: d(2), ...enc({ kind: Kind.ADD_MEMBER, member: POT_MEMBERS[2]! }), status: "executed", deadline: 1_800_000_000, queuedEta: null, txHash: d(102), createdAt: new Date("2026-11-30T10:00:00Z") },
+  { id: d(3), ...enc({ kind: Kind.SET_ALLOWANCE, member: POT_MEMBERS[1]!, amount: 5_000_000n, period: 604_800 }), status: "queued", deadline: 1_800_000_000, queuedEta: 1_799_000_000, txHash: d(103), createdAt: new Date("2026-11-29T10:00:00Z") },
+  { id: d(4), ...enc({ kind: Kind.PAY_PLAN, months: 3, maxCost: 27_000_000n }), status: "expired", deadline: 1_790_000_000, queuedEta: null, txHash: null, createdAt: new Date("2026-11-28T10:00:00Z") },
+  { id: d(5), ...enc({ kind: Kind.SET_THRESHOLD, threshold: 0, thresholdBps: 6000 }), status: "ready", deadline: 1_800_000_000, queuedEta: null, txHash: null, createdAt: new Date("2026-11-27T10:00:00Z") },
+];
+function enc(a: Parameters<typeof encodeAction>[0]) {
+  const e = encodeAction(a);
+  return { kind: e.kind as number, data: e.data as string };
+}
+/** On-chain vote logs: BOT_VOTES 2 and 3, plus one vote made outside the bot (queued, then executed). */
+export const VOTE_EVENTS: OutsideEventRow[] = [
+  { name: "ProposalExecuted", digest: d(2), kind: Kind.ADD_MEMBER, eta: null, txHash: d(102), block: 100n },
+  { name: "ProposalQueued", digest: d(3), kind: Kind.SET_ALLOWANCE, eta: 1_799_000_000, txHash: d(103), block: 101n },
+  { name: "ProposalQueued", digest: d(9), kind: Kind.TRANSFER, eta: 1_799_500_000, txHash: d(109), block: 102n },
+  { name: "ProposalExecuted", digest: d(9), kind: Kind.TRANSFER, eta: null, txHash: d(110), block: 103n },
+];
+
+export function fakeVotes(over: Partial<VotesDeps> = {}): VotesDeps {
+  return {
+    usdg: T_USDG,
+    token: async (a) => TESTNET_TOKENS[a.toLowerCase()] ?? null,
+    botVotes: async (_p, statuses, limit) => BOT_VOTES.filter((v) => !statuses || statuses.includes(v.status)).slice(0, limit),
+    botVoteIds: async () => new Set(BOT_VOTES.map((v) => v.id)),
+    approvals: async (ids) => new Map(ids.map((id, i) => [id, i + 1])),
+    voteEvents: async () => VOTE_EVENTS,
+    ...over,
+  };
+}
+
 export function fakePublicApi(over: Partial<PublicApiDeps> = {}): PublicApiDeps {
-  return { chainId: 4663, status: fakeStatus(), tx: fakeTx(), ownership: fakeOwnership(), changelog: { text: SAMPLE_CHANGELOG, baseUrl: "https://sign.example" }, pots: fakePots(), members: fakeMembers(), ...over };
+  return { chainId: 4663, status: fakeStatus(), tx: fakeTx(), ownership: fakeOwnership(), changelog: { text: SAMPLE_CHANGELOG, baseUrl: "https://sign.example" }, pots: fakePots(), members: fakeMembers(), votes: fakeVotes(), ...over };
 }
 
 /** The whole signer server with the public API on fake data (fixed, fake settings: never the process environment). */

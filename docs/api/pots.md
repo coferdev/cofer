@@ -38,3 +38,24 @@ Each member by address only: `address`, `active` (false once removed or fully ex
 Paged in address order: up to `limit` (1 to 200, default 50) per page; `next` is the `after` value for the next page,
 `null` on the last. Check it yourself: `members()(address[])` and `memberInfo(address)` on the group account, and its
 `MemberAdded` logs. It may be cached for 15 seconds.
+
+## GET /v1/pots/:pot/votes
+
+```bash
+curl "https://<signer site>/v1/pots/0x362B…2E50/votes?state=queued"
+```
+
+A group's votes. `state` filters them: `open` (collecting approvals), `ready` (enough approvals, not sent yet),
+`queued` (waiting for its exit window), `executed`, `expired`, `stale` (membership changed before it ran) or `failed`.
+`limit` is 1 to 100 (default 50).
+
+Each vote: `id` (its digest), `kind`, `state`, `summary`, `madeBy`, `createdAt`, `deadline`, `canRunAfter` (end of
+the exit window, for a queued vote), `approvals` out of `approvalsNeeded`, and `txHash`.
+
+- The summary is made again from the vote's own bytes, with full addresses and amounts only. It never names a member.
+- Votes made outside the bot are included (`madeBy: "outside the bot"`), from the group account's `ProposalQueued`
+  and `ProposalExecuted` logs; their full details are in their transaction. They are listed first, newest first,
+  then the bot's votes, newest first.
+
+Check it yourself: the group account's `ProposalQueued` and `ProposalExecuted` logs, and `requiredVotes()`.
+It may be cached for 15 seconds.

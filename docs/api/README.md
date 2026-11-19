@@ -37,3 +37,4 @@ Read-only facts about Cofer, straight from Robinhood Chain. No sign-in and no ke
 | [`GET /v1/changelog.atom`, `/v1/changelog.json`](changelog.md) | the changelog as a feed (Atom and JSON Feed): every release, newest first |
 | [`GET /v1/pots/:pot`](pots.md) | one group account: members count, vote rule, exit window, settings and every token it holds |
 | [`GET /v1/pots/:pot/members`](pots.md#get-v1potspotmembers) | a group's members by address: active, shares, join block; paged |
+| [`GET /v1/pots/:pot/votes`](pots.md#get-v1potspotvotes) | a group's votes by state, with a summary made from the vote itself, approvals and transaction; votes made outside the bot included |

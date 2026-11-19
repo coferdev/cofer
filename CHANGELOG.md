@@ -18,6 +18,7 @@ Fixes from the 2026-11-01 review of `0.1.0` (commit `aba0779`). `contracts/src` 
 - Update 08 · 2026-11-19 07:00 UTC: Exit kit: The exit call and preview, with address checks.
 - Update 09 · 2026-11-19 08:00 UTC: Group summary: Members, vote rule, exit window and holdings.
 - Update 10 · 2026-11-19 09:00 UTC: Group members: Address, shares and join block. No names.
+- Update 11 · 2026-11-19 10:00 UTC: Group votes: Filter by state. Summary, approvals, transaction.
 
 ### Mainnet
 - Cofer is live on Robinhood Chain mainnet (chain 4663): factory, fee router, group account template and swap adapter deployed on 2026-11-06; addresses in contracts/deployments/4663.json.

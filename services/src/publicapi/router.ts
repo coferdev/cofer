@@ -13,6 +13,7 @@ import { isTxHash, TX_CACHE_SECONDS, txExplainer, type TxDeps } from "./tx";
 import { OWNERSHIP_CACHE_MS, readOwnership, type Ownership, type OwnershipDeps } from "./ownership";
 import { atomFeed, FEED_CACHE_SECONDS, jsonFeed, parseChangelog } from "./changelog";
 import { limitParam, MEMBERS_CACHE_MS, MEMBERS_DEFAULT_LIMIT, MEMBERS_MAX_LIMIT, readMembers, type MembersDeps, type MembersPage } from "./members";
+import { readVotes, stateParam, VOTES_CACHE_MS, VOTES_MAX_LIMIT, type PublicVote, type VotesDeps } from "./votes";
 import { perKeyCache, POT_CACHE_MS, POT_CACHE_SIZE, potParam, readPotSummary, type PotsDeps, type PotSummary } from "./pots";
 
 export interface PublicApiDeps {
@@ -24,6 +25,7 @@ export interface PublicApiDeps {
   changelog: { text: string; baseUrl: string };
   pots: PotsDeps;
   members: MembersDeps;
+  votes: VotesDeps;
   limiter?: Limiter;
   nowMs?: () => number;
 }
@@ -38,6 +40,8 @@ export const TEXT = {
   noPot: "No Cofer group account at this address.",
   badLimit: "limit must be a whole number from 1 to 200.",
   badAfter: "after must be a member address from the previous page's next.",
+  badState: "state must be one of open, ready, queued, executed, expired, stale, failed.",
+  badVoteLimit: "limit must be a whole number from 1 to 100.",
   noTx: "No transaction with this hash on this chain (yet).",
 } as const;
 
@@ -64,6 +68,17 @@ export function publicApi(d: PublicApiDeps) {
       return readMembers(d.members, a as `0x${string}`, after || null, Number(limit));
     },
     MEMBERS_CACHE_MS,
+    POT_CACHE_SIZE,
+    nowMs,
+  );
+
+  const votesList = perKeyCache<PublicVote[]>(
+    async (k) => {
+      const [a, st, limit] = k.split("|");
+      const need = (await summary(a!)).value.voteRule.approvalsNeeded;
+      return readVotes(d.votes, a as `0x${string}`, (st || null) as never, Number(limit), need);
+    },
+    VOTES_CACHE_MS,
     POT_CACHE_SIZE,
     nowMs,
   );
@@ -138,6 +153,17 @@ export function publicApi(d: PublicApiDeps) {
     if (after && !potParam(after)) return fail(c, 400, "bad_request", TEXT.badAfter);
     const m = await membersPage(`${p.a}|${after.toLowerCase()}|${limit}`);
     return ok(c, m.value, meta(m.at, MEMBERS_CACHE_MS / 1000));
+  });
+
+  app.get("/pots/:pot/votes", async (c) => {
+    const p = await pot(c);
+    if (!p.a) return p.res;
+    const st = stateParam(c.req.query("state"));
+    if (st === "bad") return fail(c, 400, "bad_request", TEXT.badState);
+    const limit = limitParam(c.req.query("limit"), 50, VOTES_MAX_LIMIT);
+    if (limit === null) return fail(c, 400, "bad_request", TEXT.badVoteLimit);
+    const v = await votesList(`${p.a}|${st ?? ""}|${limit}`);
+    return ok(c, { votes: v.value }, meta(v.at, VOTES_CACHE_MS / 1000));
   });
 
   // last: anything else under /v1 (a sub-app's notFound is not used once it is mounted)

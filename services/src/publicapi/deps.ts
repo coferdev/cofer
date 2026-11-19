@@ -2,7 +2,7 @@
  * The public API's live data sources: the chain RPC (server side, never sent to a browser) and the indexer's
  * database. Read-only.
  */
-import { and, asc, eq, gt, inArray, sql } from "drizzle-orm";
+import { and, asc, count, desc, eq, gt, inArray, sql } from "drizzle-orm";
 import { getAddress, zeroAddress, type Address } from "viem";
 import { privateKeyToAccount } from "viem/accounts";
 import { db, schema } from "../db/client";
@@ -115,6 +115,38 @@ export function livePublicApiDeps(e: Env): PublicApiDeps {
           if (!out.has(k) || out.get(k)! < r.block) out.set(k, r.block);
         }
         return out;
+      },
+    },
+    votes: {
+      usdg: e.USDG_ADDRESS as Address,
+      token: (a) => tokenInfo(a),
+      // only these columns: never the proposer, the chat message or the stored summary (which can hold usernames)
+      botVotes: (pot, statuses, limit) =>
+        db()
+          .select({ id: schema.proposals.id, kind: schema.proposals.kind, data: schema.proposals.data, status: schema.proposals.status, deadline: schema.proposals.deadline, queuedEta: schema.proposals.queuedEta, txHash: schema.proposals.txHash, createdAt: schema.proposals.createdAt })
+          .from(schema.proposals)
+          .where(statuses ? and(eq(schema.proposals.pot, pot), inArray(schema.proposals.status, statuses as (typeof schema.proposals.status.enumValues)[number][])) : eq(schema.proposals.pot, pot))
+          .orderBy(desc(schema.proposals.createdAt))
+          .limit(limit),
+      botVoteIds: async (pot) => new Set((await db().select({ id: schema.proposals.id }).from(schema.proposals).where(eq(schema.proposals.pot, pot))).map((r) => r.id)),
+      async approvals(ids) {
+        if (!ids.length) return new Map();
+        const rows = await db()
+          .select({ id: schema.signatures.proposalId, n: count() })
+          .from(schema.signatures)
+          .where(and(inArray(schema.signatures.proposalId, ids), eq(schema.signatures.revoked, false)))
+          .groupBy(schema.signatures.proposalId);
+        return new Map(rows.map((r) => [r.id, Number(r.n)]));
+      },
+      async voteEvents(pot) {
+        const rows = await db()
+          .select({ name: schema.chainEvents.name, args: schema.chainEvents.args, txHash: schema.chainEvents.txHash, block: schema.chainEvents.block })
+          .from(schema.chainEvents)
+          .where(and(eq(schema.chainEvents.address, pot), inArray(schema.chainEvents.name, ["ProposalQueued", "ProposalExecuted"])));
+        return rows.map((r) => {
+          const a = r.args as { digest: string; kind: string | number; eta?: string | number };
+          return { name: r.name as "ProposalQueued" | "ProposalExecuted", digest: a.digest, kind: Number(a.kind), eta: a.eta === undefined ? null : Number(a.eta), txHash: r.txHash, block: r.block };
+        });
       },
     },
     ownership: {
