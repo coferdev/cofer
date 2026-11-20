@@ -6,6 +6,7 @@ import { type Order, PRACTICE_RULES } from "../src/arena/engine/orders";
 import { canonical, parseRules, rulesHash, type RulesJson } from "../src/arena/engine/rules";
 import { decodeLogEvent, encodeLogEvent } from "../src/arena/log/events";
 import { type Open, Recorder, replayLog } from "../src/arena/log/record";
+import { pubOf, put } from "./arenaKeys";
 
 const PX = (n: number) => BigInt(Math.round(n * 1e8));
 const START = Date.parse("2026-11-21T10:59:00Z");
@@ -21,7 +22,7 @@ const RULES_JSON: RulesJson = {
 const rules = parseRules(RULES_JSON);
 const open: Open = {
   chainId: 4663, table: "0x00000000000000000000000000000000000000aa", rulesHash: rulesHash(RULES_JSON), rulesJson: canonical(RULES_JSON),
-  seats: SEATS, pubkeys: ["0x01", "0x02"], lockedAt: START, endAt: START + 24 * 3_600_000, lockBlock: 123n, tapeHours: [],
+  seats: SEATS, pubkeys: [pubOf(0), pubOf(1)], lockedAt: START, endAt: START + 24 * 3_600_000, lockBlock: 123n, tapeHours: [],
 };
 const mk = (symbol: Symbol, px: bigint, ts: number): Mark => ({ symbol, status: "OK", mark: px, used: ["lighter", "arcus", "chainlink"], venueFreshFromMs: ts - 300 });
 const tape = new Map<number, Map<string, Mark>>();
@@ -36,11 +37,11 @@ function record(): Recorder {
   const o = (seat: Hex, x: Partial<Order>): Order => ({ seat: seat.toLowerCase(), nonce: ++n, kind: "MARKET", symbol: "BTC", product: "PERP", side: "BUY", clientId: `k${n}`, ...x });
   for (const [ts, m] of tape) {
     const s = (ts - START) / 1000;
-    if (s === 3) r.order(o(SEATS[0]!, { qty: PX(0.2), leverage: 5n }), "0xaa", ts + 17);
-    if (s === 4) r.order(o(SEATS[1]!, { kind: "LIMIT", side: "SELL", symbol: "ETH", qty: PX(2), limitPx: PX(4_020), leverage: 3n }), "0xbb", ts + 5);
-    if (s === 20) r.order(o(SEATS[0]!, { kind: "STOP", side: "SELL", triggerPx: PX(99_800) }), "0xcc", ts + 1);
-    if (s === 70) r.order(o(SEATS[1]!, { kind: "OPT_BUY", product: "OPTION", option: { type: "CALL", strike: PX(100_000), expiry: Date.parse("2026-11-21T12:00:00Z"), contracts: 3n } }), "0xdd", ts + 9);
-    if (s === 71) r.order(o(SEATS[1]!, { qty: PX(1), leverage: 50n }), "0xee", ts + 9); // refused: over the cap
+    if (s === 3) put(r, 0, o(SEATS[0]!, { qty: PX(0.2), leverage: 5n }), ts + 17);
+    if (s === 4) put(r, 1, o(SEATS[1]!, { kind: "LIMIT", side: "SELL", symbol: "ETH", qty: PX(2), limitPx: PX(4_020), leverage: 3n }), ts + 5);
+    if (s === 20) put(r, 0, o(SEATS[0]!, { kind: "STOP", side: "SELL", triggerPx: PX(99_800) }), ts + 1);
+    if (s === 70) put(r, 1, o(SEATS[1]!, { kind: "OPT_BUY", product: "OPTION", option: { type: "CALL", strike: PX(100_000), expiry: Date.parse("2026-11-21T12:00:00Z"), contracts: 3n } }), ts + 9);
+    if (s === 71) put(r, 1, o(SEATS[1]!, { qty: PX(1), leverage: 50n }), ts + 9); // refused: over the cap
     r.tick(ts, m);
   }
   r.end();

@@ -11,8 +11,13 @@ import type { Mark } from "../marks/median";
 import { encodeAbiParameters } from "viem";
 import { type Game, type GameEmitted, finish, newGame, step } from "../engine/game";
 import { type ScoreRules, type Standing, rank } from "../scoring/score";
+import { DEFAULT_COLLUSION, detect } from "../scoring/collusion";
+
+/** In a Flag event, ρ when there were too few shared samples to measure it. */
+export const RHO_UNSET = -(2n ** 255n);
 import type { Order, Rules } from "../engine/orders";
 import { HOUR_MS } from "../marks/tape";
+import { orderSigProblem } from "../engine/session";
 import { LogChain } from "./chain";
 import { type LogEvent, decodeLogEvent, decodeOrder, encodeLogEvent, encodeOrder } from "./events";
 
@@ -52,7 +57,8 @@ export class Recorder {
   readonly game: Game;
   private pending: { hour: number; first: number; last: number } | null = null;
 
-  constructor(readonly open: Open, rules: Rules) {
+  /** `checkSigs` false only in replay, which reports a bad signature as a problem instead of stopping. */
+  constructor(readonly open: Open, rules: Rules, private readonly checkSigs = true) {
     this.chain = new LogChain(open.chainId, open.table, open.rulesHash);
     this.game = newGame(rules, open.seats.map((s) => s.toLowerCase()), open.lockedAt, open.endAt);
     this.put({ type: "GameOpen", payload: [open.table, open.rulesHash, open.rulesJson, open.seats, open.pubkeys, BigInt(open.lockedAt), BigInt(open.endAt), open.lockBlock, open.tapeHours.map(BigInt)] });
@@ -73,6 +79,9 @@ export class Recorder {
     this.put({ type: "TickRef", payload: [BigInt(p.hour), BigInt(p.first), BigInt(p.last)] });
   }
 
+  /** Optional observer (the replay tool's `me`): every engine output, and the game after each tick. Never changes the log. */
+  watch?: { emitted?: (e: GameEmitted) => void; tick?: (ts: number, g: Game) => void };
+
   private outputs(out: GameEmitted[]) {
     for (const e of out) {
       const x = outputEvent(e);
@@ -81,10 +90,16 @@ export class Recorder {
   }
 
   order(o: Order, signature: Hex, recvTs: number): GameEmitted[] {
+    const bytes = encodeOrder(this.open.table, o);
+    if (this.checkSigs) {
+      const bad = orderSigProblem(this.open.seats, this.open.pubkeys, o.seat as Hex, bytes, signature);
+      if (bad) throw new Error(`order not logged: ${bad}`); // never enters the log
+    }
     this.flush();
-    const seq = this.put({ type: "OrderIn", payload: [o.seat as Hex, encodeOrder(this.open.table, o), signature, BigInt(recvTs)] });
+    const seq = this.put({ type: "OrderIn", payload: [o.seat as Hex, bytes, signature, BigInt(recvTs)] });
     const out = step(this.game, { t: "OrderIn", seq, recvTs, order: o });
     this.outputs(out);
+    if (this.watch?.emitted) out.forEach(this.watch.emitted);
     return out;
   }
 
@@ -98,6 +113,8 @@ export class Recorder {
       this.flush();
       this.outputs(out);
     }
+    if (this.watch?.emitted) out.forEach(this.watch.emitted);
+    this.watch?.tick?.(ts, this.game);
     return out;
   }
 
@@ -120,7 +137,14 @@ export class Recorder {
       const s = g.book.seats.get(seat)!;
       return { seat, index, finalEquity: s.ledger.cash, maxDdBps: a.maxDdBps, fills: a.fills, exposedMs: a.exposedMs, eliminatedAt: s.ledger.eliminatedAt };
     });
-    const standings = rank(inputs, { ...score, durationMs: g.endAt - g.startAt }, flaggedPairs);
+    // collusion (spec §4.10): part of the replay, so anyone can check it; each flagged pair is logged with its metrics
+    const found = detect(g.seats.map((s) => g.traces.get(s)!), g.book.rules.collusion ?? DEFAULT_COLLUSION);
+    for (const m of found.all.filter((x) => x.flagged))
+      this.put({ type: "Flag", payload: ["COLLUSION", [m.a as Hex, m.b as Hex], [m.oBps, m.rhoBps ?? RHO_UNSET, BigInt(m.sync), m.eliminatedHolding ? 1n : 0n]] });
+    const key = (a: string, b: string) => [a.toLowerCase(), b.toLowerCase()].sort().join();
+    const pairs = new Map<string, [string, string]>();
+    for (const pr of [...found.flagged, ...flaggedPairs]) pairs.set(key(pr[0], pr[1]), pr);
+    const standings = rank(inputs, { ...score, durationMs: g.endAt - g.startAt }, [...pairs.values()]);
     this.put({ type: "GameClose", payload: [BigInt(g.endAt), encodeStandings(standings)] });
     return { standings, head: this.chain.head };
   }
@@ -151,19 +175,23 @@ export interface ReplayResult {
  * The chain id is in h_0 (not in GameOpen), so the head only matches on the chain the game ran on.
  * `ticks(ts)` gives the tape's marks at a tick (from verified tape hours), or undefined if the tape has no such tick.
  */
-export function replayLog(chainId: number, log: Hex[], rules: Rules, ticks: Ticks, expectedHead?: Hex, score?: Omit<ScoreRules, "durationMs">, flaggedPairs: [string, string][] = []): ReplayResult {
+export function replayLog(chainId: number, log: Hex[], rules: Rules, ticks: Ticks, expectedHead?: Hex, score?: Omit<ScoreRules, "durationMs">, flaggedPairs: [string, string][] = [], watch?: Recorder["watch"]): ReplayResult {
   const problems: string[] = [];
   const first = decodeLogEvent(log[0]!);
   if (first.type !== "GameOpen") return { ok: false, head: "0x", problems: ["the log does not start with GameOpen"] };
   const p = first.payload as [Hex, Hex, string, Hex[], Hex[], bigint, bigint, bigint, bigint[]];
   const open: Open = { chainId, table: p[0], rulesHash: p[1], rulesJson: p[2], seats: [...p[3]], pubkeys: [...p[4]], lockedAt: Number(p[5]), endAt: Number(p[6]), lockBlock: p[7], tapeHours: p[8].map(Number) };
-  const r = new Recorder(open, rules);
+  const r = new Recorder(open, rules, false);
+  r.watch = watch;
   for (let i = 1; i < log.length; i++) {
     const e = decodeLogEvent(log[i]!);
     if (e.type === "OrderIn") {
-      const [, bytes, sig, recv] = e.payload as [Hex, Hex, Hex, bigint];
+      const [seat, bytes, sig, recv] = e.payload as [Hex, Hex, Hex, bigint];
       const { table, order } = decodeOrder(bytes);
       if (table !== open.table.toLowerCase()) problems.push(`#${i}: order for another table`);
+      if (seat.toLowerCase() !== order.seat) problems.push(`#${i}: logged for ${seat} but the order is ${order.seat}'s`);
+      const bad = orderSigProblem(open.seats, open.pubkeys, seat, bytes, sig);
+      if (bad) problems.push(`#${i}: ${bad}`);
       r.order(order, sig, Number(recv));
     } else if (e.type === "TickRef") {
       const [, a, b] = (e.payload as bigint[]).map(Number);
@@ -185,8 +213,23 @@ export function replayLog(chainId: number, log: Hex[], rules: Rules, ticks: Tick
   } else head = r.end();
   const n = Math.max(log.length, r.log.length);
   for (let i = 0; i < n && problems.length < 20; i++) {
-    if (log[i] !== r.log[i]) problems.push(`#${i}: the log says ${log[i] ? decodeLogEvent(log[i]!).type : "nothing"}, the replay gives ${r.log[i] ? decodeLogEvent(r.log[i]!).type : "nothing"}`);
+    if (log[i] !== r.log[i]) problems.push(differs(i, log[i], r.log[i]));
   }
   if (expectedHead && head !== expectedHead) problems.push(`head ${head} is not the posted ${expectedHead}`);
   return { ok: problems.length === 0, head, problems, recorder: r, standings };
+}
+
+/** One line on how a published event differs from the replayed one. */
+function differs(i: number, published: Hex | undefined, replayed: Hex | undefined): string {
+  const a = published ? decodeLogEvent(published) : undefined;
+  const b = replayed ? decodeLogEvent(replayed) : undefined;
+  if (!a || !b || a.type !== b.type) return `#${i}: the log says ${a?.type ?? "nothing"}, the replay gives ${b?.type ?? "nothing"}`;
+  const pa = a.payload as unknown[];
+  const pb = b.payload as unknown[];
+  for (let k = 0; k < Math.max(pa.length, pb.length); k++) {
+    const x = String(pa[k]);
+    const y = String(pb[k]);
+    if (x !== y) return `#${i} ${a.type}: field ${k} is ${x} in the log, ${y} in the replay`;
+  }
+  return `#${i} ${a.type}: the encodings differ`;
 }

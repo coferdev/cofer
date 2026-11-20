@@ -23,7 +23,12 @@ export function App() {
         <h1 className="mt-6 text-3xl font-semibold tracking-tight">{current.label}</h1>
         <p className="mt-3 text-sm text-[var(--muted)]">Being built.</p>
       </main>
-      <footer className="px-4 pb-24 text-[11px] leading-relaxed break-all text-[var(--muted)]">{COFR_LINE}</footer>
+      <footer className="px-4 pb-24 text-[11px] leading-relaxed break-all text-[var(--muted)]">
+        <p>{COFR_LINE}</p>
+        <p className="mt-1">
+          <a href="https://db-ip.com" target="_blank" rel="noopener noreferrer">IP Geolocation by DB-IP</a> (CC BY 4.0)
+        </p>
+      </footer>
       <nav className="fixed inset-x-0 bottom-0 flex justify-around border-t border-[var(--line)] bg-[var(--bg)] pb-[env(safe-area-inset-bottom)]">
         {ROUTES.map((r) => {
           const Icon = ICONS[r.path];

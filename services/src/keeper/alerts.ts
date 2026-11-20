@@ -60,7 +60,10 @@ let _book: { at: number; book: AddressBook } | undefined;
 async function liveBook(): Promise<AddressBook> {
   if (_book && Date.now() - _book.at < BOOK_TTL_MS) return _book.book;
   const e = env();
-  const roles: Roles = { owner: e.EXPECTED_OWNER, guardian: e.EXPECTED_GUARDIAN, feeWallet: e.EXPECTED_FEE_WALLET, factory: e.FACTORY_ADDRESS, adapter: e.ADAPTER_ADDRESS };
+  const roles: Roles = { owner: e.EXPECTED_OWNER, guardian: e.EXPECTED_GUARDIAN, factory: e.FACTORY_ADDRESS, adapter: e.ADAPTER_ADDRESS };
+  // with EXPECTED_FEE_SINKS the single "fee wallet" no longer exists: the work sink is named, the others are the Safe
+  if (e.EXPECTED_FEE_SINKS) roles.workWallet = e.EXPECTED_FEE_SINKS[0];
+  else roles.feeWallet = e.EXPECTED_FEE_WALLET;
   try {
     roles.relayer = relayerClient().account.address; // public address only
   } catch {

@@ -1,7 +1,8 @@
 /**
  * What a result signer checks before it signs (spec §3.6, §4.8): the same path as `arena-replay verify`.
  *   1. the rules JSON hashes to the table's on-chain rulesHash;
- *   2. the log replays (inputs only, over the verified tape) to exactly the posted events, ending in GameClose;
+ *   2. GameOpen's session keys hash to the seats' on-chain sessionKeyHash, every order's signature verifies,
+ *      and the log replays (inputs only, over the verified tape) to exactly the posted events, ending in GameClose;
  *   3. logHead, eventsRoot and standingsRoot are the replay's;
  *   4. the podium (Friend Table) is the top of the replay's standings, or the payout rows (Freeroll) hash to
  *      payoutRoot and add up to totalPayout;
@@ -9,6 +10,7 @@
  * Only then is the EIP-712 digest returned for signing. Any failure returns the reasons and no digest.
  */
 import type { Hex } from "viem";
+import { keyProblems } from "../engine/session";
 import { parseRules, rulesHash, type RulesJson } from "../engine/rules";
 import { payoutTree, standingsTree } from "../log/chain";
 import { type Ticks, replayLog } from "../log/record";
@@ -30,6 +32,8 @@ export interface SignRequest {
   /** Freeroll: the escrow's prize; totalPayout can never exceed it. */
   prize?: bigint;
   engineBuild: Hex;
+  /** seat → sessionKeyHash, read from the table (seatOf) at the lock block. */
+  onChainKeys: Map<string, Hex>;
   flaggedPairs?: [string, string][];
 }
 
@@ -45,6 +49,7 @@ export function checkResult(q: SignRequest): SignCheck {
   const score = { stack: rules.stack, lambdaBps: rules.lambdaBps, minFills: rules.minFills, minExposureBps: rules.minExposureBps };
   const rp = replayLog(q.chainId, q.log, rules, q.ticks, q.proposed.logHead, score, q.flaggedPairs ?? []);
   problems.push(...rp.problems);
+  if (rp.recorder) problems.push(...keyProblems(rp.recorder.open.seats, rp.recorder.open.pubkeys, q.onChainKeys));
   if (!rp.standings || !rp.recorder) problems.push("the log is not closed with GameClose");
   else {
     const events = rp.recorder.chain.eventsTree().root;

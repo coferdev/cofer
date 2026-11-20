@@ -6,6 +6,7 @@
       "name": "@cofer/services",
       "dependencies": {
         "@hono/trpc-server": "^0.4.0",
+        "@noble/curves": "2.4.0",
         "@reown/appkit": "1.8.24",
         "@reown/appkit-adapter-wagmi": "1.8.24",
         "@reown/appkit-controllers": "1.8.24",
@@ -21,6 +22,7 @@
         "grammy": "^1.38.0",
         "hono": "^4.10.0",
         "ioredis": "^5.4.0",
+        "mmdb-lib": "3.0.3",
         "postgres": "^3.4.0",
         "viem": "2.57.11",
         "wagmi": "3.7.9",
@@ -551,6 +553,8 @@
     "mime-types": ["mime-types@2.1.35", "", { "dependencies": { "mime-db": "1.52.0" } }, "sha512-ZDY+bPm5zTTF+YpCrAU9nK0UgICYPT0QtT1NZWFv4s++TNkcgVaT0g6+4R2uI4MjQjzysHB1zxuWL50hzaeXiw=="],
 
     "mipd": ["mipd@0.0.7", "", { "peerDependencies": { "typescript": ">=5.0.4" }, "optionalPeers": ["typescript"] }, "sha512-aAPZPNDQ3uMTdKbuO2YmAw2TxLHO0moa4YKAyETM/DTj5FloZo+a+8tU+iv4GmW+sOxKLSRwcSFuczk+Cpt6fg=="],
+
+    "mmdb-lib": ["mmdb-lib@3.0.3", "", {}, "sha512-xQPoBXcNjjHiOvOraFBKtA++uNWF6aCVHL9dRKFXEov8eI3QJwtgiw3qApsonFT5SpoqsEVISUTg3HIDs2DiXw=="],
 
     "ms": ["ms@2.1.3", "", {}, "sha512-6FlzubTLZG3J2a/NVCAleEhjzq5oxgHyaCU9yYXvcLsvoVaHJq/s5xXI6/XXP6tz7R9xAOtHnSO/tXtF3WRTlA=="],
 

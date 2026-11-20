@@ -137,9 +137,32 @@ export function pairMetrics(i: SeatTrace, j: SeatTrace, p: CollusionParams = DEF
   return { a: i.seat, b: j.seat, oBps, rhoBps, sync, eliminatedHolding, flagged };
 }
 
-/** Every pair, in seat order; returns the flagged pairs and all metrics (for the Flag events). */
+/**
+ * Every pair that can be flagged, in seat order. A flag needs sync ≥ 1, so only pairs with at least one pair of
+ * opposite opens in the same symbol within the window are measured (the same flags as measuring all pairs, and a
+ * 4,096-seat Freeroll stays cheap). Returns the flagged pairs and the measured metrics (for the Flag events).
+ */
 export function detect(traces: SeatTrace[], p: CollusionParams = DEFAULT_COLLUSION) {
-  const all: PairMetrics[] = [];
-  for (let a = 0; a < traces.length; a++) for (let b = a + 1; b < traces.length; b++) all.push(pairMetrics(traces[a]!, traces[b]!, p));
+  const bySym = new Map<string, { ts: number; sign: 1 | -1; i: number }[]>();
+  traces.forEach((t, i) => {
+    for (const o of t.opens) {
+      if (t.eliminatedAt !== null && o.ts > t.eliminatedAt) continue;
+      const l = bySym.get(o.symbol) ?? [];
+      l.push({ ts: o.ts, sign: o.sign, i });
+      bySym.set(o.symbol, l);
+    }
+  });
+  const cand = new Set<number>();
+  const n = traces.length;
+  for (const l of bySym.values()) {
+    l.sort((a, b) => a.ts - b.ts || a.i - b.i);
+    for (let a = 0; a < l.length; a++)
+      for (let b = a + 1; b < l.length && l[b]!.ts - l[a]!.ts <= p.windowMs; b++) {
+        if (l[a]!.sign === l[b]!.sign || l[a]!.i === l[b]!.i) continue;
+        const [x, y] = l[a]!.i < l[b]!.i ? [l[a]!.i, l[b]!.i] : [l[b]!.i, l[a]!.i];
+        cand.add(x * n + y);
+      }
+  }
+  const all = [...cand].sort((a, b) => a - b).map((k) => pairMetrics(traces[Math.floor(k / n)]!, traces[k % n]!, p));
   return { flagged: all.filter((m) => m.flagged).map((m) => [m.a, m.b] as [string, string]), all };
 }

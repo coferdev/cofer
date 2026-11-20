@@ -22,8 +22,10 @@ import type { Order } from "../src/arena/engine/orders";
 import { canonical, parseRules, rulesHash, type RulesJson } from "../src/arena/engine/rules";
 import { standingsTree } from "../src/arena/log/chain";
 import { type Open, Recorder } from "../src/arena/log/record";
+import { pubOf, put, signOrder } from "./arenaKeys";
+import { sessionKeyHash } from "../src/arena/engine/session";
 import { checkResult, type SignRequest } from "../src/arena/signer/verify";
-import { decodeLogEvent, encodeLogEvent } from "../src/arena/log/events";
+import { decodeLogEvent, decodeOrder, encodeLogEvent } from "../src/arena/log/events";
 
 describe("arena signer check", () => {
   const PX = (n: number) => BigInt(Math.round(n * 1e8));
@@ -49,15 +51,15 @@ describe("arena signer check", () => {
     tape.set(ts, new Map([["BTC", mk("BTC", PX(100_000 + s * 3), ts)], ["ETH", mk("ETH", PX(4_000 - s / 5), ts)]]));
   }
   function game() {
-    const open: Open = { chainId: 4663, table: TABLE, rulesHash: rulesHash(RJ), rulesJson: canonical(RJ), seats: SEATS, pubkeys: ["0x01", "0x02", "0x03"], lockedAt: START, endAt: START + DUR * 1000 + 1000, lockBlock: 1n, tapeHours: [] };
+    const open: Open = { chainId: 4663, table: TABLE, rulesHash: rulesHash(RJ), rulesJson: canonical(RJ), seats: SEATS, pubkeys: [pubOf(0), pubOf(1), pubOf(2)], lockedAt: START, endAt: START + DUR * 1000 + 1000, lockBlock: 1n, tapeHours: [] };
     const r = new Recorder(open, rules);
     let n = 0n;
     const o = (seat: Hex, x: Partial<Order>): Order => ({ seat, nonce: ++n, kind: "MARKET", symbol: "BTC", product: "PERP", side: "BUY", clientId: `q${n}`, ...x });
     for (const [ts, m] of tape) {
       const s = (ts - START) / 1000;
-      if (s === 2) r.order(o(SEATS[0]!, { qty: PX(0.3), leverage: 5n }), "0x11", ts + 3); // long BTC while it rises
-      if (s === 3) r.order(o(SEATS[1]!, { symbol: "ETH", qty: PX(4), leverage: 2n }), "0x22", ts + 3); // long ETH while it falls
-      if (s === 4) r.order(o(SEATS[2]!, { side: "SELL", symbol: "ETH", qty: PX(1), leverage: 1n }), "0x33", ts + 3);
+      if (s === 2) put(r, 0, o(SEATS[0]!, { qty: PX(0.3), leverage: 5n }), ts + 3); // long BTC while it rises
+      if (s === 3) put(r, 1, o(SEATS[1]!, { symbol: "ETH", qty: PX(4), leverage: 2n }), ts + 3); // long ETH while it falls
+      if (s === 4) put(r, 2, o(SEATS[2]!, { side: "SELL", symbol: "ETH", qty: PX(1), leverage: 1n }), ts + 3);
       r.tick(ts, m);
     }
     const score = { stack: rules.stack, lambdaBps: rules.lambdaBps, minFills: rules.minFills, minExposureBps: rules.minExposureBps };
@@ -68,7 +70,7 @@ describe("arena signer check", () => {
     const { r, standings, head } = game();
     return {
       chainId: 4663, registry: REG, table: TABLE, onChainRulesHash: rulesHash(RJ), rulesJson: RJ, log: r.log, ticks: (ts) => tape.get(ts),
-      podiumSize: 2, engineBuild: BUILD,
+      podiumSize: 2, engineBuild: BUILD, onChainKeys: new Map(SEATS.map((a, i) => [a.toLowerCase(), sessionKeyHash(pubOf(i))])),
       proposed: {
         round: 0, logHead: head, eventsRoot: r.chain.eventsTree().root, standingsRoot: standingsTree(4663, TABLE, standings).root,
         podium: standings.slice(0, 2).map((s) => s.seat as Hex), payoutRoot: `0x${"0".repeat(64)}`, totalPayout: 0n, engineBuild: BUILD, logURI: "ipfs://x",
@@ -106,5 +108,25 @@ describe("arena signer check", () => {
     log[fi] = encodeLogEvent({ ...f, payload: p });
     const c = checkResult({ ...q, log });
     expect(c.ok).toBe(false);
+  });
+
+  test("a session key that is not the one on chain, or an order whose signature was swapped: nothing to sign", () => {
+    const q = request();
+    const keys = new Map(q.onChainKeys);
+    keys.set(SEATS[1]!.toLowerCase(), sessionKeyHash(pubOf(7)));
+    const c = checkResult({ ...q, onChainKeys: keys });
+    expect(c.ok).toBe(false);
+    if (!c.ok) expect(c.problems.join()).toContain("does not hash to the on-chain sessionKeyHash");
+
+    const oi = q.log.findIndex((x) => decodeLogEvent(x).type === "OrderIn");
+    const e = decodeLogEvent(q.log[oi]!);
+    const p = [...e.payload];
+    const { order } = decodeOrder(p[1] as Hex);
+    p[2] = signOrder(1, TABLE, order); // another seat's key signed this order
+    const log = [...q.log];
+    log[oi] = encodeLogEvent({ ...e, payload: p });
+    const d = checkResult({ ...q, log });
+    expect(d.ok).toBe(false);
+    if (!d.ok) expect(d.problems.join()).toContain("signature does not verify");
   });
 });

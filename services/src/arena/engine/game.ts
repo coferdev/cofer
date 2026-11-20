@@ -10,7 +10,8 @@
  */
 import { MARKETS, type Symbol } from "../marks/markets";
 import type { Mark } from "../marks/median";
-import { equity, eliminate, totalMaintenance } from "./ledger";
+import { type Seat as Ledger, equity, eliminate, notionalDown, totalMaintenance } from "./ledger";
+import type { SeatTrace } from "../scoring/collusion";
 import { optionValue, expiries, settle, SETTLE_WAIT_MS } from "./options";
 import { type Book, type Emitted, type Order, type Rules, addSeat, delistExpiry, ingest, listExpiry, newBook, onTick } from "./orders";
 import { sessionOnDay } from "../marks/calendar";
@@ -42,6 +43,8 @@ export interface Game {
   samples: Map<string, Sample>;
   lastTs: number | null;
   lastValidAt: Map<string, { ts: number; px: bigint }[]>; // recent valid marks per symbol (settlement lookback)
+  /** Collusion inputs (spec §4.10): one sample a minute, every opening fill, what was held at elimination. */
+  traces: Map<string, SeatTrace>;
   closed: boolean;
 }
 
@@ -76,7 +79,8 @@ export function newGame(rules: Rules, seats: string[], startAt: number, endAt: n
   for (const sym of rules.optionMarkets.filter((x) => rules.markets.includes(x)).sort()) {
     for (const at of expiries(sym, startAt, endAt)) ex.push({ sym, at, listFrom: listFrom(sym, at, startAt, endAt), listed: false, settled: false });
   }
-  return { book, seats: [...seats], startAt, endAt, expiries: ex, samples, lastTs: null, lastValidAt: new Map(), closed: false };
+  const traces = new Map<string, SeatTrace>(seats.map((seat) => [seat, { seat, samples: [], opens: [], eliminatedAt: null }]));
+  return { book, seats: [...seats], startAt, endAt, expiries: ex, samples, lastTs: null, lastValidAt: new Map(), traces, closed: false };
 }
 
 export function step(g: Game, ev: GameEvent): GameEmitted[] {
@@ -98,7 +102,15 @@ export function step(g: Game, ev: GameEvent): GameEmitted[] {
 
   // 1. fills
   const fills = onTick(g.book, ts, ev.marks);
-  for (const e of fills) if (e.t === "Fill" || e.t === "OptFill") g.samples.get(e.seat)!.fills++;
+  for (const e of fills) {
+    if (e.t === "Fill" || e.t === "OptFill") g.samples.get(e.seat)!.fills++;
+    if (e.t === "Fill") {
+      const l = g.book.seats.get(e.seat)!.ledger;
+      const qNew = e.product === "PERP" ? (l.perps.get(e.symbol)?.q ?? 0n) : (l.spot.get(e.symbol) ?? 0n);
+      const qOld = qNew - e.dq;
+      if (abs(qNew) > abs(qOld)) g.traces.get(e.seat)!.opens.push({ ts, symbol: e.symbol, sign: e.dq > 0n ? 1 : -1 });
+    }
+  }
   out.push(...fills);
 
   // 2. listings and expiries
@@ -126,6 +138,9 @@ export function step(g: Game, ev: GameEvent): GameEmitted[] {
     if ([...s.ledger.perps.keys()].some((k) => !val.has(k))) continue;
     const ov = optionValue(s.options, val, sigmas(g), ts);
     if (equity(s.ledger, val, ov) > totalMaintenance(s.ledger, val)) continue;
+    const tr = g.traces.get(seat)!;
+    tr.eliminatedAt = ts;
+    tr.heldAtElimination = signedNotional(s.ledger, val);
     s.ledger.cash += ov; // options sold at bid
     s.options.clear();
     const before = eliminate(s.ledger, val, ts) + ov;
@@ -138,6 +153,22 @@ export function step(g: Game, ev: GameEvent): GameEmitted[] {
   for (const seat of g.seats) sample(g, seat, ts, dt);
   g.lastTs = ts;
   return out;
+}
+
+const abs = (v: bigint) => (v < 0n ? -v : v);
+
+/** Signed notional per symbol at the marks, chips (perps by sign, spot long). */
+function signedNotional(l: Ledger, val: Map<string, bigint>): Map<string, bigint> {
+  const x = new Map<string, bigint>();
+  for (const [sym, p] of l.perps) {
+    const px = val.get(sym);
+    if (px !== undefined && p.q !== 0n) x.set(sym, (p.q < 0n ? -1n : 1n) * notionalDown(p.q, px));
+  }
+  for (const [sym, h] of l.spot) {
+    const px = val.get(sym);
+    if (px !== undefined && h !== 0n) x.set(sym, (x.get(sym) ?? 0n) + notionalDown(h, px));
+  }
+  return x;
 }
 
 const sigmas = (g: Game) => new Map(Object.entries(g.book.rules.sigma) as [string, bigint][]);
@@ -173,6 +204,7 @@ function sample(g: Game, seat: string, ts: number, dt: number) {
   if (s.ledger.eliminatedAt !== null && s.ledger.eliminatedAt < ts) return;
   const e = seatEquity(g, seat, ts);
   a.lastEquity = e;
+  if (ts % 60_000 === 0) g.traces.get(seat)!.samples.push({ ts, equity: e, x: signedNotional(s.ledger, g.book.lastValid) });
   if (e > a.peak) a.peak = e;
   if (a.peak > 0n) {
     const num = (a.peak - (e < 0n ? 0n : e)) * 10_000n;

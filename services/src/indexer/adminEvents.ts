@@ -15,7 +15,7 @@
 import type { Address, Hex } from "viem";
 import { utcText } from "./unknownVotes";
 import { WHO, type AlertMessage } from "../core/alertFormat";
-import { ROLES_ALERT } from "../core/roles";
+import { ROLES_ALERT, SINKS_ALERT_KEY } from "../core/roles";
 
 /** An admin event older than this (by its block time) is history: logged, not posted. */
 export const HISTORY_AGE_SEC = 600;
@@ -34,6 +34,8 @@ export interface AdminExpected {
   owner?: string;
   guardian?: string;
   feeWallet?: string;
+  /** The four fee sinks in order; when set, a SinksSet is judged against these instead of feeWallet. */
+  feeSinks?: readonly string[];
   adapter: string;
   factory: string;
 }
@@ -74,7 +76,7 @@ const same = (a: unknown, b: string) => s(a).toLowerCase() === b.toLowerCase();
 const ok = (a: unknown, expected?: string) => expected === undefined || same(a, expected);
 
 export const adapterAlertKey = (adapter: string) => `role-changed:adapter:${adapter.toLowerCase()}`;
-export const SINKS_ALERT = "role-changed:sinks";
+export const SINKS_ALERT = SINKS_ALERT_KEY;
 export const ROUTER_FACTORY_ALERT = "role-changed:router-factory";
 
 const info = (what: string, who: string = WHO.none): AdminDecision => ({ level: "info", what, who });
@@ -132,6 +134,11 @@ export function adminDecision(ev: AdminEvent, x: AdminExpected, asset?: string):
     case "SinksSet": {
       const sinks = a.sinks as readonly string[];
       const list = sinks.map((sink, i) => `${sink} ${pct((a.bps as readonly number[])[i])}`).join(", ");
+      if (x.feeSinks) {
+        return x.feeSinks.length === sinks.length && sinks.every((sink, i) => same(sink, x.feeSinks![i]!))
+          ? { ...info(`Fee sinks set: ${list}.`), clears: { key: SINKS_ALERT, note: "the fee sinks are the expected ones again" } }
+          : emergency(SINKS_ALERT, `Fee sinks were changed: ${list}. They are not the expected fee sinks.`);
+      }
       if (sinks.every((sink) => ok(sink, x.feeWallet))) {
         return { ...info(`Fee sinks set: ${list}.`), clears: { key: SINKS_ALERT, note: "the fee sinks are the fee wallet again" } };
       }

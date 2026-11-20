@@ -10,6 +10,7 @@
 import { MARKETS, type MarketClass, type Symbol, isSymbol } from "../marks/markets";
 import type { Mark } from "../marks/median";
 import { type Marks, type Seat, fillPerp, freeMargin, newSeat, spotBuy, spotSell } from "./ledger";
+import type { CollusionParams } from "../scoring/collusion";
 import { type OptPos, type OptType, buyOption, listStrikes, sellOption, seriesId } from "./options";
 
 export type OrderKind = "MARKET" | "LIMIT" | "STOP" | "TAKE_PROFIT" | "CLOSE" | "CANCEL" | "OPT_BUY" | "OPT_SELL";
@@ -56,6 +57,8 @@ export interface Rules {
   optionMarkets: Symbol[];
   sigma: Partial<Record<Symbol, bigint>>;
   premiumBudgetBps: bigint;
+  /** Collusion thresholds (spec §4.10); the defaults when absent. */
+  collusion?: CollusionParams;
 }
 
 export const PRACTICE_RULES: Rules = {
