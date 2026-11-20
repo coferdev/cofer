@@ -23,6 +23,7 @@ import { HOLDINGS_CACHE_MS, rangeParams, readHoldings, type HoldingsDeps } from 
 import { blockParam, readSnapshotProof, type SnapshotProofDeps } from "./snapshotProof";
 import { FEES_CACHE_MS, FEES_MAX_LIMIT, readFees, type FeesDeps } from "./fees";
 import { openApiSpec } from "./openapi";
+import { llmsText } from "./llms";
 import { perKeyCache, POT_CACHE_MS, POT_CACHE_SIZE, potParam, readPotSummary, type PotsDeps, type PotSummary } from "./pots";
 
 export interface PublicApiDeps {
@@ -328,7 +329,10 @@ export function publicApi(d: PublicApiDeps) {
   const spec = JSON.stringify(openApiSpec(d.changelog.baseUrl, "1"));
   app.get("/openapi.json", (c) => c.body(spec, 200, { ...PUBLIC_HEADERS, "content-type": "application/json; charset=utf-8", "cache-control": "public, max-age=3600" }));
 
+  const llms = llmsText(d.changelog.baseUrl);
+  app.get("/llms.txt", (c) => c.body(llms, 200, { ...PUBLIC_HEADERS, "content-type": "text/plain; charset=utf-8", "cache-control": "public, max-age=3600" }));
+
   // last: anything else under /v1 (a sub-app's notFound is not used once it is mounted)
   app.all("*", (c) => fail(c, 404, "not_found", TEXT.notFound));
-  return { app, status, explainTx, limit };
+  return { app, status, explainTx, limit, llms };
 }

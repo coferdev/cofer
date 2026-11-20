@@ -42,6 +42,7 @@ export const ROUTES: RouteDoc[] = [
   { path: "/v1/admin/pending", tag: "proof", summary: "Every change queued behind the 48-hour timelock, in plain words, and when it can apply.", data: ["pending", "recent"] },
   { path: "/v1/proof/snapshot/{pot}", tag: "proof", summary: "Every token a group held at a block, raw balance and reserved part, each with its command.", params: [pot, { name: "block", in: "query", description: "a block number (default: the newest the indexer counts)" }], data: ["pot", "block", "readable", "assets", "checks"] },
   { path: "/v1/openapi.json", tag: "about", summary: "This description.", data: { media: "application/json" } },
+  { path: "/v1/llms.txt", tag: "about", summary: "The API in plain text for software agents: its rules and every call (also at /llms.txt).", data: { media: "text/plain" } },
 ];
 
 export function openApiSpec(serverUrl: string, version: string) {

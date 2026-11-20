@@ -76,6 +76,11 @@ export function createServer(opts: { deps: ProposalDeps; cards: CardAdapter | nu
   const pub = opts.publicApi ? publicApi(opts.publicApi) : null;
   if (pub) {
     app.route("/v1", pub.app);
+    // the same plain-text description at the site's top level, where agents look for it
+    app.get("/llms.txt", (c) => {
+      if (pub.limit(c.req.header("x-forwarded-for")) > 0) return c.text("Too many requests. Wait a little and try again.", 429);
+      return c.body(pub.llms, 200, { "content-type": "text/plain; charset=utf-8", "cache-control": "public, max-age=3600", "access-control-allow-origin": "*" });
+    });
     // the transaction explainer page: no script, rate limited with the public API
     const page = (c: Context, html: string, status: 200 | 400 | 404 | 429 = 200) => {
       c.header("content-security-policy", TX_PAGE_CSP);
