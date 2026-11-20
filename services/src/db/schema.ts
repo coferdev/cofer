@@ -261,3 +261,17 @@ export const fees = pgTable(
   },
   (t) => [index("fees_pot_block_idx").on(t.pot, t.block)],
 );
+
+/** The gas cost of every passed vote the relayer ran, one row per transaction (keeper ledger). Chain data only. */
+export const relayerSpend = pgTable(
+  "relayer_spend",
+  {
+    tx: text("tx").primaryKey(),
+    block: bigint("block", { mode: "bigint" }).notNull(),
+    day: text("day").notNull(), // YYYY-MM-DD UTC
+    gasUsed: numeric("gas_used", { precision: 78, scale: 0 }).notNull(),
+    gasPrice: numeric("gas_price", { precision: 78, scale: 0 }).notNull(),
+    costWei: numeric("cost_wei", { precision: 78, scale: 0 }).notNull(),
+  },
+  (t) => [index("relayer_spend_day_idx").on(t.day)],
+);

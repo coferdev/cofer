@@ -5,7 +5,10 @@
 import { and, asc, eq, inArray, sql } from "drizzle-orm";
 import { db, schema } from "../db/client";
 import { logError } from "../core/errors";
-import { runProjection, type EventIn, type LedgerStore, type Projection } from "../indexer/projections/runner";
+import { runEnrichedProjection, runProjection, type EventIn, type LedgerStore, type Projection } from "../indexer/projections/runner";
+import { RELAYER_SPEND, relayerSpendRows, type SpendRow } from "../indexer/projections/relayerSpend";
+import { privateKeyToAccount } from "viem/accounts";
+import { publicClient } from "../chain/clients";
 import { setAsidesProjection, type SetAsideChange } from "../indexer/projections/setAsides";
 import { adminQueueProjection, type AdminOp } from "../indexer/projections/adminQueue";
 import { env } from "../env";
@@ -78,8 +81,28 @@ export const LEDGERS = (): { projection: Projection<never>; write: (tx: Tx, chan
   { projection: feesProjection(env().USDG_ADDRESS) as Projection<never>, write: writeFees as never },
 ];
 
+export async function writeRelayerSpend(tx: Tx, rows: SpendRow[]) {
+  for (const r of rows) await tx.insert(schema.relayerSpend).values({ tx: r.tx, block: r.block, day: r.day, gasUsed: r.gasUsed.toString(), gasPrice: r.gasPrice.toString(), costWei: r.costWei.toString() }).onConflictDoNothing();
+}
+
 export async function runLedgers(): Promise<Record<string, number>> {
   const out: Record<string, number> = {};
+  try {
+    const client = publicClient();
+    const relayer = privateKeyToAccount(env().RELAYER_PRIVATE_KEY as `0x${string}`).address; // the public address only
+    out[RELAYER_SPEND] = await runEnrichedProjection(
+      RELAYER_SPEND,
+      ["ProposalExecuted"],
+      (evs) =>
+        relayerSpendRows(evs, relayer, {
+          receipt: (h) => client.getTransactionReceipt({ hash: h as `0x${string}` }),
+          blockTime: async (n) => Number((await client.getBlock({ blockNumber: n })).timestamp),
+        }),
+      sqlStore(writeRelayerSpend),
+    );
+  } catch (e) {
+    logError(`cofer-keeper ${RELAYER_SPEND}`, e);
+  }
   for (const l of LEDGERS()) {
     try {
       out[l.projection.name] = await runProjection(l.projection, sqlStore(l.write));

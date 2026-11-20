@@ -51,3 +51,23 @@ export async function runProjection<D>(p: Projection<D>, store: LedgerStore<D>, 
     if (evs.length < batch) return read;
   }
 }
+
+/**
+ * A ledger whose rows need one more read per event before they are written (for example the gas a transaction cost):
+ * events after the saved position, then `enrich` (read-only chain reads), then the rows and the new position in one
+ * transaction. A failed read writes nothing and keeps the position, so the next run tries the same events again.
+ */
+export async function runEnrichedProjection<D>(name: string, events: string[], enrich: (evs: EventIn[]) => Promise<D[]>, store: LedgerStore<D>, batch = 200): Promise<number> {
+  let after = await store.cursor(name);
+  let read = 0;
+  for (;;) {
+    const evs = await store.events(after, events, batch);
+    if (!evs.length) return read;
+    const last = evs.at(-1)!;
+    const to = position(last.block, last.logIndex);
+    await store.commit(name, to, await enrich(evs));
+    read += evs.length;
+    after = to;
+    if (evs.length < batch) return read;
+  }
+}
