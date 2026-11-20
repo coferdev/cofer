@@ -59,6 +59,7 @@ Members can always exit. No alert, pause or outage changes that.
 | rpc-lagging | The server's chain connection has been more than 300 blocks behind the chain's public RPC for 5 minutes. Read-only check: nothing is re-routed. | Dev checks the RPC provider. |
 | rpc-down | The chain connection has failed for 5 minutes or more. While it lasts, and for 5 minutes after, indexer-behind, job-failing and errors-spike are held back because the outage causes them. Emergencies are never held back. | Dev checks the RPC provider. |
 | errors-spike | 20 or more errors logged in 5 minutes across the bot, API and jobs. Single errors stay in the log only. | Dev checks the log. |
+| backup-failed | Today's database backup failed: the dump, the restore into a throwaway database, or the row-count comparison (the alert says which). The next good backup clears it. | Dev checks the server (disk space, Postgres tools). |
 | disk-low | Less than 10% disk space left on the server. | Dev frees disk space or adds disk. |
 | memory-high | The server has used more than 90% of its memory for 5 minutes or more. | Dev checks the server. |
 

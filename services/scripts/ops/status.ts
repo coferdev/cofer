@@ -15,6 +15,8 @@ export interface StatusInput {
   queues: Record<string, { waiting: number; active: number; delayed: number; failed: number }> | null;
   alerts: string[] | null; // open alert keys
   settings: { name: string; set: boolean }[];
+  /** The last good backup (backup.ts last-good.json), when a backup folder is given. */
+  lastBackup?: { day: string; file: string; tables: number } | null;
 }
 
 /** Setting names whose values are secrets: listed like every other one, as set or not set, and never read further. */
@@ -33,6 +35,7 @@ export function statusReport(s: StatusInput): string {
   lines.push("Queues:");
   if (!s.queues) lines.push("  could not be read");
   else for (const [q, c] of Object.entries(s.queues)) lines.push(`  ${q.padEnd(10)} waiting ${c.waiting}  active ${c.active}  delayed ${c.delayed}  failed ${c.failed}`);
+  if (s.lastBackup !== undefined) lines.push(`Backup:   ${s.lastBackup ? `last good ${s.lastBackup.day} (${s.lastBackup.file}, ${s.lastBackup.tables} tables restore-tested)` : "no good backup recorded"}`);
   lines.push(`Alerts:   ${!s.alerts ? "could not be read" : s.alerts.length ? `${s.alerts.length} open: ${s.alerts.join(", ")}` : "none open"}`);
   lines.push("", "Settings (names only, never values):");
   const set = s.settings.filter((x) => x.set).map((x) => x.name);
@@ -95,6 +98,15 @@ if (import.meta.main) {
   } catch (e) {
     console.error(`(some parts could not be read: ${(e as Error).name})`);
   }
-  console.log(statusReport({ units: unitState, release: currentRelease(releases), indexer, queues, alerts, settings }));
+  const backups = flag("backups", "");
+  let lastBackup: StatusInput["lastBackup"];
+  if (backups) {
+    try {
+      lastBackup = JSON.parse(await Bun.file(`${backups}/last-good.json`).text());
+    } catch {
+      lastBackup = null;
+    }
+  }
+  console.log(statusReport({ units: unitState, release: currentRelease(releases), indexer, queues, alerts, settings, lastBackup }));
   process.exit(0);
 }
