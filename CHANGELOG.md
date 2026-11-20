@@ -46,6 +46,7 @@ Fixes from the 2026-11-01 review of `0.1.0` (commit `aba0779`). `contracts/src` 
 - Update 36 · 2026-11-20 11:00 UTC: Event feeds per group: Deposits, exits, votes and spends, as they happen.
 - Update 37 · 2026-11-20 12:00 UTC: Signing page check: Every 5 minutes: both pages load, with the right scripts and security headers.
 - Update 38 · 2026-11-20 13:00 UTC: Price-jump alarm: Over 20% for a stock or 2% for USDG between two readings. Splits are left out.
+- Update 39 · 2026-11-20 14:00 UTC: RPC cross-check: Every minute, compared with the public RPC for chain and latest block.
 
 ### Mainnet
 - Cofer is live on Robinhood Chain mainnet (chain 4663): factory, fee router, group account template and swap adapter deployed on 2026-11-06; addresses in contracts/deployments/4663.json.

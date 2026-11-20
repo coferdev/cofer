@@ -4,7 +4,7 @@
  * can execute a passed proposal.
  */
 import { and, gte, inArray, like, lt, lte, eq, notInArray, sql } from "drizzle-orm";
-import { getAddress, zeroAddress, type Address } from "viem";
+import { createPublicClient, getAddress, http, zeroAddress, type Address } from "viem";
 import { db, schema } from "../db/client";
 import { aggregatorAbi, erc20Abi, factoryAbi, factoryAddress, feeRouterAbi, potAbi, publicClient, relayerClient } from "../chain/clients";
 import { Q, queues, enqueueNotify, ensureRelay, startWorker } from "../queues";
@@ -28,6 +28,8 @@ import { adminCountdown, DUE_ALERT, SOON_ALERT, type AdminCountdownDeps } from "
 import { takeSnapshots, type SnapshotDeps } from "./snapshots";
 import { sha256, signerCheck, type SignerCheckDeps } from "./signerCheck";
 import { priceJumpProblem, type PriceReading } from "../core/priceJump";
+import { rpcCrossCheck, type CrossCheckDeps } from "./rpcCrossCheck";
+import { PUBLIC_RPC } from "../web/page";
 import { SIGNER_CSP, WALLET_CSP } from "../web/page";
 import { ROLES_ALERT, roleProblem, type RoleState } from "../core/roles";
 import { CURSOR } from "../indexer/indexer";
@@ -568,6 +570,7 @@ export async function scheduleKeeper() {
   await q.upsertJobScheduler("snapshots", { every: 900_000 }, { name: "snapshots" });
   await q.upsertJobScheduler("signer-page", { every: 300_000 }, { name: "signer-page" });
   await q.upsertJobScheduler("price-jump", { every: 900_000 }, { name: "price-jump" });
+  await q.upsertJobScheduler("rpc-cross-check", { every: 60_000 }, { name: "rpc-cross-check" });
 }
 
 export function startKeeper() {
@@ -601,6 +604,8 @@ export function startKeeper() {
           return signerCheck(signerCheckDeps());
         case "price-jump":
           return priceJumps();
+        case "rpc-cross-check":
+          return rpcCrossCheck(crossCheckDeps());
         case "feeds":
           return { feeds: await feedHealth(), continuity: await multiplierContinuity() };
       }
@@ -743,5 +748,23 @@ function priceJumpDeps(): PriceJumpDeps {
     previous: async (asset) => lastPrices.get(asset.toLowerCase()) ?? null,
     keep: async (asset, r) => void lastPrices.set(asset.toLowerCase(), r),
     alerts: alertDeps(),
+  };
+}
+
+let rpcLaggingSince: number | null = null;
+/** The cross-check's two sides: the server's own RPC client, and a client on the chain's public RPC. */
+function crossCheckDeps(): CrossCheckDeps {
+  const e = env();
+  const server = publicClient();
+  const pub = createPublicClient({ transport: http(PUBLIC_RPC[e.CHAIN_ID] ?? "", { retryCount: 1, timeout: 10_000 }) });
+  return {
+    server: { chainId: () => server.getChainId(), head: () => server.getBlockNumber() },
+    publicRpc: { chainId: () => pub.getChainId(), head: () => pub.getBlockNumber() },
+    expectedChainId: e.CHAIN_ID,
+    now: () => Math.floor(Date.now() / 1000),
+    laggingSince: async () => rpcLaggingSince,
+    setLaggingSince: async (t) => void (rpcLaggingSince = t),
+    alerts: alertDeps(),
+    log: (s) => console.log(`[keeper] ${s}`),
   };
 }

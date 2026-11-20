@@ -52,6 +52,8 @@ Members can always exit. No alert, pause or outage changes that.
 | Name | What it means | Who acts |
 |---|---|---|
 | signer-page-down | Every 5 minutes the keeper loads the passkey and wallet signing pages from the public address. One of them did not answer 200, lost its exact security policy or x-frame-options, does not load its script, or serves a script that is not byte for byte the one this release builds. The alert names which. Exits from the contract itself are not affected. | Dev checks the server and the last deploy. |
+| rpc-wrong-chain | 🔴 The server's chain connection answers a different chain id from the one the services run for (checked every minute against the chain's public RPC). The bot, indexer and jobs may be reading the wrong chain. | **Tell the owner and the dev at once.** Fix RHC_RPC_URL and restart. |
+| rpc-lagging | The server's chain connection has been more than 300 blocks behind the chain's public RPC for 5 minutes. Read-only check: nothing is re-routed. | Dev checks the RPC provider. |
 | rpc-down | The chain connection has failed for 5 minutes or more. While it lasts, and for 5 minutes after, indexer-behind, job-failing and errors-spike are held back because the outage causes them. Emergencies are never held back. | Dev checks the RPC provider. |
 | errors-spike | 20 or more errors logged in 5 minutes across the bot, API and jobs. Single errors stay in the log only. | Dev checks the log. |
 | disk-low | Less than 10% disk space left on the server. | Dev frees disk space or adds disk. |
