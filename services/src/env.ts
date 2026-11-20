@@ -4,6 +4,13 @@ import { RHC } from "./chain/addresses";
 
 const hex = z.string().regex(/^0x[0-9a-fA-F]+$/);
 const addr = z.string().regex(/^0x[0-9a-fA-F]{40}$/);
+/** Comma-separated addresses (exactly n when given), checksummed. */
+const addrList = (n?: number) =>
+  z
+    .string()
+    .transform((v) => v.split(",").map((s) => s.trim()).filter(Boolean))
+    .refine((l) => l.every((a) => /^0x[0-9a-fA-F]{40}$/.test(a)) && (n === undefined ? l.length > 0 : l.length === n), n ? `${n} comma-separated addresses` : "comma-separated addresses")
+    .transform((l) => l.map((a) => getAddress(a)));
 
 const schema = z.object({
   ROLE: z.enum(["all", "api", "bot", "indexer", "keeper", "notifier"]).default("all"),
@@ -29,7 +36,11 @@ const schema = z.object({
     .transform((v) => parseEther(v)), // alert when the relayer's ETH balance is below this
   EXPECTED_OWNER: addr.optional(), // the owner Safe of CoferFactory and FeeRouter; the keeper alerts if either owner differs
   EXPECTED_GUARDIAN: addr.optional(), // the factory guardian; the keeper alerts if it differs
-  EXPECTED_FEE_WALLET: addr.optional(), // the wallet behind all four fee sinks; alerts call it "fee wallet"
+  EXPECTED_FEE_WALLET: addr.optional(), // the wallet behind all four fee sinks; alerts call it "fee wallet" (ignored when EXPECTED_FEE_SINKS is set)
+  // the four fee sinks in order (work, treasury, perks, burn), comma-separated; alerts while the live sinks differ
+  EXPECTED_FEE_SINKS: addrList(4).optional(),
+  // the owner Safe's signers, comma-separated, any order; the keeper alerts while the Safe's signers differ
+  EXPECTED_SAFE_SIGNERS: addrList().optional(),
   EXPLORER_URL: z.string().url().optional(), // block explorer override (no key); default: the known explorer for CHAIN_ID (chain/addresses.ts)
   BUNDLER_URL: z.string().url().optional(), // ZeroDev or Alchemy (member userOps from the signer site)
   PAYMASTER_URL: z.string().url().optional(),

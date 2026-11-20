@@ -123,7 +123,7 @@ async function handleFeeRouterLog(log: Log, firstRun = false) {
 }
 
 const adminDeps = (): AdminEventDeps => ({
-  expected: { owner: env().EXPECTED_OWNER, guardian: env().EXPECTED_GUARDIAN, feeWallet: env().EXPECTED_FEE_WALLET, adapter: env().ADAPTER_ADDRESS, factory: env().FACTORY_ADDRESS },
+  expected: { owner: env().EXPECTED_OWNER, guardian: env().EXPECTED_GUARDIAN, feeWallet: env().EXPECTED_FEE_WALLET, feeSinks: env().EXPECTED_FEE_SINKS, adapter: env().ADAPTER_ADDRESS, factory: env().FACTORY_ADDRESS },
   now: () => Math.floor(Date.now() / 1000),
   post: (m) => postAlert(m),
   openAlert: (key, m) => openAlertOrThrow(key, m),

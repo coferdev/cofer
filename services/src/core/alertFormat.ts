@@ -60,6 +60,7 @@ export interface Roles {
   owner?: string; // EXPECTED_OWNER
   guardian?: string; // EXPECTED_GUARDIAN
   feeWallet?: string; // EXPECTED_FEE_WALLET (all fee sinks)
+  workWallet?: string; // the first of EXPECTED_FEE_SINKS (the work share)
   relayer?: string;
   factory?: string;
   feeRouter?: string;
@@ -70,6 +71,7 @@ const ROLE_NAMES: Record<keyof Roles, string> = {
   owner: "owner Safe",
   guardian: "guardian",
   feeWallet: "fee wallet",
+  workWallet: "work fee wallet",
   relayer: "relayer",
   factory: "factory",
   feeRouter: "fee router",

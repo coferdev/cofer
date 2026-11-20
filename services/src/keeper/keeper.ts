@@ -10,6 +10,7 @@ import { aggregatorAbi, erc20Abi, factoryAbi, factoryAddress, feeRouterAbi, potA
 import { Q, queues, enqueueNotify, ensureRelay, startWorker } from "../queues";
 import { fetchCanonicalStocks, type CanonicalStock } from "../stocks/canonical";
 import { env } from "../env";
+import { SINKS_ALERT_KEY, sinksProblem } from "../core/roles";
 import { errorKind, logAlert, logError } from "../core/errors";
 import { feedProblems, feedWarning, oldFeedNearKey, USDG_STALE_ALERT_GRACE_SEC, type FeedNow } from "../core/feedHealth";
 import { continuityAlertKey, continuityStep, pendingFrom, type Pending, type Reading } from "../core/continuity";
@@ -344,7 +345,11 @@ export async function checkRelayerFunds(
 
 /** Alerts while the factory/fee-router roles differ from what is expected (see core/roles.ts). A failed read is logged and changes nothing. */
 export async function checkRoles(
-  deps: { read(): Promise<RoleState>; expected: { owner?: string; guardian?: string }; alerts: AlertDeps } = {
+  deps: {
+    read(): Promise<RoleState>;
+    expected: { owner?: string; guardian?: string; signers?: readonly string[]; feeSinks?: readonly string[] };
+    alerts: AlertDeps;
+  } = {
     read: async () => {
       const c = publicClient();
       const factory = factoryAddress();
@@ -356,9 +361,16 @@ export async function checkRoles(
         c.readContract({ address: router, abi: feeRouterAbi, functionName: "owner" }),
         c.readContract({ address: router, abi: feeRouterAbi, functionName: "pendingOwner" }),
       ]);
-      return { factoryOwner, factoryPendingOwner, guardian, routerOwner, routerPendingOwner } as RoleState;
+      const e = env();
+      // the owner Safe's signers and the four fee sinks, read only when they are expected (no import: inline ABI)
+      const safeAbi = [{ type: "function", name: "getOwners", stateMutability: "view", inputs: [], outputs: [{ type: "address[]" }] }] as const;
+      const safeSigners = e.EXPECTED_SAFE_SIGNERS && e.EXPECTED_OWNER ? ((await c.readContract({ address: e.EXPECTED_OWNER as Address, abi: safeAbi, functionName: "getOwners" })) as readonly string[]) : undefined;
+      const sinks = e.EXPECTED_FEE_SINKS
+        ? ((await Promise.all([0n, 1n, 2n, 3n].map((i) => c.readContract({ address: router, abi: feeRouterAbi, functionName: "sinks", args: [i] })))) as string[])
+        : undefined;
+      return { factoryOwner, factoryPendingOwner, guardian, routerOwner, routerPendingOwner, safeSigners, sinks } as RoleState;
     },
-    expected: { owner: env().EXPECTED_OWNER, guardian: env().EXPECTED_GUARDIAN },
+    expected: { owner: env().EXPECTED_OWNER, guardian: env().EXPECTED_GUARDIAN, signers: env().EXPECTED_SAFE_SIGNERS, feeSinks: env().EXPECTED_FEE_SINKS },
     alerts: alertDeps(),
   },
 ) {
@@ -371,7 +383,14 @@ export async function checkRoles(
   }
   const problem = roleProblem(s, deps.expected);
   await checkAlert(ROLES_ALERT, problem === null ? null : { name: "role-changed", what: problem, who: WHO.emergency, emergency: true }, deps.alerts);
-  return problem === null;
+  // the fee sinks share the indexer's SinksSet alert: opened at once by the event, kept or cleared here from the live values
+  let sinksOk = true;
+  if (deps.expected.feeSinks && s.sinks) {
+    const sp = sinksProblem(s.sinks, deps.expected.feeSinks);
+    sinksOk = sp === null;
+    await checkAlert(SINKS_ALERT_KEY, sp === null ? null : { name: "role-changed", what: sp, who: WHO.emergency, emergency: true }, deps.alerts, "the fee sinks are the expected ones");
+  }
+  return problem === null && sinksOk;
 }
 
 export { INDEXER_LAG_ALERT };
