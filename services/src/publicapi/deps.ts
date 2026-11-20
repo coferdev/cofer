@@ -263,6 +263,20 @@ export function livePublicApiDeps(e: Env): PublicApiDeps {
         return rows.map((r) => ({ ...r, amount: String(r.amount) }));
       },
     },
+    potFeeds: {
+      baseUrl: e.PUBLIC_URL,
+      explain: { usdg: e.USDG_ADDRESS as Address, token: (a) => tokenInfo(a) },
+      blockTime: async (n) => Number((await client.getBlock({ blockNumber: n })).timestamp),
+      latest: async (pot, names, limit) =>
+        (
+          await db()
+            .select({ block: schema.chainEvents.block, logIndex: schema.chainEvents.logIndex, txHash: schema.chainEvents.txHash, name: schema.chainEvents.name, args: schema.chainEvents.args })
+            .from(schema.chainEvents)
+            .where(and(eq(schema.chainEvents.address, pot), inArray(schema.chainEvents.name, names)))
+            .orderBy(desc(schema.chainEvents.block), desc(schema.chainEvents.logIndex))
+            .limit(limit)
+        ).map((r) => ({ ...r, args: r.args as Record<string, unknown> })),
+    },
     ownership: {
       factory: factoryAddress(),
       feeRouter: feeRouterNow,

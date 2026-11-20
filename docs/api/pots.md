@@ -102,3 +102,10 @@ in; 0.30% today) and each plan payment (`kind: "plan"`, in USDG, with `months`).
 `decimals`, `block`, `logIndex` and `tx`. Paged like the timeline (`after`, `limit` 1 to 200, `next`). From the
 [fee ledger](../ledgers.md). Check one yourself: the `fee` field of the transaction's `Swapped` log, or the
 `PlanPaid` log. It may be cached for 15 seconds.
+
+## GET /v1/pots/:pot/feed.atom and /feed.json
+
+One group account's own feed, in Atom and JSON Feed: each deposit, exit, vote (passed and waiting, or run) and
+allowance spend, newest first (the last 50), in the same plain words as the transaction explainer, each linking its
+transaction page. Subscribe in any feed reader; nothing is stored about who subscribes. Item ids are fixed by
+transaction and log, so a reader never shows one twice. It may be cached for a minute.

@@ -15,6 +15,7 @@ import type { AdminDeps, AdminRowIn } from "../src/publicapi/admin";
 import type { HoldingsDeps } from "../src/publicapi/holdings";
 import type { SnapshotProofDeps } from "../src/publicapi/snapshotProof";
 import type { FeesDeps } from "../src/publicapi/fees";
+import type { PotFeedDeps } from "../src/publicapi/feeds";
 import type { VoteReceiptDeps, VoteRow } from "../src/core/voteReceipt";
 import { encodeAbiParameters, encodeEventTopics, type Abi } from "viem";
 import { decodeEventLog } from "viem";
@@ -336,8 +337,18 @@ export function fakeFees(): FeesDeps {
   };
 }
 
+export function fakePotFeeds(): PotFeedDeps {
+  const rows = potEventRows();
+  return {
+    baseUrl: "https://sign.example",
+    explain: { usdg: T_USDG, token: async (a) => TESTNET_TOKENS[a.toLowerCase()] ?? null },
+    blockTime: async (n) => 1_790_000_000 + Number(n % 1000n),
+    latest: async (p, names, limit) => (p.toLowerCase() === POT.toLowerCase() ? rows.filter((r) => names.includes(r.name)).reverse().slice(0, limit) : []),
+  };
+}
+
 export function fakePublicApi(over: Partial<PublicApiDeps> = {}): PublicApiDeps {
-  return { chainId: 4663, status: fakeStatus(), tx: fakeTx(), ownership: fakeOwnership(), changelog: { text: SAMPLE_CHANGELOG, baseUrl: "https://sign.example" }, pots: fakePots(), members: fakeMembers(), keyGroups: fakeKeyGroups(), votes: fakeVotes(), timeline: fakeTimeline(), receipts: fakeReceipts(), setAsides: fakeSetAsides(), admin: fakeAdmin(), holdings: fakeHoldings(), snapshotProof: fakeSnapshotProof(), fees: fakeFees(), voteReceipts: fakeVoteReceipts(), ...over };
+  return { chainId: 4663, status: fakeStatus(), tx: fakeTx(), ownership: fakeOwnership(), changelog: { text: SAMPLE_CHANGELOG, baseUrl: "https://sign.example" }, pots: fakePots(), members: fakeMembers(), keyGroups: fakeKeyGroups(), votes: fakeVotes(), timeline: fakeTimeline(), receipts: fakeReceipts(), setAsides: fakeSetAsides(), admin: fakeAdmin(), holdings: fakeHoldings(), snapshotProof: fakeSnapshotProof(), fees: fakeFees(), potFeeds: fakePotFeeds(), voteReceipts: fakeVoteReceipts(), ...over };
 }
 
 /** The whole signer server with the public API on fake data (fixed, fake settings: never the process environment). */

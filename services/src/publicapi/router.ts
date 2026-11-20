@@ -24,6 +24,7 @@ import { blockParam, readSnapshotProof, type SnapshotProofDeps } from "./snapsho
 import { FEES_CACHE_MS, FEES_MAX_LIMIT, readFees, type FeesDeps } from "./fees";
 import { openApiSpec } from "./openapi";
 import { llmsText } from "./llms";
+import { potAtom, POT_FEED_CACHE_MS, potFeedItems, potJsonFeed, type PotFeedDeps } from "./feeds";
 import { perKeyCache, POT_CACHE_MS, POT_CACHE_SIZE, potParam, readPotSummary, type PotsDeps, type PotSummary } from "./pots";
 
 export interface PublicApiDeps {
@@ -41,6 +42,7 @@ export interface PublicApiDeps {
   holdings: HoldingsDeps;
   snapshotProof: SnapshotProofDeps;
   fees: FeesDeps;
+  potFeeds: PotFeedDeps;
   votes: VotesDeps;
   timeline: TimelineDeps;
   receipts: ReceiptsDeps;
@@ -170,6 +172,8 @@ export function publicApi(d: PublicApiDeps) {
     POT_CACHE_SIZE,
     nowMs,
   );
+
+  const potFeed = perKeyCache((a) => potFeedItems(d.potFeeds, a as `0x${string}`), POT_FEED_CACHE_MS, POT_CACHE_SIZE, nowMs);
 
   // made once at start-up from this release's CHANGELOG.md
   const entries = parseChangelog(d.changelog.text);
@@ -331,6 +335,19 @@ export function publicApi(d: PublicApiDeps) {
 
   const llms = llmsText(d.changelog.baseUrl);
   app.get("/llms.txt", (c) => c.body(llms, 200, { ...PUBLIC_HEADERS, "content-type": "text/plain; charset=utf-8", "cache-control": "public, max-age=3600" }));
+
+  app.get("/pots/:pot/feed.atom", async (c) => {
+    const p = await pot(c);
+    if (!p.a) return p.res;
+    const items = (await potFeed(p.a)).value;
+    return c.body(potAtom(items, p.a, d.potFeeds.baseUrl), 200, { ...PUBLIC_HEADERS, "content-type": "application/atom+xml; charset=utf-8", "cache-control": `public, max-age=${POT_FEED_CACHE_MS / 1000}` });
+  });
+  app.get("/pots/:pot/feed.json", async (c) => {
+    const p = await pot(c);
+    if (!p.a) return p.res;
+    const items = (await potFeed(p.a)).value;
+    return c.body(JSON.stringify(potJsonFeed(items, p.a, d.potFeeds.baseUrl)), 200, { ...PUBLIC_HEADERS, "content-type": "application/feed+json; charset=utf-8", "cache-control": `public, max-age=${POT_FEED_CACHE_MS / 1000}` });
+  });
 
   // last: anything else under /v1 (a sub-app's notFound is not used once it is mounted)
   app.all("*", (c) => fail(c, 404, "not_found", TEXT.notFound));
