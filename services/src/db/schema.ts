@@ -275,3 +275,22 @@ export const relayerSpend = pgTable(
   },
   (t) => [index("relayer_spend_day_idx").on(t.day)],
 );
+
+/** Every member action sent through the EntryPoint, with the paymaster that covered its fee (zero address = the
+ *  account paid), gas used, cost and result (keeper ledger, from the chain's EntryPoint logs). Chain data only. */
+export const sponsoredOps = pgTable(
+  "sponsored_ops",
+  {
+    userOpHash: text("user_op_hash").primaryKey(),
+    sender: text("sender").notNull(),
+    paymaster: text("paymaster").notNull(),
+    sponsored: boolean("sponsored").notNull(),
+    success: boolean("success").notNull(),
+    gasUsed: numeric("gas_used", { precision: 78, scale: 0 }).notNull(),
+    costWei: numeric("cost_wei", { precision: 78, scale: 0 }).notNull(),
+    block: bigint("block", { mode: "bigint" }).notNull(),
+    day: text("day").notNull(),
+    tx: text("tx").notNull(),
+  },
+  (t) => [index("sponsored_ops_day_idx").on(t.day)],
+);

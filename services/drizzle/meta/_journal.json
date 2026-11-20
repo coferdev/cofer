@@ -64,6 +64,13 @@
       "when": 1794780400000,
       "tag": "0008_relayer_spend",
       "breakpoints": true
+    },
+    {
+      "idx": 9,
+      "version": "7",
+      "when": 1794780500000,
+      "tag": "0009_sponsored_ops",
+      "breakpoints": true
     }
   ]
 }

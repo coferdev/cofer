@@ -50,6 +50,7 @@ Fixes from the 2026-11-01 review of `0.1.0` (commit `aba0779`). `contracts/src` 
 - Update 40 · 2026-11-20 15:00 UTC: Metrics endpoint: Lag, queues, alerts, feed ages. Server only.
 - Update 41 · 2026-11-20 16:00 UTC: Relayer spend ledger: The gas cost of every vote it runs, recorded per day.
 - Update 42 · 2026-11-20 17:00 UTC: Relayer days-left forecast: From its last 14 days of spending. Staff are warned at 7 days left.
+- Update 43 · 2026-11-20 18:00 UTC: Sponsored actions ledger: Every member action whose network fee is covered, read from the chain.
 
 ### Mainnet
 - Cofer is live on Robinhood Chain mainnet (chain 4663): factory, fee router, group account template and swap adapter deployed on 2026-11-06; addresses in contracts/deployments/4663.json.

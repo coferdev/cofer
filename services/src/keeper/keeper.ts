@@ -30,6 +30,8 @@ import { sha256, signerCheck, type SignerCheckDeps } from "./signerCheck";
 import { priceJumpProblem, type PriceReading } from "../core/priceJump";
 import { rpcCrossCheck, type CrossCheckDeps } from "./rpcCrossCheck";
 import { RUNWAY_ALERT, runwayProblem } from "../core/relayerRunway";
+import { SPONSORED, syncSponsored, USER_OP_EVENT, type SponsoredDeps } from "./sponsored";
+import { RHC } from "../chain/addresses";
 import { PUBLIC_RPC } from "../web/page";
 import { SIGNER_CSP, WALLET_CSP } from "../web/page";
 import { ROLES_ALERT, roleProblem, type RoleState } from "../core/roles";
@@ -573,6 +575,7 @@ export async function scheduleKeeper() {
   await q.upsertJobScheduler("price-jump", { every: 900_000 }, { name: "price-jump" });
   await q.upsertJobScheduler("rpc-cross-check", { every: 60_000 }, { name: "rpc-cross-check" });
   await q.upsertJobScheduler("relayer-runway", { every: 3_600_000 }, { name: "relayer-runway" });
+  await q.upsertJobScheduler("sponsored", { every: 60_000 }, { name: "sponsored" });
 }
 
 export function startKeeper() {
@@ -610,6 +613,8 @@ export function startKeeper() {
           return rpcCrossCheck(crossCheckDeps());
         case "relayer-runway":
           return checkRelayerRunway();
+        case "sponsored":
+          return syncSponsored(sponsoredDeps());
         case "feeds":
           return { feeds: await feedHealth(), continuity: await multiplierContinuity() };
       }
@@ -788,4 +793,28 @@ export async function checkRelayerRunway(
   const problem = runwayProblem(days);
   await checkAlert(RUNWAY_ALERT, problem === null ? null : { name: RUNWAY_ALERT, what: problem, who: WHO.topUp }, deps.alerts);
   return days;
+}
+
+/** The sponsored actions ledger's live data: member keys, the chain's EntryPoint logs, the database. */
+function sponsoredDeps(): SponsoredDeps {
+  const client = publicClient();
+  return {
+    entryPoint: RHC.ENTRYPOINT_V07,
+    members: async () => (await db().selectDistinct({ a: schema.members.address }).from(schema.members)).map((r) => r.a),
+    head: async () => (await client.getBlockNumber()) - BigInt(env().CONFIRMATIONS),
+    startBlock: env().START_BLOCK,
+    cursor: async () => (await db().query.cursors.findFirst({ where: eq(schema.cursors.name, SPONSORED) }))?.block ?? null,
+    logs: (from, to, senders) => client.getLogs({ address: RHC.ENTRYPOINT_V07, event: USER_OP_EVENT[0], args: { sender: senders }, fromBlock: from, toBlock: to }) as never,
+    blockTime: async (n) => Number((await client.getBlock({ blockNumber: n })).timestamp),
+    save: async (rows, last) => {
+      await db().transaction(async (tx) => {
+        for (const r of rows)
+          await tx
+            .insert(schema.sponsoredOps)
+            .values({ ...r, gasUsed: r.gasUsed.toString(), costWei: r.costWei.toString() })
+            .onConflictDoNothing();
+        await tx.insert(schema.cursors).values({ name: SPONSORED, block: last }).onConflictDoUpdate({ target: schema.cursors.name, set: { block: last } });
+      });
+    },
+  };
 }
