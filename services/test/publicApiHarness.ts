@@ -12,6 +12,7 @@ import type { EventRow, TimelineDeps } from "../src/publicapi/timeline";
 import type { ReceiptsDeps } from "../src/publicapi/receipts";
 import type { SetAsidesDeps } from "../src/publicapi/setAsides";
 import type { AdminDeps, AdminRowIn } from "../src/publicapi/admin";
+import type { HoldingsDeps } from "../src/publicapi/holdings";
 import type { VoteReceiptDeps, VoteRow } from "../src/core/voteReceipt";
 import { encodeAbiParameters, encodeEventTopics, type Abi } from "viem";
 import { decodeEventLog } from "viem";
@@ -293,8 +294,17 @@ export function fakeAdmin(rows: AdminRowIn[] = ADMIN_ROWS): AdminDeps {
   return { rows: async () => rows, token: async (a) => (a.toLowerCase() === "0x322f0929c4625ed5bad873c95208d54e1c003b2d" ? { symbol: "TSLA", decimals: 18 } : null), now: () => NOW };
 }
 
+/** POT's daily snapshots for 2027-01-13 to 2027-01-15 (NOW is 2027-01-15). */
+export function fakeHoldings(): HoldingsDeps {
+  const rows = ["2027-01-13", "2027-01-14", "2027-01-15"].flatMap((day, i) => [
+    { asset: T_USDG, day, block: 150_000_000n + BigInt(i) * 864_000n, blockTime: Date.parse(`${day}T00:00:01Z`) / 1000, rawBalance: String(25_000_000 + i) },
+    { asset: T_TSTA, day, block: 150_000_000n + BigInt(i) * 864_000n, blockTime: Date.parse(`${day}T00:00:01Z`) / 1000, rawBalance: "100000000000000000" },
+  ]);
+  return { rows: async (p, f, t) => (p.toLowerCase() === POT.toLowerCase() ? rows.filter((r) => r.day >= f && r.day <= t) : []), token: async (a) => TESTNET_TOKENS[a.toLowerCase()] ?? null, now: () => NOW };
+}
+
 export function fakePublicApi(over: Partial<PublicApiDeps> = {}): PublicApiDeps {
-  return { chainId: 4663, status: fakeStatus(), tx: fakeTx(), ownership: fakeOwnership(), changelog: { text: SAMPLE_CHANGELOG, baseUrl: "https://sign.example" }, pots: fakePots(), members: fakeMembers(), keyGroups: fakeKeyGroups(), votes: fakeVotes(), timeline: fakeTimeline(), receipts: fakeReceipts(), setAsides: fakeSetAsides(), admin: fakeAdmin(), voteReceipts: fakeVoteReceipts(), ...over };
+  return { chainId: 4663, status: fakeStatus(), tx: fakeTx(), ownership: fakeOwnership(), changelog: { text: SAMPLE_CHANGELOG, baseUrl: "https://sign.example" }, pots: fakePots(), members: fakeMembers(), keyGroups: fakeKeyGroups(), votes: fakeVotes(), timeline: fakeTimeline(), receipts: fakeReceipts(), setAsides: fakeSetAsides(), admin: fakeAdmin(), holdings: fakeHoldings(), voteReceipts: fakeVoteReceipts(), ...over };
 }
 
 /** The whole signer server with the public API on fake data (fixed, fake settings: never the process environment). */

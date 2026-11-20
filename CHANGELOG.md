@@ -34,6 +34,7 @@ Fixes from the 2026-11-01 review of `0.1.0` (commit `aba0779`). `contracts/src` 
 - Update 24 · 2026-11-19 23:00 UTC: Admin change countdown: Staff are told 6 hours before a queued change can apply, and again when it does.
 - Update 25 · 2026-11-20 00:00 UTC: Guide: check timelocks yourself: What the owner and guardian can change, and how long each change must wait.
 - Update 26 · 2026-11-20 01:00 UTC: Daily holdings snapshots: Raw token balances at 00:00 UTC. Balances only.
+- Update 27 · 2026-11-20 02:00 UTC: Holdings history: Daily raw balances per token, for any date range.
 
 ### Mainnet
 - Cofer is live on Robinhood Chain mainnet (chain 4663): factory, fee router, group account template and swap adapter deployed on 2026-11-06; addresses in contracts/deployments/4663.json.

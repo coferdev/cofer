@@ -11,7 +11,7 @@ import recorded from "./fixtures/tx-receipts-46630.json";
  * Every public JSON route with a valid sample request (later updates add theirs). The changelog feeds are not listed:
  * they follow the Atom and JSON Feed standards (whose fields include "title") and carry only CHANGELOG.md text.
  */
-export const PUBLIC_JSON_ROUTES = ["/v1/status", "/v1/proof/ownership", `/v1/pots/${POT}`, `/v1/pots/${POT}/members`, "/v1/members/0x8251FA75f4982cDCB4bE015B9F7Ba20116a1596C", "/v1/set-asides/0xD6D8195a52Fa752A5bBaf76b598336FecAc9c585", "/v1/admin/pending", `/v1/pots/${POT}/votes`, `/v1/pots/${POT}/timeline`, `/v1/receipts/exit/${recorded.kinds.Exited}`, `/v1/receipts/deposit/${recorded.kinds.Deposited}`, `/v1/receipts/spend/${recorded.kinds.AllowanceSpent}`, `/v1/receipts/vote/0x${"ab".repeat(32)}`, ...recorded.receipts.map((r) => `/v1/tx/${r.transactionHash}`)];
+export const PUBLIC_JSON_ROUTES = ["/v1/status", "/v1/proof/ownership", `/v1/pots/${POT}`, `/v1/pots/${POT}/members`, "/v1/members/0x8251FA75f4982cDCB4bE015B9F7Ba20116a1596C", "/v1/set-asides/0xD6D8195a52Fa752A5bBaf76b598336FecAc9c585", "/v1/admin/pending", `/v1/pots/${POT}/holdings`, `/v1/pots/${POT}/votes`, `/v1/pots/${POT}/timeline`, `/v1/receipts/exit/${recorded.kinds.Exited}`, `/v1/receipts/deposit/${recorded.kinds.Deposited}`, `/v1/receipts/spend/${recorded.kinds.AllowanceSpent}`, `/v1/receipts/vote/0x${"ab".repeat(32)}`, ...recorded.receipts.map((r) => `/v1/tx/${r.transactionHash}`)];
 
 describe("public API field names", () => {
   test("the guard splits names into words and catches forbidden ones", () => {

@@ -82,3 +82,15 @@ events arrive. Check it yourself: `cast logs --address <group account> --from-bl
 Every group account where this key is an active member, with its `shares` there (18 decimals) and its `joinBlock`.
 A key in no group answers an empty list. Check it yourself: `memberInfo(<key>)` on each listed group account. It may
 be cached for 15 seconds.
+
+## GET /v1/pots/:pot/holdings
+
+```bash
+curl "https://<signer site>/v1/pots/0x362B…2E50/holdings?from=2026-12-01&to=2026-12-31"
+```
+
+A group account's raw balance of each token, day by day, from the daily snapshots taken at the block nearest 00:00
+UTC. Balances only: no price, value or total. Each day gives the `block` and `blockTime` it was read at, and
+`balances` (`asset`, `symbol`, `decimals`, `rawBalance`). Without dates: the last 30 days; at most 366 days per request.
+Check any day yourself: `cast call <token> "balanceOf(address)(uint256)" <group account> --block <block>` (an archive
+RPC is needed for old blocks). It may be cached for 5 minutes.

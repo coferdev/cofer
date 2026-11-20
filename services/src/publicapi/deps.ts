@@ -2,7 +2,7 @@
  * The public API's live data sources: the chain RPC (server side, never sent to a browser) and the indexer's
  * database. Read-only.
  */
-import { and, asc, count, desc, eq, gt, inArray, or, sql } from "drizzle-orm";
+import { and, asc, count, desc, eq, gt, gte, inArray, lte, or, sql } from "drizzle-orm";
 import { getAddress, zeroAddress, type Address } from "viem";
 import { privateKeyToAccount } from "viem/accounts";
 import { db, schema } from "../db/client";
@@ -229,6 +229,15 @@ export function livePublicApiDeps(e: Env): PublicApiDeps {
         const queued = await db().select().from(t).where(eq(t.state, "queued"));
         const done = await db().select().from(t).where(sql`${t.state} <> 'queued'`).orderBy(desc(t.resolvedBlock)).limit(recent);
         return [...queued, ...done];
+      },
+    },
+    holdings: {
+      token: (a) => tokenInfo(a),
+      now: () => Math.floor(Date.now() / 1000),
+      rows: async (pot, from, to) => {
+        const t = schema.holdingsDaily;
+        const rows = await db().select({ asset: t.asset, day: t.day, block: t.block, blockTime: t.blockTime, rawBalance: t.rawBalance }).from(t).where(and(eq(t.pot, pot), gte(t.day, from), lte(t.day, to)));
+        return rows.map((r) => ({ ...r, rawBalance: String(r.rawBalance) }));
       },
     },
     ownership: {

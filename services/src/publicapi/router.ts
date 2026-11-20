@@ -19,6 +19,7 @@ import { RECEIPT_CACHE_SECONDS, receiptMaker, type ReceiptKind, type ReceiptsDep
 import { voteReceipt, type VoteReceipt, type VoteReceiptDeps } from "../core/voteReceipt";
 import { readSetAsides, SET_ASIDES_CACHE_MS, type SetAsidesDeps } from "./setAsides";
 import { ADMIN_CACHE_MS, readAdminPending, type AdminDeps } from "./admin";
+import { HOLDINGS_CACHE_MS, rangeParams, readHoldings, type HoldingsDeps } from "./holdings";
 import { perKeyCache, POT_CACHE_MS, POT_CACHE_SIZE, potParam, readPotSummary, type PotsDeps, type PotSummary } from "./pots";
 
 export interface PublicApiDeps {
@@ -33,6 +34,7 @@ export interface PublicApiDeps {
   keyGroups: KeyGroupsDeps;
   setAsides: SetAsidesDeps;
   admin: AdminDeps;
+  holdings: HoldingsDeps;
   votes: VotesDeps;
   timeline: TimelineDeps;
   receipts: ReceiptsDeps;
@@ -128,6 +130,16 @@ export function publicApi(d: PublicApiDeps) {
   const setAsides = perKeyCache((a) => readSetAsides(d.setAsides, a as `0x${string}`), SET_ASIDES_CACHE_MS, POT_CACHE_SIZE, nowMs);
 
   const adminPending = cached(() => readAdminPending(d.admin), ADMIN_CACHE_MS, nowMs);
+
+  const holdings = perKeyCache(
+    (k) => {
+      const [a, f, t] = k.split("|");
+      return readHoldings(d.holdings, a as `0x${string}`, f!, t!);
+    },
+    HOLDINGS_CACHE_MS,
+    POT_CACHE_SIZE,
+    nowMs,
+  );
 
   // made once at start-up from this release's CHANGELOG.md
   const entries = parseChangelog(d.changelog.text);
@@ -252,6 +264,15 @@ export function publicApi(d: PublicApiDeps) {
   app.get("/admin/pending", async (c) => {
     const r = await adminPending();
     return ok(c, r.value, meta(r.at, ADMIN_CACHE_MS / 1000));
+  });
+
+  app.get("/pots/:pot/holdings", async (c) => {
+    const p = await pot(c);
+    if (!p.a) return p.res;
+    const r = rangeParams(c.req.query("from"), c.req.query("to"), d.holdings.now());
+    if ("why" in r) return fail(c, 400, "bad_request", r.why);
+    const h = await holdings(`${p.a}|${r.from}|${r.to}`);
+    return ok(c, h.value, meta(h.at, HOLDINGS_CACHE_MS / 1000));
   });
 
   // last: anything else under /v1 (a sub-app's notFound is not used once it is mounted)
