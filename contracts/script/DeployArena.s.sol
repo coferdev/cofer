@@ -77,7 +77,8 @@ contract DeployArena {
 
     /// @dev Called by run() and by the deploy test (which checks every value below against ArenaParams).
     function deploy(Config memory c) public returns (Deployed memory d) {
-        require(c.safe != address(0) && c.safe != c.owner, "DeployArena: the Safe must be set and not the deployer");
+        // On testnet the admin wallet may be both: it deploys, then accepts ownership itself (the same two steps).
+        require(c.safe != address(0) && (c.safe != c.owner || block.chainid == TESTNET), "DeployArena: the Safe must be set and not the deployer");
         require(c.guardian != address(0) && c.eligSigner != address(0) && c.scheduler != address(0), "DeployArena: a role is unset");
         require(c.signers.length == 3, "DeployArena: three result signers");
         for (uint256 i; i < 3; ++i) {

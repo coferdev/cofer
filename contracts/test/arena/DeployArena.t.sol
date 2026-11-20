@@ -104,4 +104,13 @@ contract DeployArenaTest is Test {
         vm.prank(address(0xB0B));
         assertTrue(d.factory.createTable(p, bytes32(uint256(1))) != address(0));
     }
+
+    function test_safeMayBeTheDeployerOnTestnetOnly() public {
+        c.safe = c.owner;
+        vm.expectRevert(bytes("DeployArena: the Safe must be set and not the deployer"));
+        dep.deploy(c);
+        vm.chainId(46630);
+        DeployArena.Deployed memory d = dep.deploy(c);
+        assertEq(d.factory.pendingOwner(), c.owner);
+    }
 }
