@@ -53,6 +53,7 @@ Fixes from the 2026-11-01 review of `0.1.0` (commit `aba0779`). `contracts/src` 
 - Update 43 · 2026-11-20 18:00 UTC: Sponsored actions ledger: Every member action whose network fee is covered, read from the chain.
 - Update 44 · 2026-11-20 19:00 UTC: Sponsorship budget alarm: Staff are alerted at 80% and at 100% of the monthly budget.
 - Update 45 · 2026-11-20 20:00 UTC: Chain guard at start-up: Every service checks the chain first and refuses to run on a mismatch.
+- Update 46 · 2026-11-20 21:00 UTC: cofer-ops status: What runs, lag, queues, alerts. Never a secret.
 
 ### Mainnet
 - Cofer is live on Robinhood Chain mainnet (chain 4663): factory, fee router, group account template and swap adapter deployed on 2026-11-06; addresses in contracts/deployments/4663.json.
