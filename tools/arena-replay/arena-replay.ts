@@ -7,6 +7,8 @@
  *     PASS/FAIL per step (chain, tape, quotes, keys, replay, result); exit 0 only if nothing failed.
  *   bun tools/arena-replay/arena-replay.ts me <table> --seat <addr> [same options]
  *     your equity curve (CSV, one row a minute), fills, rejections with reasons, and your drawdown.
+ *   bun tools/arena-replay/arena-replay.ts verify-practice --log <file|uri> --tape <dir|uri> [--head 0x…] [--chain 46630]
+ *     a Practice game (no chain): rules, tape and replay, PASS/FAIL per step; exit 0 only if nothing failed.
  *
  * A log is one hex event per line (or NDJSON with an "encoded" field). A tape directory holds
  * tape-<hour>.ndjson or tape-<hour>.ndjson.gz, one file per UTC hour, as the marks service writes them.
@@ -19,6 +21,7 @@ import { parseRules, type RulesJson } from "../../services/src/arena/engine/rule
 import { replayLog } from "../../services/src/arena/log/record";
 import { checkChainlink, publicClient, readGame } from "../../services/src/arena/replay/chainRead";
 import { chainlinkQuotes, ticksFromTape, verifyGame } from "../../services/src/arena/replay/verifyGame";
+import { verifyPractice } from "../../services/src/arena/replay/verifyPractice";
 
 type Hex = `0x${string}`;
 const DEFAULT_RPC = "https://rpc.mainnet.chain.robinhood.com";
@@ -28,7 +31,7 @@ const opt = (k: string) => {
   return i > 0 ? argv[i + 1] : undefined;
 };
 const [cmd, table] = argv as [string?, string?];
-if ((cmd !== "verify" && cmd !== "me") || !table || !/^0x[0-9a-fA-F]{40}$/.test(table) || (cmd === "me" && !opt("seat"))) {
+if (cmd !== "verify-practice" && ((cmd !== "verify" && cmd !== "me") || !table || !/^0x[0-9a-fA-F]{40}$/.test(table) || (cmd === "me" && !opt("seat")))) {
   console.log("usage: arena-replay verify <table> [--rpc url] [--log uri] [--tape dir|uri] [--engine-build 0x..] [--payouts rows.json]");
   console.log("       arena-replay me <table> --seat <addr> [same options]");
   process.exit(2);
@@ -45,8 +48,19 @@ async function fetchText(uri: string): Promise<string> {
   } else bytes = new Uint8Array(readFileSync(uri));
   return new TextDecoder().decode(gz ? Bun.gunzipSync(bytes) : bytes);
 }
-const lines = (text: string): Hex[] =>
-  text.split("\n").map((l) => l.trim()).filter(Boolean).map((l) => (l.startsWith("0x") ? (l as Hex) : (JSON.parse(l).encoded as Hex)));
+const lines = (text: string): Hex[] => {
+  const all = text.split("\n").map((l) => l.trim()).filter(Boolean);
+  const out: Hex[] = [];
+  all.forEach((l, i) => {
+    if (l.startsWith("0x")) return void out.push(l as Hex);
+    try {
+      out.push(JSON.parse(l).encoded as Hex);
+    } catch (e) {
+      if (i < all.length - 1) throw e; // only the last line of a tape hour still being written may be partial
+    }
+  });
+  return out;
+};
 
 async function tapeHour(base: string, h: number): Promise<Hex[] | undefined> {
   for (const name of [`tape-${h}.ndjson`, `tape-${h}.ndjson.gz`]) {
@@ -61,7 +75,43 @@ async function tapeHour(base: string, h: number): Promise<Hex[] | undefined> {
   return undefined;
 }
 
+async function practice(): Promise<never> {
+  const logUri = opt("log");
+  const tapeBase = opt("tape");
+  if (!logUri || !tapeBase) {
+    console.log("usage: arena-replay verify-practice --log <file|uri> --tape <dir|uri> [--head 0x..] [--chain 46630]");
+    process.exit(2);
+  }
+  const chainId = Number(opt("chain") ?? "46630");
+  const log = lines(await fetchText(logUri));
+  const first = log[0] ? decodeLogEvent(log[0]) : null;
+  const hours = first?.type === "GameOpen" ? (first.payload[8] as bigint[]).map(Number) : [];
+  const tape = new Map<number, Hex[]>();
+  const heads = new Map<number, Hex>();
+  for (const h of hours) {
+    const x = await tapeHour(tapeBase, h);
+    if (x) tape.set(h, x);
+    const hp = /^(https?|ipfs):\/\//.test(tapeBase) ? `${tapeBase.replace(/\/$/, "")}/tape-${h}.head` : join(tapeBase, `tape-${h}.head`);
+    try {
+      const t = (await fetchText(hp)).trim();
+      if (/^0x[0-9a-f]{64}$/i.test(t)) heads.set(h, t as Hex);
+    } catch {
+      /* the hour has not closed yet: its chain is still checked */
+    }
+  }
+  const out = verifyPractice(chainId, log, tape, heads, opt("head") as Hex | undefined);
+  console.log(`arena-replay verify-practice ${logUri} on chain ${chainId}`);
+  out.steps.forEach((s, i) => {
+    console.log(`${i + 1}. ${s.status.padEnd(4)} ${s.name}: ${s.detail[0]}`);
+    for (const d of s.detail.slice(1)) console.log(`         ${d}`);
+  });
+  if (out.standings) for (const r of out.standings) console.log(`   ${String(r.rank).padStart(3)}. ${r.seat}  ${(Number(r.finalEquity) / 1e6).toFixed(2)}`);
+  console.log(out.ok ? "PASS" : "FAIL");
+  process.exit(out.ok ? 0 : 1);
+}
+
 process.on("uncaughtException", (e) => fail(e));
+if (cmd === "verify-practice") await practice();
 process.on("unhandledRejection", (e) => fail(e));
 function fail(e: unknown): never {
   const m = (e as { shortMessage?: string }).shortMessage ?? String((e as Error).message ?? e);
