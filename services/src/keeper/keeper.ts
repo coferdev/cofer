@@ -33,6 +33,7 @@ import { RUNWAY_ALERT, runwayProblem } from "../core/relayerRunway";
 import { SPONSORED, syncSponsored, USER_OP_EVENT, type SponsoredDeps } from "./sponsored";
 import { RHC } from "../chain/addresses";
 import { sponsorBudget, type SponsorBudgetDeps } from "./sponsorBudget";
+import { reconcile, type PotState, type ReconcileDeps } from "./reconcile";
 import { PUBLIC_RPC } from "../web/page";
 import { SIGNER_CSP, WALLET_CSP } from "../web/page";
 import { ROLES_ALERT, roleProblem, type RoleState } from "../core/roles";
@@ -578,6 +579,7 @@ export async function scheduleKeeper() {
   await q.upsertJobScheduler("relayer-runway", { every: 3_600_000 }, { name: "relayer-runway" });
   await q.upsertJobScheduler("sponsored", { every: 60_000 }, { name: "sponsored" });
   await q.upsertJobScheduler("sponsor-budget", { every: 3_600_000 }, { name: "sponsor-budget" });
+  await q.upsertJobScheduler("reconcile", { every: 86_400_000 }, { name: "reconcile" });
 }
 
 export function startKeeper() {
@@ -619,6 +621,8 @@ export function startKeeper() {
           return syncSponsored(sponsoredDeps());
         case "sponsor-budget":
           return sponsorBudget(sponsorBudgetDeps());
+        case "reconcile":
+          return reconcile(reconcileDeps());
         case "feeds":
           return { feeds: await feedHealth(), continuity: await multiplierContinuity() };
       }
@@ -830,6 +834,35 @@ function sponsorBudgetDeps(): SponsorBudgetDeps {
     spentThisMonth: async (month) => BigInt((await db().select({ s: sql<string>`coalesce(sum(${t.costWei}), 0)::text` }).from(t).where(and(eq(t.sponsored, true), like(t.day, `${month}-%`))))[0]?.s ?? "0"),
     openKeys: async () => (await db().select({ key: schema.alerts.key }).from(schema.alerts).where(like(schema.alerts.key, "sponsor-budget:%"))).map((r) => r.key),
     now: () => Math.floor(Date.now() / 1000),
+    alerts: alertDeps(),
+  };
+}
+
+/** The reconciliation's two sides: the chain (memberInfo, members, totalShares, balances) and the database. */
+export function reconcileDeps(): ReconcileDeps {
+  const client = publicClient();
+  return {
+    pots: async () => (await db().select({ a: schema.pots.address }).from(schema.pots)).map((r) => r.a),
+    async fromDb(pot) {
+      const m = await db().select({ address: schema.members.address, active: schema.members.active, shares: schema.members.shares }).from(schema.members).where(eq(schema.members.pot, pot));
+      const h = await db().select({ asset: schema.holdings.asset, raw: schema.holdings.rawBalance }).from(schema.holdings).where(eq(schema.holdings.pot, pot));
+      return { members: new Map(m.map((x) => [x.address.toLowerCase(), { active: x.active, shares: BigInt(x.shares) }])), totalShares: 0n, balances: new Map(h.map((x) => [x.asset.toLowerCase(), BigInt(x.raw)])) };
+    },
+    async fromChain(pot, dbMembers): Promise<PotState> {
+      const a = getAddress(pot);
+      const onchain = (await client.readContract({ address: a, abi: potAbi, functionName: "members" })) as readonly Address[];
+      const everyone = [...new Set([...onchain.map((x) => x.toLowerCase()), ...dbMembers])];
+      const members = new Map<string, { active: boolean; shares: bigint }>();
+      for (const m of everyone) {
+        const i = (await client.readContract({ address: a, abi: potAbi, functionName: "memberInfo", args: [getAddress(m)] })) as { active: boolean; shares: bigint };
+        members.set(m, { active: i.active, shares: i.shares });
+      }
+      const totalShares = (await client.readContract({ address: a, abi: potAbi, functionName: "totalShares" })) as bigint;
+      const held = (await client.readContract({ address: a, abi: potAbi, functionName: "heldAssets" })) as readonly Address[];
+      const balances = new Map<string, bigint>();
+      for (const t of held) balances.set(t.toLowerCase(), (await client.readContract({ address: t, abi: erc20Abi, functionName: "balanceOf", args: [a] })) as bigint);
+      return { members, totalShares, balances };
+    },
     alerts: alertDeps(),
   };
 }
