@@ -109,3 +109,19 @@ Methods: `status`, `tx`, `ownership`, `pot`, `members`, `votes`, `timeline`, `ex
 `spendReceipt`, `voteReceipt`, `keyGroups`, `setAsides`, `adminPending`, `holdings`, `snapshotProof`, `fees`. An error
 answer throws `CoferApiError` with the API's own status, code and message. Big numbers stay decimal strings. A test
 runs every method against the real API server and checks each answer's fields against the types.
+
+## The cofer command line
+
+Read-only: it holds no key and can never sign or send.
+
+```bash
+bun sdk/bin/cofer.ts pot <group address> --api https://<signer site>
+bun sdk/bin/cofer.ts member <address> --api https://<signer site>
+bun sdk/bin/cofer.ts exit-check <group address> <member address>       # reads the chain directly
+bun sdk/bin/cofer.ts tx <hash> --api https://<signer site>
+bun sdk/bin/cofer.ts verify receipt.json                                # reads the chain directly
+```
+
+`--api` can also be set once with `COFER_API`. `--rpc <url>` picks the chain RPC (default: mainnet's public RPC).
+`exit-check` shows a member's shares, what a full exit would pay right now, and the exact call their key account
+sends.
