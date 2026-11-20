@@ -9,7 +9,7 @@ describe("arena region gate", () => {
   test("every mode × network class from an allowed country", () => {
     for (const mode of MODES)
       for (const asnClass of ASN) {
-        const g = arenaGate(mode, false, { declared: "NG", ipCountry: "NG", asnClass });
+        const g = arenaGate(mode, false, { declared: "DE", ipCountry: "DE", asnClass });
         const bad = asnClass === "hosting" || asnClass === "vpn";
         if (mode === "PRACTICE") expect(g).toEqual({ play: true, prize: false });
         if (mode === "FREEROLL") expect(g).toEqual(bad ? { play: true, prize: false, reason: "network" } : { play: true, prize: true });
@@ -26,8 +26,8 @@ describe("arena region gate", () => {
     for (const mode of MODES)
       for (const asnClass of ASN) {
         for (const c of ["CU", "IR", "KP", "SY"]) {
-          expect(arenaGate(mode, false, { declared: c, ipCountry: "NG", asnClass })).toEqual({ play: false, prize: false, reason: "region" });
-          expect(arenaGate(mode, false, { declared: "NG", ipCountry: c, asnClass })).toEqual({ play: false, prize: false, reason: "region" });
+          expect(arenaGate(mode, false, { declared: c, ipCountry: "DE", asnClass })).toEqual({ play: false, prize: false, reason: "region" });
+          expect(arenaGate(mode, false, { declared: "DE", ipCountry: c, asnClass })).toEqual({ play: false, prize: false, reason: "region" });
         }
         for (const rc of ["43", "40", "14", "09"])
           expect(arenaGate(mode, false, { declared: "UA", ipCountry: "UA", ipRegion: subdivisionOf("UA", rc), asnClass })).toEqual({ play: false, prize: false, reason: "region" });

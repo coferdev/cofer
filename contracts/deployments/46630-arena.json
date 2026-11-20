@@ -1,0 +1,15 @@
+{
+  "chainId": 46630,
+  "network": "Robinhood Chain testnet",
+  "commit": "7749125",
+  "owner": "0x7948f5AE3c874505a4F92C3A09bc952A17C745f1",
+  "usdg": "0x14119629e364A53ceda500d0c1111DBB136A7398",
+  "cofr": "0x85497eACbd38DC1E8314ee44605B0E3c4db3015D",
+  "registry": "0xaE258c10f0Dbc60fa1ED87C12ff4Ae56199D6DD1",
+  "escrowImplementation": "0xec395B39F0D8BcAe921fd82a3FAa81ff82f8De64",
+  "factory": "0x5824FAa7889530de7695C9A73Ea08A15683B0651",
+  "stakePool": "0xF11FDaF085364D72C0c0A14e676690B225d9b916",
+  "prizeVault": "0x4A9047016ce4FD24ce5045739b700c1E3d809300",
+  "explorer": "https://explorer.testnet.chain.robinhood.com",
+  "sourceVerified": true
+}

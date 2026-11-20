@@ -4,7 +4,7 @@ import { arenaGate } from "../src/core/geo";
 import { IpGeo, type Lookup, parseHostingList } from "../src/arena/geo/ipgeo";
 
 const city: Record<string, unknown> = {
-  "1.1.1.1": { country: { iso_code: "NG" }, subdivisions: [{ names: { en: "Lagos" } }], city: { names: { en: "Lagos" } } },
+  "1.1.1.1": { country: { iso_code: "DE" }, subdivisions: [{ names: { en: "Bavaria" } }], city: { names: { en: "Munich" } } },
   "2.2.2.2": { country: { iso_code: "UA" }, subdivisions: [{ names: { en: "Crimea" } }], city: { names: { en: "Simferopol" } } },
   "3.3.3.3": { country: { iso_code: "RU" }, subdivisions: [{ names: { en: "Sevastopol" } }] },
   "4.4.4.4": { country: { iso_code: "UA" }, subdivisions: [{ names: { en: "Donetsk Oblast" } }] },
@@ -12,13 +12,13 @@ const city: Record<string, unknown> = {
   "6.6.6.6": { country: { iso_code: "UA" }, subdivisions: [{ names: { en: "Kyiv City" } }], city: { names: { en: "Kyiv" } } },
   "7.7.7.7": { country: { iso_code: "US" }, subdivisions: [{ names: { en: "Donetsk" } }] }, // only UA / RU names count
 };
-const asn: Record<string, unknown> = { "1.1.1.1": { autonomous_system_number: 36923 }, "6.6.6.6": { autonomous_system_number: 16509 } };
+const asn: Record<string, unknown> = { "1.1.1.1": { autonomous_system_number: 3320 }, "6.6.6.6": { autonomous_system_number: 16509 } };
 const L = (m: Record<string, unknown>): Lookup => ({ get: (ip) => m[ip] ?? null });
 const geo = new IpGeo(L(city), L(asn), parseHostingList('ASN,Entity\n16509,"Amazon"\n14061,"DigitalOcean, LLC"\nbad,row\n'));
 
 describe("IP lookup", () => {
   test("country, sanctioned region by name, hosting network by ASN", () => {
-    expect(geo.lookup("1.1.1.1")).toEqual({ country: "NG", region: null, asn: 36923, asnClass: null });
+    expect(geo.lookup("1.1.1.1")).toEqual({ country: "DE", region: null, asn: 3320, asnClass: null });
     expect(geo.lookup("2.2.2.2").region).toBe("UA-43");
     expect(geo.lookup("3.3.3.3").region).toBe("UA-40");
     expect(geo.lookup("4.4.4.4").region).toBe("UA-14");
@@ -43,7 +43,7 @@ describe("IP lookup", () => {
   test.skipIf(!dir || !existsSync(`${dir}/dbip-city-lite.mmdb`))("the real DB-IP files (GEO_TEST_DIR)", () => {
     const real = IpGeo.load(dir!);
     expect(real.lookup("8.8.8.8")).toMatchObject({ country: "US", asn: 15169 });
-    expect(real.lookup("41.58.1.1").country).toBe("NG");
+    expect(real.lookup("193.0.6.139")).toMatchObject({ country: "NL", asn: 3333 });
     expect(real.hosting.size).toBeGreaterThan(500);
   });
 });

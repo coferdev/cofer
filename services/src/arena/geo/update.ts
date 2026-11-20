@@ -40,7 +40,9 @@ export async function update(dir: string, now = new Date()): Promise<string> {
   const probe = g.lookup("8.8.8.8");
   if (probe.country !== "US" || probe.asn !== 15169) throw new Error(`check failed: 8.8.8.8 gave ${JSON.stringify(probe)}`);
   if (g.hosting.size < 300) throw new Error(`hosting list too short: ${g.hosting.size}`);
-  const files: [string, Uint8Array | string][] = [[GEO_FILES.city, city.buf], [GEO_FILES.asn, asn.buf], [GEO_FILES.hosting, hosting]];
+  // Only the ASN numbers are kept (the list's entity names are not needed and are not stored).
+  const asns = `ASN\n${[...g.hosting].sort((x, y) => x - y).join("\n")}\n`;
+  const files: [string, Uint8Array | string][] = [[GEO_FILES.city, city.buf], [GEO_FILES.asn, asn.buf], [GEO_FILES.hosting, asns]];
   for (const [name, data] of files) writeFileSync(join(dir, `${name}.new`), data);
   for (const [name] of files) renameSync(join(dir, `${name}.new`), join(dir, name));
   return `city ${city.month}, asn ${asn.month}, hosting ASNs ${g.hosting.size}`;
