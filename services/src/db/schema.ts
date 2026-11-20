@@ -244,3 +244,20 @@ export const holdingsDaily = pgTable(
   },
   (t) => [primaryKey({ columns: [t.pot, t.asset, t.day] }), index("holdings_daily_pot_day_idx").on(t.pot, t.day)],
 );
+
+/** Every fee a group account paid (swap fees from Swapped, plan payments from PlanPaid), one row per log (keeper
+ *  ledger, from chain_events). Chain data only. */
+export const fees = pgTable(
+  "fees",
+  {
+    id: text("id").primaryKey(), // txHash:logIndex
+    pot: text("pot").notNull(),
+    kind: text("kind").notNull(), // swap fee | plan
+    asset: text("asset").notNull(),
+    amount: numeric("amount", { precision: 78, scale: 0 }).notNull(),
+    months: smallint("months"),
+    block: bigint("block", { mode: "bigint" }).notNull(),
+    tx: text("tx").notNull(),
+  },
+  (t) => [index("fees_pot_block_idx").on(t.pot, t.block)],
+);

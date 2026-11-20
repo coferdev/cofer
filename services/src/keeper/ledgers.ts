@@ -9,6 +9,7 @@ import { runProjection, type EventIn, type LedgerStore, type Projection } from "
 import { setAsidesProjection, type SetAsideChange } from "../indexer/projections/setAsides";
 import { adminQueueProjection, type AdminOp } from "../indexer/projections/adminQueue";
 import { env } from "../env";
+import { feesProjection, type FeeRow } from "../indexer/projections/fees";
 
 type Tx = Parameters<Parameters<ReturnType<typeof db>["transaction"]>[0]>[0];
 
@@ -66,10 +67,15 @@ export async function writeAdminOps(tx: Tx, ops: AdminOp[]) {
   }
 }
 
+export async function writeFees(tx: Tx, rows: FeeRow[]) {
+  for (const r of rows) await tx.insert(schema.fees).values({ id: r.id, pot: r.pot, kind: r.kind, asset: r.asset, amount: r.amount.toString(), months: r.months, block: r.block, tx: r.tx }).onConflictDoNothing();
+}
+
 /** Every ledger the job runs, with its writer. Later ledgers add themselves here. */
 export const LEDGERS = (): { projection: Projection<never>; write: (tx: Tx, changes: never[]) => Promise<void> }[] => [
   { projection: setAsidesProjection as Projection<never>, write: writeSetAsides as never },
   { projection: adminQueueProjection(env().FACTORY_ADDRESS) as Projection<never>, write: writeAdminOps as never },
+  { projection: feesProjection(env().USDG_ADDRESS) as Projection<never>, write: writeFees as never },
 ];
 
 export async function runLedgers(): Promise<Record<string, number>> {

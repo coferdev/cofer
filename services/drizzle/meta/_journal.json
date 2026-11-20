@@ -50,6 +50,13 @@
       "when": 1794780200000,
       "tag": "0006_holdings_daily",
       "breakpoints": true
+    },
+    {
+      "idx": 7,
+      "version": "7",
+      "when": 1794780300000,
+      "tag": "0007_fees",
+      "breakpoints": true
     }
   ]
 }
