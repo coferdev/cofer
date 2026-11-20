@@ -87,3 +87,25 @@ bun sdk/bin/cofer.ts verify receipt.json --rpc https://rpc.mainnet.chain.robinho
 - exit, deposit, spend: the transaction's logs from the group account are read again and every figure compared.
 - vote: the digest is made again from the signed message and asked of the group account (`hashProposal`), and each
   approval not withdrawn is verified again (ERC-1271 for keys that are accounts).
+
+## createCoferClient
+
+Typed, read-only access to every public API call, plus two direct chain reads for when you would rather not trust
+the API.
+
+```ts
+import { createCoferClient } from "./sdk/src";
+
+const cofer = createCoferClient({ baseUrl: "https://<signer site>" });
+const pot = await cofer.pot("0x…");                 // PotSummary
+const votes = await cofer.votes("0x…", { state: "queued" });
+const receipt = await cofer.exitReceipt("0x…");
+
+const direct = await cofer.potFromChain("0x…");      // the same summary, read from the chain itself
+const members = await cofer.membersFromChain("0x…");
+```
+
+Methods: `status`, `tx`, `ownership`, `pot`, `members`, `votes`, `timeline`, `exitReceipt`, `depositReceipt`,
+`spendReceipt`, `voteReceipt`, `keyGroups`, `setAsides`, `adminPending`, `holdings`, `snapshotProof`, `fees`. An error
+answer throws `CoferApiError` with the API's own status, code and message. Big numbers stay decimal strings. A test
+runs every method against the real API server and checks each answer's fields against the types.
