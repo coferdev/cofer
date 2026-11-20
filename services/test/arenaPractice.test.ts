@@ -113,7 +113,7 @@ describe("Practice end to end", () => {
     const out = mkdtempSync(join(tmpdir(), "arena-practice-out-"));
     dirs.push(out);
     writeFileSync(join(out, "game.log"), `${run.result.log.join("\n")}\n`);
-    const r = spawnSync("bun", [join(import.meta.dir, "../../tools/arena-replay/arena-replay.ts"), "verify-practice", "--log", join(out, "game.log"), "--tape", run.tape.dir, "--head", run.result.head], { encoding: "utf8" });
+    const r = spawnSync(process.execPath, [join(import.meta.dir, "../../tools/arena-replay/arena-replay.ts"), "verify-practice", "--log", join(out, "game.log"), "--tape", run.tape.dir, "--head", run.result.head], { encoding: "utf8" });
     expect(r.stdout).toContain("1. PASS rules");
     expect(r.stdout).toContain("2. PASS tape");
     expect(r.stdout).toContain("3. PASS replay");
