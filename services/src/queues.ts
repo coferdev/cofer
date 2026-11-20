@@ -21,10 +21,25 @@ export const Q = { relay: "cofer-relay", notify: "cofer-notify", keeper: "cofer-
  * with URLs removed, and failures and worker errors are logged the same way. Retries are unchanged.
  */
 export function startWorker(name: string, fn: (job: Job, token?: string) => Promise<unknown>, opts: Omit<WorkerOptions, "connection"> = {}): Worker {
+  fn = storableResult(fn);
   const w = new Worker(name, safeJob(fn), { connection: redis(), ...opts });
   w.on("failed", (job, err) => logError(`${name} ${job?.name ?? "?"}`, err));
   w.on("error", (err) => logError(name, err));
   return w;
+}
+
+/**
+ * The job with its result made storable. BullMQ saves every result in Redis as JSON, which cannot hold a bigint
+ * ("JSON.stringify cannot serialize BigInt" would fail a job whose work had already finished), so bigints become
+ * decimal strings, at any depth. startWorker applies it to every job.
+ */
+export function storableResult(fn: (job: Job, token?: string) => Promise<unknown>): (job: Job, token?: string) => Promise<unknown> {
+  return async (job: Job, token?: string) => jobResult(await fn(job, token));
+}
+
+export function jobResult(v: unknown): unknown {
+  if (v === undefined) return undefined;
+  return JSON.parse(JSON.stringify(v, (_k, x) => (typeof x === "bigint" ? x.toString() : x)));
 }
 
 /** True when a failed job will not be retried: its last attempt failed (BullMQ counts the attempt before "failed" fires). */
