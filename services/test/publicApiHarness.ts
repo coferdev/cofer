@@ -14,6 +14,7 @@ import type { SetAsidesDeps } from "../src/publicapi/setAsides";
 import type { AdminDeps, AdminRowIn } from "../src/publicapi/admin";
 import type { HoldingsDeps } from "../src/publicapi/holdings";
 import type { SnapshotProofDeps } from "../src/publicapi/snapshotProof";
+import type { FeesDeps } from "../src/publicapi/fees";
 import type { VoteReceiptDeps, VoteRow } from "../src/core/voteReceipt";
 import { encodeAbiParameters, encodeEventTopics, type Abi } from "viem";
 import { decodeEventLog } from "viem";
@@ -321,8 +322,22 @@ export function fakeSnapshotProof(): SnapshotProofDeps {
   };
 }
 
+export const FEE_ROWS = [
+  { id: `0x${"f1".repeat(32)}:4`, kind: "swap fee", asset: T_USDG, amount: "150000", months: null, block: 400n, tx: `0x${"f1".repeat(32)}` },
+  { id: `0x${"f2".repeat(32)}:2`, kind: "plan", asset: T_USDG, amount: "27000000", months: 3, block: 401n, tx: `0x${"f2".repeat(32)}` },
+  { id: `0x${"f3".repeat(32)}:0`, kind: "swap fee", asset: T_TSTA, amount: "3000000000000000", months: null, block: 402n, tx: `0x${"f3".repeat(32)}` },
+];
+
+export function fakeFees(): FeesDeps {
+  const li = (id: string) => Number(id.split(":")[1]);
+  return {
+    token: async (a) => TESTNET_TOKENS[a.toLowerCase()] ?? null,
+    rows: async (p, after, limit) => (p.toLowerCase() === POT.toLowerCase() ? FEE_ROWS.filter((r) => !after || r.block > after.block || (r.block === after.block && li(r.id) > after.logIndex)).slice(0, limit) : []),
+  };
+}
+
 export function fakePublicApi(over: Partial<PublicApiDeps> = {}): PublicApiDeps {
-  return { chainId: 4663, status: fakeStatus(), tx: fakeTx(), ownership: fakeOwnership(), changelog: { text: SAMPLE_CHANGELOG, baseUrl: "https://sign.example" }, pots: fakePots(), members: fakeMembers(), keyGroups: fakeKeyGroups(), votes: fakeVotes(), timeline: fakeTimeline(), receipts: fakeReceipts(), setAsides: fakeSetAsides(), admin: fakeAdmin(), holdings: fakeHoldings(), snapshotProof: fakeSnapshotProof(), voteReceipts: fakeVoteReceipts(), ...over };
+  return { chainId: 4663, status: fakeStatus(), tx: fakeTx(), ownership: fakeOwnership(), changelog: { text: SAMPLE_CHANGELOG, baseUrl: "https://sign.example" }, pots: fakePots(), members: fakeMembers(), keyGroups: fakeKeyGroups(), votes: fakeVotes(), timeline: fakeTimeline(), receipts: fakeReceipts(), setAsides: fakeSetAsides(), admin: fakeAdmin(), holdings: fakeHoldings(), snapshotProof: fakeSnapshotProof(), fees: fakeFees(), voteReceipts: fakeVoteReceipts(), ...over };
 }
 
 /** The whole signer server with the public API on fake data (fixed, fake settings: never the process environment). */

@@ -21,6 +21,7 @@ import { readSetAsides, SET_ASIDES_CACHE_MS, type SetAsidesDeps } from "./setAsi
 import { ADMIN_CACHE_MS, readAdminPending, type AdminDeps } from "./admin";
 import { HOLDINGS_CACHE_MS, rangeParams, readHoldings, type HoldingsDeps } from "./holdings";
 import { blockParam, readSnapshotProof, type SnapshotProofDeps } from "./snapshotProof";
+import { FEES_CACHE_MS, FEES_MAX_LIMIT, readFees, type FeesDeps } from "./fees";
 import { perKeyCache, POT_CACHE_MS, POT_CACHE_SIZE, potParam, readPotSummary, type PotsDeps, type PotSummary } from "./pots";
 
 export interface PublicApiDeps {
@@ -37,6 +38,7 @@ export interface PublicApiDeps {
   admin: AdminDeps;
   holdings: HoldingsDeps;
   snapshotProof: SnapshotProofDeps;
+  fees: FeesDeps;
   votes: VotesDeps;
   timeline: TimelineDeps;
   receipts: ReceiptsDeps;
@@ -152,6 +154,17 @@ export function publicApi(d: PublicApiDeps) {
       return readSnapshotProof(d.snapshotProof, a as `0x${string}`, b ? BigInt(b) : null);
     },
     15_000,
+    POT_CACHE_SIZE,
+    nowMs,
+  );
+
+  const feesPage = perKeyCache(
+    (k) => {
+      const [a, after, limit] = k.split("|");
+      const c = afterParam(after);
+      return readFees(d.fees, a as `0x${string}`, c === "bad" ? null : c, Number(limit));
+    },
+    FEES_CACHE_MS,
     POT_CACHE_SIZE,
     nowMs,
   );
@@ -298,6 +311,17 @@ export function publicApi(d: PublicApiDeps) {
     const r = await snapshots(`${p.a}|${b ?? ""}`);
     if ("tooNew" in r.value) return fail(c, 400, "bad_request", TEXT.futureBlock((r.value as { head: bigint }).head));
     return ok(c, r.value, meta(r.at, b === null ? 15 : 3600));
+  });
+
+  app.get("/pots/:pot/fees", async (c) => {
+    const p = await pot(c);
+    if (!p.a) return p.res;
+    const after = c.req.query("after") ?? "";
+    if (afterParam(after) === "bad") return fail(c, 400, "bad_request", TEXT.badCursor);
+    const limit = limitParam(c.req.query("limit"), 50, FEES_MAX_LIMIT);
+    if (limit === null) return fail(c, 400, "bad_request", TEXT.badLimit);
+    const f = await feesPage(`${p.a}|${after}|${limit}`);
+    return ok(c, f.value, meta(f.at, FEES_CACHE_MS / 1000));
   });
 
   // last: anything else under /v1 (a sub-app's notFound is not used once it is mounted)

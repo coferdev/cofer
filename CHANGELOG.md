@@ -37,6 +37,7 @@ Fixes from the 2026-11-01 review of `0.1.0` (commit `aba0779`). `contracts/src` 
 - Update 27 · 2026-11-20 02:00 UTC: Holdings history: Daily raw balances per token, for any date range.
 - Update 28 · 2026-11-20 03:00 UTC: Group snapshot proof: Each balance at a block, with calls to check.
 - Update 29 · 2026-11-20 04:00 UTC: Fee ledger: Swap fees and plan payments, per group and transaction.
+- Update 30 · 2026-11-20 05:00 UTC: Fees paid by a group: Every swap fee and plan payment, each with its transaction.
 
 ### Mainnet
 - Cofer is live on Robinhood Chain mainnet (chain 4663): factory, fee router, group account template and swap adapter deployed on 2026-11-06; addresses in contracts/deployments/4663.json.

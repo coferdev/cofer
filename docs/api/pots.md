@@ -94,3 +94,11 @@ UTC. Balances only: no price, value or total. Each day gives the `block` and `bl
 `balances` (`asset`, `symbol`, `decimals`, `rawBalance`). Without dates: the last 30 days; at most 366 days per request.
 Check any day yourself: `cast call <token> "balanceOf(address)(uint256)" <group account> --block <block>` (an archive
 RPC is needed for old blocks). It may be cached for 5 minutes.
+
+## GET /v1/pots/:pot/fees
+
+Every fee a group account paid, oldest first: the swap fee on each swap (`kind: "swap fee"`, in the token swapped
+in; 0.30% today) and each plan payment (`kind: "plan"`, in USDG, with `months`). Each has `amount` (raw), `symbol`,
+`decimals`, `block`, `logIndex` and `tx`. Paged like the timeline (`after`, `limit` 1 to 200, `next`). From the
+[fee ledger](../ledgers.md). Check one yourself: the `fee` field of the transaction's `Swapped` log, or the
+`PlanPaid` log. It may be cached for 15 seconds.

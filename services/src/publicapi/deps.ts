@@ -249,6 +249,20 @@ export function livePublicApiDeps(e: Env): PublicApiDeps {
       token: (a) => tokenInfo(a),
       rpcUrl: signerRpcUrl(e),
     },
+    fees: {
+      token: (a) => tokenInfo(a),
+      rows: async (pot, after, limit) => {
+        const t = schema.fees;
+        const li = sql<number>`split_part(${t.id}, ':', 2)::int`;
+        const rows = await db()
+          .select({ id: t.id, kind: t.kind, asset: t.asset, amount: t.amount, months: t.months, block: t.block, tx: t.tx })
+          .from(t)
+          .where(after ? and(eq(t.pot, pot), or(gt(t.block, after.block), and(eq(t.block, after.block), sql`${li} > ${after.logIndex}`))) : eq(t.pot, pot))
+          .orderBy(asc(t.block), asc(li))
+          .limit(limit);
+        return rows.map((r) => ({ ...r, amount: String(r.amount) }));
+      },
+    },
     ownership: {
       factory: factoryAddress(),
       feeRouter: feeRouterNow,
