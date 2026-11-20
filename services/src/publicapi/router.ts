@@ -189,6 +189,13 @@ export function publicApi(d: PublicApiDeps) {
     return fail(c, 503, "unavailable", TEXT.down);
   });
 
+  /** Public API answers since start, by status (for the server-only /metrics). */
+  const requests: Record<string, number> = {};
+  app.use("*", async (c, next) => {
+    await next();
+    requests[String(c.res.status)] = (requests[String(c.res.status)] ?? 0) + 1;
+  });
+
   app.use("*", async (c, next) => {
     if (c.req.method === "OPTIONS") return c.body(null, 204, PUBLIC_HEADERS);
     if (c.req.method !== "GET" && c.req.method !== "HEAD") return fail(c, 405, "method_not_allowed", TEXT.method, { allow: "GET, OPTIONS" });
@@ -351,5 +358,5 @@ export function publicApi(d: PublicApiDeps) {
 
   // last: anything else under /v1 (a sub-app's notFound is not used once it is mounted)
   app.all("*", (c) => fail(c, 404, "not_found", TEXT.notFound));
-  return { app, status, explainTx, limit, llms };
+  return { app, status, explainTx, limit, llms, requests };
 }

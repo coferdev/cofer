@@ -14,6 +14,7 @@ import { publicApi, type PublicApiDeps } from "../publicapi/router";
 import { isTxHash } from "../publicapi/tx";
 import { TX_PAGE_CSP, txFormPage, txResultPage } from "../web/txPage";
 import { explorerFor } from "../chain/addresses";
+import { isLocalRequest, metricsText, type MetricsDeps } from "./metrics";
 
 export async function buildSignerBundle(): Promise<string> {
   const out = await Bun.build({ entrypoints: [new URL("../web/client.ts", import.meta.url).pathname], target: "browser", minify: true });
@@ -54,7 +55,7 @@ export async function buildWalletBundle(): Promise<string> {
  * @param opts.walletJs the wallet bundle (buildWalletBundle); omitted or null = Connect wallet is off.
  * @param opts.publicApi the public read-only API's data sources (publicapi/); omitted = no /v1 routes.
  */
-export function createServer(opts: { deps: ProposalDeps; cards: CardAdapter | null; bot?: Bot; signerJs: string; walletJs?: string | null; env?: Env; dashboard?: DashboardDeps; publicApi?: PublicApiDeps }) {
+export function createServer(opts: { deps: ProposalDeps; cards: CardAdapter | null; bot?: Bot; signerJs: string; walletJs?: string | null; env?: Env; dashboard?: DashboardDeps; publicApi?: PublicApiDeps; metrics?: MetricsDeps & { remoteAddress?(c: Context): string | null } }) {
   const e = opts.env ?? env();
   const pageRpc = signerRpcUrl(e);
   // Connect wallet needs both the public Reown project ID and the built wallet file; otherwise it is off and the passkey works as before
@@ -69,11 +70,23 @@ export function createServer(opts: { deps: ProposalDeps; cards: CardAdapter | nu
 
   app.get("/healthz", (c) => c.json({ ok: true }));
 
+
   // read-only dashboard API (dashboard/routes.ts); the dashboard site reaches it on its own address
   if (opts.dashboard) app.route("/api/dashboard", dashboardRoutes(opts.dashboard));
 
   // the public read-only API: on-chain data only, rate limited, CORS open for GET (publicapi/router.ts)
   const pub = opts.publicApi ? publicApi(opts.publicApi) : null;
+  // numbers for monitoring tools, on the server itself only (api/metrics.ts); anyone else gets a plain 404
+  if (opts.metrics) {
+    const m = opts.metrics;
+    const remote = m.remoteAddress ?? ((c: Context) => (c.env as { requestIP?(r: Request): { address: string } | null } | undefined)?.requestIP?.(c.req.raw)?.address ?? null);
+    app.get("/metrics", async (c) => {
+      if (!isLocalRequest(remote(c), c.req.raw.headers)) return c.text("Not found", 404);
+      const snap = await m.snapshot();
+      if (pub) snap.publicRequests = { ...pub.requests };
+      return c.body(metricsText(snap), 200, { "content-type": "text/plain; version=0.0.4; charset=utf-8", "cache-control": "no-store" });
+    });
+  }
   if (pub) {
     app.route("/v1", pub.app);
     // the same plain-text description at the site's top level, where agents look for it
