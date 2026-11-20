@@ -8,6 +8,7 @@ import {TableEscrow} from "../src/arena/TableEscrow.sol";
 import {PrizeVault} from "../src/arena/PrizeVault.sol";
 import {StakePool} from "../src/arena/StakePool.sol";
 import {ArenaParams} from "./ArenaParams.sol";
+import {MockERC20} from "../src/mocks/Mocks.sol";
 
 /// @notice The Arena deployment (registry, escrow implementation, factory, stake pool, prize vault), with every
 ///         launch value from ArenaParams. The deployer wires the contracts, then starts the two-step hand-over of
@@ -16,7 +17,7 @@ import {ArenaParams} from "./ArenaParams.sol";
 ///         created before the factory's wiring is done, and wiring happens in this same script.
 ///
 ///   DEPLOYER_KEY=0x... SAFE=0x... GUARDIAN=0x... SIGNER_1=0x... SIGNER_2=0x... SIGNER_3=0x... ELIG_SIGNER=0x... \
-///   SCHEDULER=0x... [USDG=0x... COFR=0x... on testnet] \
+///   SCHEDULER=0x... [USDG=0x... COFR=0x... on testnet; default the testnet mock USDG and a new test COFR] \
 ///   forge script script/DeployArena.s.sol --rpc-url robinhood_testnet --broadcast
 contract DeployArena {
     Vm internal constant vm = Vm(address(uint160(uint256(keccak256("hevm cheat code")))));
@@ -25,6 +26,8 @@ contract DeployArena {
     uint256 internal constant TESTNET = 46630;
     address internal constant MAINNET_USDG = 0x5fc5360D0400a0Fd4f2af552ADD042D716F1d168;
     address internal constant MAINNET_COFR = 0x2Edd2762eC5A928F749380309ecA0E33941B3e3e;
+    /// The mock USDG the testnet Cofer factory (0x814c...5e45) already uses, so testnet players use the same test dollar.
+    address internal constant TESTNET_USDG = 0x14119629e364A53ceda500d0c1111DBB136A7398;
 
     struct Config {
         address owner; // the deployer while wiring
@@ -62,10 +65,12 @@ contract DeployArena {
             c.usdg = MAINNET_USDG;
             c.cofr = MAINNET_COFR;
         } else {
-            c.usdg = vm.envAddress("USDG");
-            c.cofr = vm.envAddress("COFR");
+            c.usdg = vm.envOr("USDG", TESTNET_USDG);
+            c.cofr = vm.envOr("COFR", address(0));
         }
         vm.startBroadcast(key);
+        // Testnet without a COFR: a plain 18-decimal stand-in with an open mint, made in the same broadcast.
+        if (c.cofr == address(0)) c.cofr = address(new MockERC20("Cofer (testnet)", "COFR", 18));
         d = deploy(c);
         vm.stopBroadcast();
     }
