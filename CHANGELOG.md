@@ -40,6 +40,7 @@ Fixes from the 2026-11-01 review of `0.1.0` (commit `aba0779`). `contracts/src` 
 - Update 30 · 2026-11-20 05:00 UTC: Fees paid by a group: Every swap fee and plan payment, each with its transaction.
 - Update 31 · 2026-11-20 06:00 UTC: Typed read client: Every public call with its types, and a direct chain fallback.
 - Update 32 · 2026-11-20 07:00 UTC: Read-only command line: Look up groups, members, exits and transactions. It never signs.
+- Update 33 · 2026-11-20 08:00 UTC: OpenAPI spec: An OpenAPI file for every public call, checked against the code.
 
 ### Mainnet
 - Cofer is live on Robinhood Chain mainnet (chain 4663): factory, fee router, group account template and swap adapter deployed on 2026-11-06; addresses in contracts/deployments/4663.json.
