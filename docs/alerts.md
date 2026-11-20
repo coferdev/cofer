@@ -33,6 +33,7 @@ Members can always exit. No alert, pause or outage changes that.
 | Name | What it means | Who acts |
 |---|---|---|
 | relayer-low | The relayer is low on ETH. Passed votes may not run on their own. This is the only alert with a full address: the one to top up. | Top up the relayer. |
+| relayer-days-left | At its last 14 days' average spend, the relayer has fewer than 7 days of gas left. An early warning, before relayer-low. The day count is also in `/v1/status` (never the balance). | Top up the relayer. |
 | vote-stuck | A passed vote failed to run. | Dev checks. |
 | vote-unknown | A vote that was not made through the bot was queued or ran. The group was told. | Dev checks. If nobody in that group made it, tell the owner and the dev at once. |
 | price-stale-TSLA | That price feed is past its limit, so deposits and swaps that need it are refused. Stocks have a 96-hour limit, so normal weekends and holidays do not trigger it. USDG has a 24-hour limit and its feed updates every 24 hours plus up to about 30 seconds, so price-stale-USDG is posted only once it is more than 5 minutes past its limit. | Dev checks. |

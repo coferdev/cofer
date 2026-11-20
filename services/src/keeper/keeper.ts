@@ -29,6 +29,7 @@ import { takeSnapshots, type SnapshotDeps } from "./snapshots";
 import { sha256, signerCheck, type SignerCheckDeps } from "./signerCheck";
 import { priceJumpProblem, type PriceReading } from "../core/priceJump";
 import { rpcCrossCheck, type CrossCheckDeps } from "./rpcCrossCheck";
+import { RUNWAY_ALERT, runwayProblem } from "../core/relayerRunway";
 import { PUBLIC_RPC } from "../web/page";
 import { SIGNER_CSP, WALLET_CSP } from "../web/page";
 import { ROLES_ALERT, roleProblem, type RoleState } from "../core/roles";
@@ -571,6 +572,7 @@ export async function scheduleKeeper() {
   await q.upsertJobScheduler("signer-page", { every: 300_000 }, { name: "signer-page" });
   await q.upsertJobScheduler("price-jump", { every: 900_000 }, { name: "price-jump" });
   await q.upsertJobScheduler("rpc-cross-check", { every: 60_000 }, { name: "rpc-cross-check" });
+  await q.upsertJobScheduler("relayer-runway", { every: 3_600_000 }, { name: "relayer-runway" });
 }
 
 export function startKeeper() {
@@ -606,6 +608,8 @@ export function startKeeper() {
           return priceJumps();
         case "rpc-cross-check":
           return rpcCrossCheck(crossCheckDeps());
+        case "relayer-runway":
+          return checkRelayerRunway();
         case "feeds":
           return { feeds: await feedHealth(), continuity: await multiplierContinuity() };
       }
@@ -767,4 +771,21 @@ function crossCheckDeps(): CrossCheckDeps {
     alerts: alertDeps(),
     log: (s) => console.log(`[keeper] ${s}`),
   };
+}
+
+/** Warns staff when the relayer has fewer than RUNWAY_WARN_DAYS of gas left at its recent spend (clears above it). */
+export async function checkRelayerRunway(
+  deps: { daysLeft(): Promise<number | null>; alerts: AlertDeps } = {
+    daysLeft: async () => {
+      const { relayerRunway } = await import("../publicapi/deps");
+      const address = relayerClient().account.address; // public address only
+      return relayerRunway(address, await publicClient().getBalance({ address }));
+    },
+    alerts: alertDeps(),
+  },
+): Promise<number | null> {
+  const days = await deps.daysLeft();
+  const problem = runwayProblem(days);
+  await checkAlert(RUNWAY_ALERT, problem === null ? null : { name: RUNWAY_ALERT, what: problem, who: WHO.topUp }, deps.alerts);
+  return days;
 }

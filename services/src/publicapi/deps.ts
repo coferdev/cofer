@@ -9,6 +9,7 @@ import { db, schema } from "../db/client";
 import { aggregatorAbi, erc20Abi, factoryAbi, factoryAddress, feeRouterAbi, potAbi, publicClient } from "../chain/clients";
 import { signerRpcUrl } from "../web/page";
 import { typedData } from "../core/proposal";
+import { daysLeft, RUNWAY_DAYS } from "../core/relayerRunway";
 import { readFileSync } from "node:fs";
 import { CURSOR } from "../indexer/indexer";
 import type { Env } from "../env";
@@ -21,6 +22,17 @@ function readChangelog(): string {
   } catch {
     return ""; // no CHANGELOG.md in this folder: the feeds are empty, nothing else changes
   }
+}
+
+/** Days of gas left: the balance against the relayer spend ledger's last RUNWAY_DAYS UTC days. */
+export async function relayerRunway(_relayer: Address, balance: bigint, nowSec = Math.floor(Date.now() / 1000)): Promise<number | null> {
+  const days = Array.from({ length: RUNWAY_DAYS }, (_, i) => new Date((nowSec - (i + 1) * 86_400) * 1000).toISOString().slice(0, 10));
+  const rows = await db()
+    .select({ day: schema.relayerSpend.day, cost: sql<string>`sum(${schema.relayerSpend.costWei})::text` })
+    .from(schema.relayerSpend)
+    .where(inArray(schema.relayerSpend.day, days))
+    .groupBy(schema.relayerSpend.day);
+  return daysLeft(balance, rows.map((r) => BigInt(r.cost)));
 }
 
 /** Remembers each answer for an address (contracts' identities and token details do not change). */
@@ -83,6 +95,7 @@ export function livePublicApiDeps(e: Env): PublicApiDeps {
         return out;
       },
       relayerHasGas: async () => (await client.getBalance({ address: relayer })) >= e.RELAYER_MIN_ETH,
+      relayerDaysLeft: async () => relayerRunway(relayer, await client.getBalance({ address: relayer })),
       now: () => Math.floor(Date.now() / 1000),
     },
     // this release's CHANGELOG.md (services/src/publicapi/deps.ts is three folders below the repo's top)

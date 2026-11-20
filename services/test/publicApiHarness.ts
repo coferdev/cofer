@@ -41,6 +41,7 @@ export function fakeStatus(over: Partial<StatusDeps> = {}): StatusDeps {
       { symbol: "TSLA", asset: TSLA, answer: 30_000_000_000n, updatedAt: NOW - 345_000, maxStaleness: 345_600 },
     ],
     relayerHasGas: async () => true,
+    relayerDaysLeft: async () => 21.5,
     now: () => NOW,
     ...over,
   };

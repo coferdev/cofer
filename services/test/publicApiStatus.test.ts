@@ -13,7 +13,7 @@ describe("GET /v1/status", () => {
       chainId: 4663,
       headBlock: "1000020",
       indexer: { state: "live", lastBlock: "1000000", targetBlock: "1000000", lagBlocks: "0", lagSeconds: 0, maxLagSeconds: 300 },
-      relayer: { hasGas: true },
+      relayer: { hasGas: true, daysLeft: 21.5 },
       feeds: [
         { symbol: "USDG", asset: "0x5fc5360D0400a0Fd4f2af552ADD042D716F1d168", state: "ok", ageSeconds: 600, limitSeconds: 86400 },
         { symbol: "TSLA", asset: TSLA, state: "near limit", ageSeconds: 345000, limitSeconds: 345600 },

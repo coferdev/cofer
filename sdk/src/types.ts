@@ -21,7 +21,7 @@ export interface Status {
   chainId: number;
   headBlock: DecimalString;
   indexer: { state: "live" | "behind" | "not started"; lastBlock: DecimalString | null; targetBlock: DecimalString; lagBlocks: DecimalString | null; lagSeconds: number | null; maxLagSeconds: number };
-  relayer: { hasGas: boolean | null };
+  relayer: { hasGas: boolean | null; daysLeft: number | null };
   feeds: { symbol: string; asset: Address; state: "ok" | "near limit" | "past limit" | "bad"; ageSeconds: number; limitSeconds: number }[];
 }
 
