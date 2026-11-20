@@ -311,6 +311,21 @@ contract TableEscrowInvariants is Test {
         assertFalse(h.overPaid(), "A10 claim exact");
     }
 
+    /// Every rule above in one campaign of 1,000 runs x 100 calls (the launch gate's size; the separate checks
+    /// above keep the default size).
+    /// forge-config: default.invariant.runs = 1000
+    /// forge-config: default.invariant.depth = 100
+    /// forge-config: default.invariant.fail-on-revert = false
+    function invariant_friendTableHolds_1000x100() public view {
+        invariant_solvent();
+        invariant_potConserved();
+        invariant_noForeignRecipient();
+        invariant_deadlineRefundAlwaysAvailable();
+        invariant_terminalStatesFinal();
+        invariant_claimExact();
+        invariant_liveValueBounded();
+    }
+
     /// A12: the live value never exceeds the cap.
     function invariant_liveValueBounded() public view {
         assertLe(h.factory().liveValue(), h.factory().maxLiveValue(), "A12 live value");
