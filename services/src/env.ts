@@ -44,6 +44,12 @@ const schema = z.object({
   EXPLORER_URL: z.string().url().optional(), // block explorer override (no key); default: the known explorer for CHAIN_ID (chain/addresses.ts)
   BUNDLER_URL: z.string().url().optional(), // ZeroDev or Alchemy (member userOps from the signer site)
   PAYMASTER_URL: z.string().url().optional(),
+  // monthly budget for covered network fees, in ETH; the keeper alerts at 80% and 100% (unset = no budget alarm)
+  SPONSOR_MONTHLY_BUDGET_ETH: z
+    .string()
+    .regex(/^\d+(\.\d{1,18})?$/)
+    .transform((v) => parseEther(v))
+    .optional(),
   PASSKEY_SERVER_URL: z.string().url().optional(), // ZeroDev passkey server (signer site)
   // Reown (WalletConnect) project ID for Connect wallet on the signer site. Public (sent to the wallet page).
   // Unset = Connect wallet is off and the passkey works as before; the api role says so at start-up.

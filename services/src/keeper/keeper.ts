@@ -32,6 +32,7 @@ import { rpcCrossCheck, type CrossCheckDeps } from "./rpcCrossCheck";
 import { RUNWAY_ALERT, runwayProblem } from "../core/relayerRunway";
 import { SPONSORED, syncSponsored, USER_OP_EVENT, type SponsoredDeps } from "./sponsored";
 import { RHC } from "../chain/addresses";
+import { sponsorBudget, type SponsorBudgetDeps } from "./sponsorBudget";
 import { PUBLIC_RPC } from "../web/page";
 import { SIGNER_CSP, WALLET_CSP } from "../web/page";
 import { ROLES_ALERT, roleProblem, type RoleState } from "../core/roles";
@@ -576,6 +577,7 @@ export async function scheduleKeeper() {
   await q.upsertJobScheduler("rpc-cross-check", { every: 60_000 }, { name: "rpc-cross-check" });
   await q.upsertJobScheduler("relayer-runway", { every: 3_600_000 }, { name: "relayer-runway" });
   await q.upsertJobScheduler("sponsored", { every: 60_000 }, { name: "sponsored" });
+  await q.upsertJobScheduler("sponsor-budget", { every: 3_600_000 }, { name: "sponsor-budget" });
 }
 
 export function startKeeper() {
@@ -615,6 +617,8 @@ export function startKeeper() {
           return checkRelayerRunway();
         case "sponsored":
           return syncSponsored(sponsoredDeps());
+        case "sponsor-budget":
+          return sponsorBudget(sponsorBudgetDeps());
         case "feeds":
           return { feeds: await feedHealth(), continuity: await multiplierContinuity() };
       }
@@ -816,5 +820,16 @@ function sponsoredDeps(): SponsoredDeps {
         await tx.insert(schema.cursors).values({ name: SPONSORED, block: last }).onConflictDoUpdate({ target: schema.cursors.name, set: { block: last } });
       });
     },
+  };
+}
+
+function sponsorBudgetDeps(): SponsorBudgetDeps {
+  const t = schema.sponsoredOps;
+  return {
+    budgetWei: env().SPONSOR_MONTHLY_BUDGET_ETH ?? null,
+    spentThisMonth: async (month) => BigInt((await db().select({ s: sql<string>`coalesce(sum(${t.costWei}), 0)::text` }).from(t).where(and(eq(t.sponsored, true), like(t.day, `${month}-%`))))[0]?.s ?? "0"),
+    openKeys: async () => (await db().select({ key: schema.alerts.key }).from(schema.alerts).where(like(schema.alerts.key, "sponsor-budget:%"))).map((r) => r.key),
+    now: () => Math.floor(Date.now() / 1000),
+    alerts: alertDeps(),
   };
 }
