@@ -23,12 +23,24 @@ import { recordError } from "./keeper/serverHealth";
 import { maybeStartTeambot } from "./teambot/start";
 import { livePublicApiDeps } from "./publicapi/deps";
 import { liveMetricsDeps } from "./api/liveMetrics";
+import { assertChain } from "./core/chainGuard";
+import { signerRpcUrl } from "./web/page";
+import { createPublicClient, http } from "viem";
 
 async function main() {
   const e = env();
   // every logged error, in every role, counts toward the errors-spike alert (Redis down: not counted)
   countErrorsWith(() => void recordError().catch(() => {}));
   const role = e.ROLE;
+  // first, in every role: refuse to run against the wrong chain (core/chainGuard.ts)
+  await assertChain({
+    chainId: e.CHAIN_ID,
+    serverRpcChainId: () => publicClient().getChainId(),
+    signerRpcChainId: () => createPublicClient({ transport: http(signerRpcUrl(e), { retryCount: 1, timeout: 10_000 }) }).getChainId(),
+    bundlerUrl: e.BUNDLER_URL,
+    paymasterUrl: e.PAYMASTER_URL,
+  });
+  console.log(`[start] chain guard: every connection is on chain ${e.CHAIN_ID}`);
   // checked first, in every role: a card setting that must never run (e.g. the stub off testnet) stops start-up
   const cards = selectCardAdapter(e);
   await assertFactoryUsdg(publicClient(), factoryAddress(), e.USDG_ADDRESS);
