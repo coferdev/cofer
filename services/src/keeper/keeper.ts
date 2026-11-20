@@ -26,6 +26,8 @@ import { runLedgers } from "./ledgers";
 import { setAsideAlarm, SET_ASIDE_ALERT, type SetAsideAlarmDeps } from "./setAsideAlarm";
 import { adminCountdown, DUE_ALERT, SOON_ALERT, type AdminCountdownDeps } from "./adminCountdown";
 import { takeSnapshots, type SnapshotDeps } from "./snapshots";
+import { sha256, signerCheck, type SignerCheckDeps } from "./signerCheck";
+import { SIGNER_CSP, WALLET_CSP } from "../web/page";
 import { ROLES_ALERT, roleProblem, type RoleState } from "../core/roles";
 import { CURSOR } from "../indexer/indexer";
 import { OUTFLOW_ALERT, OUTFLOW_EVENTS, OUTFLOW_WINDOW_SEC, outflowAlert, outflowsOf, summarize, valueFromHolding, type Outflow, type PotEvent } from "../core/outflow";
@@ -563,6 +565,7 @@ export async function scheduleKeeper() {
   await q.upsertJobScheduler("set-asides", { every: 1_800_000 }, { name: "set-asides" });
   await q.upsertJobScheduler("admin-countdown", { every: 300_000 }, { name: "admin-countdown" });
   await q.upsertJobScheduler("snapshots", { every: 900_000 }, { name: "snapshots" });
+  await q.upsertJobScheduler("signer-page", { every: 300_000 }, { name: "signer-page" });
 }
 
 export function startKeeper() {
@@ -592,6 +595,8 @@ export function startKeeper() {
           return adminCountdown(adminCountdownDeps());
         case "snapshots":
           return takeSnapshots(snapshotDeps());
+        case "signer-page":
+          return signerCheck(signerCheckDeps());
         case "feeds":
           return { feeds: await feedHealth(), continuity: await multiplierContinuity() };
       }
@@ -660,5 +665,26 @@ function snapshotDeps(): SnapshotDeps {
     heldAt: (pot, block) => client.readContract({ address: pot, abi: potAbi, functionName: "heldAssets", blockNumber: block }),
     balanceAt: (token, holder, block) => client.readContract({ address: token, abi: erc20Abi, functionName: "balanceOf", args: [holder], blockNumber: block }),
     now: () => Math.floor(Date.now() / 1000),
+  };
+}
+
+/** The bundles this release builds, made once per keeper process (the same code the api role serves). */
+let bundleHashes: Promise<{ signer: string; wallet: string | null }> | undefined;
+function signerCheckDeps(): SignerCheckDeps {
+  const e = env();
+  return {
+    baseUrl: e.PUBLIC_URL,
+    fetch,
+    passkeyCsp: SIGNER_CSP,
+    walletCsp: e.REOWN_PROJECT_ID ? WALLET_CSP : null,
+    expected: () =>
+      (bundleHashes ??= (async () => {
+        const { buildSignerBundle, buildWalletBundle } = await import("../api/server");
+        return { signer: sha256(await buildSignerBundle()), wallet: e.REOWN_PROJECT_ID ? sha256(await buildWalletBundle()) : null };
+      })().catch((err) => {
+        bundleHashes = undefined;
+        throw err;
+      })),
+    alerts: alertDeps(),
   };
 }
