@@ -24,6 +24,7 @@ import { INDEXER_LAG_ALERT, indexerLagProblem } from "../core/indexerLag";
 import { runLedgers } from "./ledgers";
 import { setAsideAlarm, SET_ASIDE_ALERT, type SetAsideAlarmDeps } from "./setAsideAlarm";
 import { adminCountdown, DUE_ALERT, SOON_ALERT, type AdminCountdownDeps } from "./adminCountdown";
+import { takeSnapshots, type SnapshotDeps } from "./snapshots";
 import { ROLES_ALERT, roleProblem, type RoleState } from "../core/roles";
 import { CURSOR } from "../indexer/indexer";
 import { OUTFLOW_ALERT, OUTFLOW_EVENTS, OUTFLOW_WINDOW_SEC, outflowAlert, outflowsOf, summarize, valueFromHolding, type Outflow, type PotEvent } from "../core/outflow";
@@ -542,6 +543,7 @@ export async function scheduleKeeper() {
   await q.upsertJobScheduler("ledgers", { every: 60_000 }, { name: "ledgers" });
   await q.upsertJobScheduler("set-asides", { every: 1_800_000 }, { name: "set-asides" });
   await q.upsertJobScheduler("admin-countdown", { every: 300_000 }, { name: "admin-countdown" });
+  await q.upsertJobScheduler("snapshots", { every: 900_000 }, { name: "snapshots" });
 }
 
 export function startKeeper() {
@@ -569,6 +571,8 @@ export function startKeeper() {
           return setAsideAlarm(setAsideAlarmDeps());
         case "admin-countdown":
           return adminCountdown(adminCountdownDeps());
+        case "snapshots":
+          return takeSnapshots(snapshotDeps());
         case "feeds":
           return { feeds: await feedHealth(), continuity: await multiplierContinuity() };
       }
@@ -619,5 +623,23 @@ function adminCountdownDeps(): AdminCountdownDeps {
     },
     now: () => Math.floor(Date.now() / 1000),
     alerts: alertDeps(),
+  };
+}
+
+/** The daily snapshot's live data: pots from the database, balances at a block from the chain (archive RPC). */
+function snapshotDeps(): SnapshotDeps {
+  const client = publicClient();
+  const t = schema.holdingsDaily;
+  return {
+    pots: async () => (await db().select({ address: schema.pots.address }).from(schema.pots)).map((p) => getAddress(p.address)),
+    has: async (pot, day) => (await db().select({ d: t.day }).from(t).where(and(eq(t.pot, pot), eq(t.day, day))).limit(1)).length > 0,
+    save: async (rows) => {
+      if (rows.length) await db().insert(t).values(rows.map((r) => ({ ...r, rawBalance: r.rawBalance.toString() }))).onConflictDoNothing();
+    },
+    head: () => client.getBlockNumber(),
+    blockTime: async (n) => Number((await client.getBlock({ blockNumber: n })).timestamp),
+    heldAt: (pot, block) => client.readContract({ address: pot, abi: potAbi, functionName: "heldAssets", blockNumber: block }),
+    balanceAt: (token, holder, block) => client.readContract({ address: token, abi: erc20Abi, functionName: "balanceOf", args: [holder], blockNumber: block }),
+    now: () => Math.floor(Date.now() / 1000),
   };
 }

@@ -229,3 +229,18 @@ export const pendingAdminChanges = pgTable(
   },
   (t) => [index("pending_admin_changes_state_idx").on(t.state)],
 );
+
+/** Each group account's raw token balances once a day, at the block nearest 00:00 UTC (or the newest block when that
+ *  one could not be read: block and block_time say which). Balances only. */
+export const holdingsDaily = pgTable(
+  "holdings_daily",
+  {
+    pot: text("pot").notNull(),
+    asset: text("asset").notNull(),
+    day: text("day").notNull(), // YYYY-MM-DD UTC
+    block: bigint("block", { mode: "bigint" }).notNull(),
+    blockTime: bigint("block_time", { mode: "number" }).notNull(),
+    rawBalance: numeric("raw_balance", { precision: 78, scale: 0 }).notNull(),
+  },
+  (t) => [primaryKey({ columns: [t.pot, t.asset, t.day] }), index("holdings_daily_pot_day_idx").on(t.pot, t.day)],
+);

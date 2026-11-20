@@ -43,6 +43,13 @@
       "when": 1794780100000,
       "tag": "0005_pending_admin_changes",
       "breakpoints": true
+    },
+    {
+      "idx": 6,
+      "version": "7",
+      "when": 1794780200000,
+      "tag": "0006_holdings_daily",
+      "breakpoints": true
     }
   ]
 }
