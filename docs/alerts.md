@@ -37,6 +37,7 @@ Members can always exit. No alert, pause or outage changes that.
 | vote-unknown | A vote that was not made through the bot was queued or ran. The group was told. | Dev checks. If nobody in that group made it, tell the owner and the dev at once. |
 | price-stale-TSLA | That price feed is past its limit, so deposits and swaps that need it are refused. Stocks have a 96-hour limit, so normal weekends and holidays do not trigger it. USDG has a 24-hour limit and its feed updates every 24 hours plus up to about 30 seconds, so price-stale-USDG is posted only once it is more than 5 minutes past its limit. | Dev checks. |
 | price-bad-TSLA | That price feed reports a price the contract rejects. | Dev checks. |
+| price-jump-TSLA | That price feed moved more than 20% (a Stock Token) or 2% (USDG) between two readings. Moves a split explains, and splits the issuer has announced, are left out. It clears at the next normal reading. Exits never use prices. | Dev checks the feed. If prices look wrong, pause deposits. |
 | split-mismatch-TSLA | The price moved in a way the token's multiplier does not explain (a split counted twice or not at all). The bot pauses new buys of that stock until it clears. | Dev checks. If values look wrong, pause deposits. |
 | indexer-behind | The indexer is more than 5 minutes behind the chain. The bot may show old numbers. | Dev checks. |
 | job-failing | A background job failed 3 times in a row. | Dev checks. |

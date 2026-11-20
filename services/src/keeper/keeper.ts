@@ -27,6 +27,7 @@ import { setAsideAlarm, SET_ASIDE_ALERT, type SetAsideAlarmDeps } from "./setAsi
 import { adminCountdown, DUE_ALERT, SOON_ALERT, type AdminCountdownDeps } from "./adminCountdown";
 import { takeSnapshots, type SnapshotDeps } from "./snapshots";
 import { sha256, signerCheck, type SignerCheckDeps } from "./signerCheck";
+import { priceJumpProblem, type PriceReading } from "../core/priceJump";
 import { SIGNER_CSP, WALLET_CSP } from "../web/page";
 import { ROLES_ALERT, roleProblem, type RoleState } from "../core/roles";
 import { CURSOR } from "../indexer/indexer";
@@ -566,6 +567,7 @@ export async function scheduleKeeper() {
   await q.upsertJobScheduler("admin-countdown", { every: 300_000 }, { name: "admin-countdown" });
   await q.upsertJobScheduler("snapshots", { every: 900_000 }, { name: "snapshots" });
   await q.upsertJobScheduler("signer-page", { every: 300_000 }, { name: "signer-page" });
+  await q.upsertJobScheduler("price-jump", { every: 900_000 }, { name: "price-jump" });
 }
 
 export function startKeeper() {
@@ -597,6 +599,8 @@ export function startKeeper() {
           return takeSnapshots(snapshotDeps());
         case "signer-page":
           return signerCheck(signerCheckDeps());
+        case "price-jump":
+          return priceJumps();
         case "feeds":
           return { feeds: await feedHealth(), continuity: await multiplierContinuity() };
       }
@@ -685,6 +689,59 @@ function signerCheckDeps(): SignerCheckDeps {
         bundleHashes = undefined;
         throw err;
       })),
+    alerts: alertDeps(),
+  };
+}
+
+export interface PriceJumpDeps {
+  /** Every listed feed: USDG and each Stock Token, with any multiplier the issuer has announced. */
+  targets(): Promise<{ symbol: string; asset: Address; usdg: boolean; pending: bigint | null }[]>;
+  read(asset: Address, usdg: boolean): Promise<PriceReading | null>;
+  /** The previous reading kept for this feed (null the first time). */
+  previous(asset: Address): Promise<PriceReading | null>;
+  keep(asset: Address, r: PriceReading): Promise<void>;
+  alerts: AlertDeps;
+}
+
+/** Each feed's new reading against its previous one; a jump opens price-jump-<SYMBOL>, a quiet reading clears it. */
+export async function priceJumps(deps: PriceJumpDeps = priceJumpDeps()): Promise<{ asset: string; jump: boolean }[]> {
+  const out: { asset: string; jump: boolean }[] = [];
+  for (const t of await deps.targets()) {
+    let now: PriceReading | null;
+    try {
+      now = await deps.read(t.asset, t.usdg);
+    } catch (e) {
+      logError("cofer-keeper price-jump", e);
+      continue;
+    }
+    if (!now) continue;
+    const prev = await deps.previous(t.asset);
+    if (prev && now.updatedAt <= prev.updatedAt) continue; // no new reading yet
+    const problem = prev ? priceJumpProblem(t.symbol, prev, now, { usdg: t.usdg, pendingMultiplier: t.pending }) : null;
+    await deps.keep(t.asset, now);
+    await checkAlert(`price-jump:${t.asset.toLowerCase()}`, problem === null ? null : { name: alertName("price-jump", t.symbol), what: problem, who: WHO.dev }, deps.alerts, "the next reading moved normally");
+    out.push({ asset: t.symbol, jump: problem !== null });
+  }
+  return out;
+}
+
+/** Previous readings are kept in this process (a restart starts again from the next reading). */
+const lastPrices = new Map<string, PriceReading>();
+function priceJumpDeps(): PriceJumpDeps {
+  const feeds = feedHealthDeps();
+  const cont = continuityDeps();
+  return {
+    async targets() {
+      const stocks = await cont.targets();
+      return [{ symbol: "USDG", asset: env().USDG_ADDRESS as Address, usdg: true, pending: null }, ...stocks.map((s) => ({ symbol: s.symbol, asset: s.asset, usdg: false, pending: s.pending?.multiplier ?? null }))];
+    },
+    async read(asset, usdg) {
+      if (!usdg) return cont.read(asset);
+      const f = await feeds.read(asset);
+      return f ? { answer: f.answer, updatedAt: f.updatedAt, multiplier: 10n ** 18n } : null;
+    },
+    previous: async (asset) => lastPrices.get(asset.toLowerCase()) ?? null,
+    keep: async (asset, r) => void lastPrices.set(asset.toLowerCase(), r),
     alerts: alertDeps(),
   };
 }

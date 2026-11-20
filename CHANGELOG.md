@@ -45,6 +45,7 @@ Fixes from the 2026-11-01 review of `0.1.0` (commit `aba0779`). `contracts/src` 
 - Update 35 · 2026-11-20 10:00 UTC: Read-only MCP server: A read-only MCP server. No tool can sign or send.
 - Update 36 · 2026-11-20 11:00 UTC: Event feeds per group: Deposits, exits, votes and spends, as they happen.
 - Update 37 · 2026-11-20 12:00 UTC: Signing page check: Every 5 minutes: both pages load, with the right scripts and security headers.
+- Update 38 · 2026-11-20 13:00 UTC: Price-jump alarm: Over 20% for a stock or 2% for USDG between two readings. Splits are left out.
 
 ### Mainnet
 - Cofer is live on Robinhood Chain mainnet (chain 4663): factory, fee router, group account template and swap adapter deployed on 2026-11-06; addresses in contracts/deployments/4663.json.
