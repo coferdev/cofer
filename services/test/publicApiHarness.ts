@@ -13,6 +13,7 @@ import type { ReceiptsDeps } from "../src/publicapi/receipts";
 import type { SetAsidesDeps } from "../src/publicapi/setAsides";
 import type { AdminDeps, AdminRowIn } from "../src/publicapi/admin";
 import type { HoldingsDeps } from "../src/publicapi/holdings";
+import type { SnapshotProofDeps } from "../src/publicapi/snapshotProof";
 import type { VoteReceiptDeps, VoteRow } from "../src/core/voteReceipt";
 import { encodeAbiParameters, encodeEventTopics, type Abi } from "viem";
 import { decodeEventLog } from "viem";
@@ -303,8 +304,25 @@ export function fakeHoldings(): HoldingsDeps {
   return { rows: async (p, f, t) => (p.toLowerCase() === POT.toLowerCase() ? rows.filter((r) => r.day >= f && r.day <= t) : []), token: async (a) => TESTNET_TOKENS[a.toLowerCase()] ?? null, now: () => NOW };
 }
 
+/** A chain at head 1,000,020 whose RPC keeps state for the newest 1,000 blocks only. */
+export function fakeSnapshotProof(): SnapshotProofDeps {
+  const head = 1_000_020n;
+  const old = (b: bigint) => {
+    if (b < head - 1000n) throw new Error("missing trie node");
+  };
+  return {
+    head: async () => head,
+    confirmations: 20,
+    heldAt: async (_p, b) => (old(b), [T_USDG, T_TSTA]),
+    balanceAt: async (t, _h, b) => (old(b), t === T_USDG ? 25_000_000n : 10n ** 17n),
+    reservedAt: async (_p, t) => (t === T_TSTA ? 5n * 10n ** 16n : 0n),
+    token: async (a) => TESTNET_TOKENS[a.toLowerCase()] ?? null,
+    rpcUrl: "https://rpc.testnet.chain.robinhood.com",
+  };
+}
+
 export function fakePublicApi(over: Partial<PublicApiDeps> = {}): PublicApiDeps {
-  return { chainId: 4663, status: fakeStatus(), tx: fakeTx(), ownership: fakeOwnership(), changelog: { text: SAMPLE_CHANGELOG, baseUrl: "https://sign.example" }, pots: fakePots(), members: fakeMembers(), keyGroups: fakeKeyGroups(), votes: fakeVotes(), timeline: fakeTimeline(), receipts: fakeReceipts(), setAsides: fakeSetAsides(), admin: fakeAdmin(), holdings: fakeHoldings(), voteReceipts: fakeVoteReceipts(), ...over };
+  return { chainId: 4663, status: fakeStatus(), tx: fakeTx(), ownership: fakeOwnership(), changelog: { text: SAMPLE_CHANGELOG, baseUrl: "https://sign.example" }, pots: fakePots(), members: fakeMembers(), keyGroups: fakeKeyGroups(), votes: fakeVotes(), timeline: fakeTimeline(), receipts: fakeReceipts(), setAsides: fakeSetAsides(), admin: fakeAdmin(), holdings: fakeHoldings(), snapshotProof: fakeSnapshotProof(), voteReceipts: fakeVoteReceipts(), ...over };
 }
 
 /** The whole signer server with the public API on fake data (fixed, fake settings: never the process environment). */

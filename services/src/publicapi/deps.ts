@@ -240,6 +240,15 @@ export function livePublicApiDeps(e: Env): PublicApiDeps {
         return rows.map((r) => ({ ...r, rawBalance: String(r.rawBalance) }));
       },
     },
+    snapshotProof: {
+      head: () => client.getBlockNumber(),
+      confirmations: e.CONFIRMATIONS,
+      heldAt: (pot, block) => client.readContract({ address: pot, abi: potAbi, functionName: "heldAssets", blockNumber: block }),
+      balanceAt: (t, h, block) => client.readContract({ address: t, abi: erc20Abi, functionName: "balanceOf", args: [h], blockNumber: block }),
+      reservedAt: (pot, t, block) => client.readContract({ address: pot, abi: potAbi, functionName: "reserved", args: [t], blockNumber: block }),
+      token: (a) => tokenInfo(a),
+      rpcUrl: signerRpcUrl(e),
+    },
     ownership: {
       factory: factoryAddress(),
       feeRouter: feeRouterNow,

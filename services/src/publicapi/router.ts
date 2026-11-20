@@ -20,6 +20,7 @@ import { voteReceipt, type VoteReceipt, type VoteReceiptDeps } from "../core/vot
 import { readSetAsides, SET_ASIDES_CACHE_MS, type SetAsidesDeps } from "./setAsides";
 import { ADMIN_CACHE_MS, readAdminPending, type AdminDeps } from "./admin";
 import { HOLDINGS_CACHE_MS, rangeParams, readHoldings, type HoldingsDeps } from "./holdings";
+import { blockParam, readSnapshotProof, type SnapshotProofDeps } from "./snapshotProof";
 import { perKeyCache, POT_CACHE_MS, POT_CACHE_SIZE, potParam, readPotSummary, type PotsDeps, type PotSummary } from "./pots";
 
 export interface PublicApiDeps {
@@ -35,6 +36,7 @@ export interface PublicApiDeps {
   setAsides: SetAsidesDeps;
   admin: AdminDeps;
   holdings: HoldingsDeps;
+  snapshotProof: SnapshotProofDeps;
   votes: VotesDeps;
   timeline: TimelineDeps;
   receipts: ReceiptsDeps;
@@ -59,6 +61,8 @@ export const TEXT = {
   badDigest: "A vote id is 0x followed by 64 hex characters.",
   noVote: "No vote with this id is known to the API. Votes made outside the bot are listed at /v1/pots/:pot/votes with their transaction.",
   badAddress: "An address is 0x followed by 40 hex characters.",
+  badBlock: "block must be a block number.",
+  futureBlock: (h: bigint) => `That block is not on the chain yet (newest: ${h}).`,
   badCursor: "after must be the next value of the previous page, like 153947820-4.",
   noTx: "No transaction with this hash on this chain (yet).",
 } as const;
@@ -137,6 +141,17 @@ export function publicApi(d: PublicApiDeps) {
       return readHoldings(d.holdings, a as `0x${string}`, f!, t!);
     },
     HOLDINGS_CACHE_MS,
+    POT_CACHE_SIZE,
+    nowMs,
+  );
+
+  // a past block never changes: kept; the default block moves, so it is read again after 15 seconds
+  const snapshots = perKeyCache(
+    (k) => {
+      const [a, b] = k.split("|");
+      return readSnapshotProof(d.snapshotProof, a as `0x${string}`, b ? BigInt(b) : null);
+    },
+    15_000,
     POT_CACHE_SIZE,
     nowMs,
   );
@@ -273,6 +288,16 @@ export function publicApi(d: PublicApiDeps) {
     if ("why" in r) return fail(c, 400, "bad_request", r.why);
     const h = await holdings(`${p.a}|${r.from}|${r.to}`);
     return ok(c, h.value, meta(h.at, HOLDINGS_CACHE_MS / 1000));
+  });
+
+  app.get("/proof/snapshot/:pot", async (c) => {
+    const p = await pot(c);
+    if (!p.a) return p.res;
+    const b = blockParam(c.req.query("block"));
+    if (b === "bad") return fail(c, 400, "bad_request", TEXT.badBlock);
+    const r = await snapshots(`${p.a}|${b ?? ""}`);
+    if ("tooNew" in r.value) return fail(c, 400, "bad_request", TEXT.futureBlock((r.value as { head: bigint }).head));
+    return ok(c, r.value, meta(r.at, b === null ? 15 : 3600));
   });
 
   // last: anything else under /v1 (a sub-app's notFound is not used once it is mounted)
