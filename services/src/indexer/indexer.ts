@@ -6,6 +6,7 @@
 import { and, eq, sql } from "drizzle-orm";
 import { decodeEventLog, getAddress, type Address, type Log } from "viem";
 import { onVoteEvent, type UnknownVoteDeps, type VoteEvent } from "./unknownVotes";
+import { onApprovalLost, onExecutedAfterWithdrawal, queuedApprovedQuery, type QueuedRow, type WithdrawnVoteDeps } from "./withdrawnVotes";
 import { HISTORY_AGE_SEC, onAdminEvent, type AdminEvent, type AdminEventDeps } from "./adminEvents";
 import { checkAlert, openAlertOrThrow, postAlert } from "../keeper/alerts";
 import { logAlert } from "../core/errors";
@@ -82,6 +83,24 @@ const unknownVoteDeps: UnknownVoteDeps = {
   // the pot's own setting, read now; a failed read still sends the alert, with the time only
   exitWindowOf: async (pot) => Number((await publicClient().readContract({ address: pot, abi: potAbi, functionName: "config" }))[0]),
 };
+
+const withdrawnDeps: WithdrawnVoteDeps = {
+  queuedApprovedBy: async (pot, member, digest) => (await db().execute(queuedApprovedQuery(pot, member, digest))) as unknown as QueuedRow[],
+  markWithdrawn: async (id) => void (await db().update(schema.proposals).set({ status: "stale" }).where(eq(schema.proposals.id, id))),
+  chatOf: unknownVoteDeps.chatOf,
+  sendGroup: unknownVoteDeps.sendGroup,
+  sendOps: unknownVoteDeps.sendOps,
+};
+
+/** A queued vote that lost an approval is withdrawn for good; on a failed send the log is handled again next run. */
+async function guardWithdrawn<T>(log: Log, f: () => Promise<T>): Promise<T> {
+  try {
+    return await f();
+  } catch (e) {
+    await unrecord(log);
+    throw e;
+  }
+}
 
 /** Alerts about a queued/executed vote the bot did not create; on a failed send the log is handled again next run. */
 async function alertIfUnknown(log: Log, pot: Address, event: VoteEvent, isNew: boolean, known: boolean) {
@@ -166,6 +185,7 @@ export async function handlePotLog(log: Log) {
         .onConflictDoUpdate({ target: [schema.members.pot, schema.members.address], set: { active: true } });
       break;
     case "MemberRemoved":
+      await guardWithdrawn(log, () => onApprovalLost(withdrawnDeps, { pot, member: getAddress(ev.args.member), isNew }));
       await d
         .update(schema.members)
         .set({ active: false, shares: "0", allowance: "0", period: 0 })
@@ -198,6 +218,7 @@ export async function handlePotLog(log: Log) {
       await d.execute(sql`update proposals set status = 'stale' where pot = ${pot} and epoch < ${ev.args.epoch} and status in ('collecting','ready','queued')`);
       break;
     case "VoteRevoked":
+      await guardWithdrawn(log, () => onApprovalLost(withdrawnDeps, { pot, member: getAddress(ev.args.member), digest: ev.args.digest, isNew }));
       await d
         .update(schema.signatures)
         .set({ revoked: true })
@@ -216,6 +237,10 @@ export async function handlePotLog(log: Log) {
       break;
     }
     case "ProposalExecuted": {
+      const before = (await d.query.proposals.findFirst({ where: eq(schema.proposals.id, ev.args.digest) })) ?? null;
+      await guardWithdrawn(log, () =>
+        onExecutedAfterWithdrawal(withdrawnDeps, { before: before && { id: before.id as `0x${string}`, pot: getAddress(before.pot), kind: before.kind, status: before.status, queuedEta: before.queuedEta }, isNew }),
+      );
       const hit = await d
         .update(schema.proposals)
         .set({ status: "executed", txHash: log.transactionHash! })
