@@ -57,6 +57,7 @@ Fixes from the 2026-11-01 review of `0.1.0` (commit `aba0779`). `contracts/src` 
 - Update 47 · 2026-11-20 22:00 UTC: Nightly reconciliation: Shares and balances recomputed from the chain and compared with the database.
 - Update 48 · 2026-11-20 23:00 UTC: Indexer replay tool: Rebuilt from chain events, then compared.
 - Update 49 · 2026-11-21 00:00 UTC: Daily backup, restore tested: Kept for 14 days. Each one is restored and its row counts compared.
+- Update 50 · 2026-11-21 01:00 UTC: Restore guide: From a backup to a running server, step by step, then the indexer re-sync.
 
 ### Mainnet
 - Cofer is live on Robinhood Chain mainnet (chain 4663): factory, fee router, group account template and swap adapter deployed on 2026-11-06; addresses in contracts/deployments/4663.json.
