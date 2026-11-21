@@ -75,7 +75,9 @@ export function createServer(opts: { deps: ProposalDeps; cards: CardAdapter | nu
   if (opts.dashboard) app.route("/api/dashboard", dashboardRoutes(opts.dashboard));
 
   // the public read-only API: on-chain data only, rate limited, CORS open for GET (publicapi/router.ts)
-  const pub = opts.publicApi ? publicApi(opts.publicApi) : null;
+  // the served scripts' SHA-256, listed in /v1/status so anyone can compare them with a fresh build of the release
+  const hash = (x: string) => new Bun.CryptoHasher("sha256").update(x).digest("hex");
+  const pub = opts.publicApi ? publicApi({ ...opts.publicApi, bundles: { signerJs: hash(opts.signerJs), walletJs: walletOn ? hash(opts.walletJs!) : null } }) : null;
   // numbers for monitoring tools, on the server itself only (api/metrics.ts); anyone else gets a plain 404
   if (opts.metrics) {
     const m = opts.metrics;

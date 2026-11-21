@@ -49,6 +49,8 @@ export interface PublicApiDeps {
   voteReceipts: VoteReceiptDeps;
   limiter?: Limiter;
   nowMs?: () => number;
+  /** SHA-256 of the scripts this server serves (filled in by the server), listed in /v1/status. */
+  bundles?: { signerJs: string; walletJs: string | null };
 }
 
 export const TEXT = {
@@ -206,7 +208,7 @@ export function publicApi(d: PublicApiDeps) {
 
   app.get("/status", async (c) => {
     const s = await status();
-    return ok(c, s.value, meta(s.at, STATUS_CACHE_MS / 1000));
+    return ok(c, { ...s.value, bundles: d.bundles ?? null }, meta(s.at, STATUS_CACHE_MS / 1000));
   });
 
   // a status image for READMEs: never an error image; when the chain cannot be read it says "unknown"

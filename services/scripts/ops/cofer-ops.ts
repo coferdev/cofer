@@ -4,9 +4,10 @@
  *   cofer-ops status [--units cofer,cofer-mainnet] [--releases /srv/cofer-releases/testnet]
  *   cofer-ops replay      rebuild every record from the stored chain events in memory and list differences
  *   cofer-ops backup [--dir /var/backups/cofer]   the daily backup, restore-tested (docs/ops/backup.md)
+ *   cofer-ops verify-release <tag>                 served scripts and dashboard against a fresh build of the tag
  * On the server it is a shortcut for: bun /path/to/current/services/scripts/ops/cofer-ops.ts
  */
-const COMMANDS: Record<string, string> = { status: "./status.ts", replay: "./replay.ts", backup: "./backup.ts" };
+const COMMANDS: Record<string, string> = { status: "./status.ts", replay: "./replay.ts", backup: "./backup.ts", "verify-release": "./verifyRelease.ts" };
 
 if (import.meta.main) {
   const [cmd, ...rest] = process.argv.slice(2);

@@ -9,7 +9,8 @@ describe("GET /v1/status", () => {
   test("chain, head block, indexer lag, relayer and every feed, big numbers as strings", async () => {
     const r = await getJson(publicServer(), "/v1/status");
     expect(r.status).toBe(200);
-    expect(r.body.data).toEqual({
+    const { bundles: _b, ...data } = r.body.data;
+    expect(data).toEqual({
       chainId: 4663,
       headBlock: "1000020",
       indexer: { state: "live", lastBlock: "1000000", targetBlock: "1000000", lagBlocks: "0", lagSeconds: 0, maxLagSeconds: 300 },
@@ -19,6 +20,7 @@ describe("GET /v1/status", () => {
         { symbol: "TSLA", asset: TSLA, state: "near limit", ageSeconds: 345000, limitSeconds: 345600 },
       ],
     });
+    expect(r.body.data.bundles).toEqual({ signerJs: "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855", walletJs: null }); // the test server serves an empty signer.js
     expect(r.body.meta.chainId).toBe(4663);
     expect(r.body.meta.cacheSeconds).toBe(15);
     expect(r.headers.get("access-control-allow-origin")).toBe("*");

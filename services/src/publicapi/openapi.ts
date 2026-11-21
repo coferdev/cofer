@@ -21,7 +21,7 @@ const page = (what: string) => [
 ];
 
 export const ROUTES: RouteDoc[] = [
-  { path: "/v1/status", tag: "status", summary: "Chain, latest block, indexer lag, relayer gas (yes or no) and the age of every price feed.", data: ["chainId", "headBlock", "indexer", "relayer", "feeds"] },
+  { path: "/v1/status", tag: "status", summary: "Chain, latest block, indexer lag, relayer gas (yes or no) and the age of every price feed.", data: ["chainId", "headBlock", "indexer", "relayer", "feeds", "bundles"] },
   { path: "/v1/badge.svg", tag: "status", summary: "A status image for a README or page: chain, and whether the indexer is live or behind.", data: { media: "image/svg+xml" } },
   { path: "/v1/tx/{hash}", tag: "proof", summary: "Any transaction in plain words: what each Cofer contract in it did, with every amount and address.", params: [{ name: "hash", in: "path", description: "a transaction hash", required: true }], data: ["hash", "cofer", "status", "block", "time", "from", "to", "kind", "summary", "events"] },
   { path: "/v1/proof/ownership", tag: "proof", summary: "Owner, guardian, pause flags, swap fee and fee wallets, each with the cast line to check it.", data: ["factory", "feeRouter", "exitsPausable", "checks"] },

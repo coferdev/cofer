@@ -23,6 +23,8 @@ export interface Status {
   indexer: { state: "live" | "behind" | "not started"; lastBlock: DecimalString | null; targetBlock: DecimalString; lagBlocks: DecimalString | null; lagSeconds: number | null; maxLagSeconds: number };
   relayer: { hasGas: boolean | null; daysLeft: number | null };
   feeds: { symbol: string; asset: Address; state: "ok" | "near limit" | "past limit" | "bad"; ageSeconds: number; limitSeconds: number }[];
+  /** SHA-256 of the signing scripts this server serves (compare with a fresh build of the release). */
+  bundles: { signerJs: string; walletJs: string | null } | null;
 }
 
 export interface TxExplanation {
@@ -193,7 +195,7 @@ export interface FeesPage {
 
 /** Each answer's top-level fields (checked against the live API by a test). */
 export const SHAPES = {
-  status: ["chainId", "headBlock", "indexer", "relayer", "feeds"],
+  status: ["chainId", "headBlock", "indexer", "relayer", "feeds", "bundles"],
   tx: ["hash", "cofer", "status", "block", "time", "from", "to", "kind", "summary", "events"],
   ownership: ["factory", "feeRouter", "exitsPausable", "checks"],
   pot: ["address", "createdBlock", "memberCount", "voteRule", "exitWindowSeconds", "depositsOpen", "maxSlipBps", "entrySpreadBps", "totalShares", "epoch", "planPaidUntil", "assets"],
