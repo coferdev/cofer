@@ -63,6 +63,12 @@ Members can always exit. No alert, pause or outage changes that.
 | disk-low | Less than 10% disk space left on the server. | Dev frees disk space or adds disk. |
 | memory-high | The server has used more than 90% of its memory for 5 minutes or more. | Dev checks the server. |
 
+## Reports
+
+| Name | What it is |
+|---|---|
+| weekly report | Every Monday, a staff post with last week's counts only (Monday to Monday, UTC): groups (and new ones), active members, votes run, deposits, exits, allowance spends, alerts open, relayer days left, sponsored member actions, indexer health. No amounts. |
+
 ## Not posted (log only)
 
 - "Close to its limit" price warnings. USDG updates once a day, so this would come up daily.

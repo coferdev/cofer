@@ -34,6 +34,7 @@ import { SPONSORED, syncSponsored, USER_OP_EVENT, type SponsoredDeps } from "./s
 import { RHC } from "../chain/addresses";
 import { sponsorBudget, type SponsorBudgetDeps } from "./sponsorBudget";
 import { reconcile, type PotState, type ReconcileDeps } from "./reconcile";
+import { weeklyReport, type WeeklyReportDeps } from "./weeklyReport";
 import { PUBLIC_RPC } from "../web/page";
 import { SIGNER_CSP, WALLET_CSP } from "../web/page";
 import { ROLES_ALERT, roleProblem, type RoleState } from "../core/roles";
@@ -580,6 +581,7 @@ export async function scheduleKeeper() {
   await q.upsertJobScheduler("sponsored", { every: 60_000 }, { name: "sponsored" });
   await q.upsertJobScheduler("sponsor-budget", { every: 3_600_000 }, { name: "sponsor-budget" });
   await q.upsertJobScheduler("reconcile", { every: 86_400_000 }, { name: "reconcile" });
+  await q.upsertJobScheduler("weekly-report", { every: 3_600_000 }, { name: "weekly-report" });
 }
 
 export function startKeeper() {
@@ -623,6 +625,8 @@ export function startKeeper() {
           return sponsorBudget(sponsorBudgetDeps());
         case "reconcile":
           return reconcile(reconcileDeps());
+        case "weekly-report":
+          return weeklyReport(weeklyReportDeps());
         case "feeds":
           return { feeds: await feedHealth(), continuity: await multiplierContinuity() };
       }
@@ -864,5 +868,59 @@ export function reconcileDeps(): ReconcileDeps {
       return { members, totalShares, balances };
     },
     alerts: alertDeps(),
+  };
+}
+
+/** The weekly report's live counts (database and chain), and the staff chat. The reported week is kept in cursors. */
+function weeklyReportDeps(): WeeklyReportDeps {
+  const KEY = "weekly-report";
+  const ev = async (name: string, from: number, to: number) =>
+    Number((await db().select({ n: sql<number>`count(*)::int` }).from(schema.chainEvents).where(and(eq(schema.chainEvents.name, name), gte(schema.chainEvents.at, new Date(from * 1000)), lt(schema.chainEvents.at, new Date(to * 1000)))))[0]?.n ?? 0);
+  return {
+    now: () => Math.floor(Date.now() / 1000),
+    lastReported: async () => {
+      const c = await db().query.cursors.findFirst({ where: eq(schema.cursors.name, KEY) });
+      return c ? new Date(Number(c.block) * 1000).toISOString().slice(0, 10) : null;
+    },
+    markReported: async (day) => {
+      const b = BigInt(Date.parse(`${day}T00:00:00Z`) / 1000);
+      await db().insert(schema.cursors).values({ name: KEY, block: b }).onConflictDoUpdate({ target: schema.cursors.name, set: { block: b } });
+    },
+    async counts(from, to) {
+      const pots = await db().select({ created: schema.pots.createdAt }).from(schema.pots);
+      const members = Number((await db().select({ n: sql<number>`count(*)::int` }).from(schema.members).where(eq(schema.members.active, true)))[0]?.n ?? 0);
+      const open = await db().select({ at: schema.alerts.openedAt }).from(schema.alerts);
+      const days = Array.from({ length: 7 }, (_, i) => new Date((from + i * 86_400) * 1000).toISOString().slice(0, 10));
+      const sponsored = Number((await db().select({ n: sql<number>`count(*)::int` }).from(schema.sponsoredOps).where(and(eq(schema.sponsoredOps.sponsored, true), inArray(schema.sponsoredOps.day, days))))[0]?.n ?? 0);
+      const { relayerRunway } = await import("../publicapi/deps");
+      const relayer = relayerClient().account.address; // public address only
+      const daysLeft = await relayerRunway(relayer, await publicClient().getBalance({ address: relayer })).catch(() => null);
+      const lag = await checkIndexerLag({ ...indexerLagReadDeps(), alerts: { open: async () => false, close: async () => null, send: async () => {} } }).catch(() => null);
+      return {
+        groups: pots.length,
+        newGroups: pots.filter((p) => p.created.getTime() >= from * 1000 && p.created.getTime() < to * 1000).length,
+        activeMembers: members,
+        votesRun: await ev("ProposalExecuted", from, to),
+        deposits: await ev("Deposited", from, to),
+        exits: await ev("Exited", from, to),
+        allowanceSpends: await ev("AllowanceSpent", from, to),
+        alertsOpen: open.length,
+        alertsOpenedThisWeek: open.filter((a) => a.at.getTime() >= from * 1000).length,
+        relayerDaysLeft: daysLeft,
+        sponsoredActions: sponsored,
+        indexerState: lag === null ? "could not be checked" : lag <= 300 ? `live (${lag} s behind)` : `behind by ${lag} s`,
+      };
+    },
+    send: (text) => alertDeps().send(text),
+  };
+}
+
+/** The lag check's reads, without its alert (for reports). */
+function indexerLagReadDeps() {
+  return {
+    cursor: async () => (await db().query.cursors.findFirst({ where: eq(schema.cursors.name, CURSOR) }))?.block ?? null,
+    head: () => publicClient().getBlockNumber(),
+    blockTime: async (n: bigint) => Number((await publicClient().getBlock({ blockNumber: n })).timestamp),
+    confirmations: env().CONFIRMATIONS,
   };
 }
