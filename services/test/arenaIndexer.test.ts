@@ -112,7 +112,7 @@ describe.skipIf(!DBURL)("arena indexer on Postgres", () => {
   };
 
   test("migrations apply once, and a changed file is refused", async () => {
-    expect(await migrateArena(sql)).toEqual(["0000_arena.sql"]);
+    expect(await migrateArena(sql)).toEqual(["0000_arena.sql", "0001_app_links.sql"]);
     expect(await migrateArena(sql)).toEqual([]);
   });
 
