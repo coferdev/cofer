@@ -106,7 +106,10 @@ if (import.meta.main) {
     console.error(`cofer MCP server on http://127.0.0.1:${port}/mcp (read-only)`);
   } else {
     let buf = "";
-    for await (const chunk of Bun.stdin.stream()) {
+    const reader = Bun.stdin.stream().getReader();
+    for (;;) {
+      const { value: chunk, done } = await reader.read();
+      if (done) break;
       buf += new TextDecoder().decode(chunk);
       let nl: number;
       while ((nl = buf.indexOf("\n")) >= 0) {

@@ -62,6 +62,7 @@ Fixes from the 2026-11-01 review of `0.1.0` (commit `aba0779`). `contracts/src` 
 - Update 52 · 2026-11-21 03:00 UTC: Release verifier: Served scripts checked against a fresh build.
 - Update 53 · 2026-11-21 04:00 UTC: API reference: Every call and field defined, with examples. Balances only, stated plainly.
 - Update 54 · 2026-11-21 05:00 UTC: Run your own indexer: Index the chain yourself with a public RPC and compare with Cofer's answers.
+- Update 55 · 2026-11-21 06:00 UTC: Integration guide: Badge, feeds, SDK, command line, MCP server and receipts, with examples.
 
 ### Mainnet
 - Cofer is live on Robinhood Chain mainnet (chain 4663): factory, fee router, group account template and swap adapter deployed on 2026-11-06; addresses in contracts/deployments/4663.json.
