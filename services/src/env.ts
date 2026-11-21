@@ -26,6 +26,12 @@ const schema = z.object({
   ADAPTER_ADDRESS: addr,
   USDG_ADDRESS: addr.default(RHC.USDG).transform((a) => getAddress(a)), // testnet pots use a mock USDG; must match factory.usdg()
   START_BLOCK: z.coerce.bigint().default(0n),
+  // "1" = the indexer only records chain events of every group account (for independent operators; see
+  // docs/ops/run-your-own-indexer.md). Cofer's own servers leave it unset.
+  INDEXER_OBSERVE_ONLY: z
+    .enum(["0", "1"])
+    .default("0")
+    .transform((v) => v === "1"),
   CONFIRMATIONS: z.coerce.number().default(20), // ~2 s at 0.1 s blocks
 
   RELAYER_PRIVATE_KEY: hex, // pays ETH gas for permissionless execute(); holds no user funds
@@ -92,8 +98,24 @@ const schema = z.object({
 
 export type Env = z.infer<typeof schema>;
 
+/**
+ * Observe-only (INDEXER_OBSERVE_ONLY=1, docs/ops/run-your-own-indexer.md) never serves pages, talks to Telegram or
+ * signs, so it needs none of those settings: they are filled with values that cannot work for anything, and any role
+ * other than the indexer is refused.
+ */
+const OBSERVE_ONLY_FILL = {
+  PUBLIC_URL: "http://observe-only.invalid",
+  TELEGRAM_BOT_TOKEN: "observe-only",
+  TELEGRAM_BOT_USERNAME: "observe-only",
+  TELEGRAM_WEBHOOK_SECRET: "observe-only-not-used",
+  LINK_SECRET: "observe-only-not-used-for-anything",
+  RELAYER_PRIVATE_KEY: "0x0",
+};
+
 export function parseEnv(src: Record<string, string | undefined>): Env {
-  return schema.parse(src);
+  if (src.INDEXER_OBSERVE_ONLY !== "1") return schema.parse(src);
+  if ((src.ROLE ?? "all") !== "indexer") throw new Error("INDEXER_OBSERVE_ONLY=1 runs only with ROLE=indexer");
+  return schema.parse({ ...src, ...OBSERVE_ONLY_FILL });
 }
 
 let cached: Env | undefined;

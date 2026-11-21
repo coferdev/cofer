@@ -52,7 +52,7 @@ export async function indexOnce(): Promise<bigint> {
 }
 
 /** Records the log once. Returns true only the first time (false on a re-run of the same block range). */
-async function record(log: Log, name: string, args: unknown): Promise<boolean> {
+export async function record(log: Log, name: string, args: unknown): Promise<boolean> {
   const rows = await db()
     .insert(schema.chainEvents)
     .values({
@@ -247,10 +247,12 @@ async function blockTime(log: Log) {
 }
 
 export async function startIndexer(signal?: AbortSignal) {
+  // observe-only (docs/ops/run-your-own-indexer.md): record the chain events of every group account, nothing else
+  const step = env().INDEXER_OBSERVE_ONLY ? (await import("./observe")).observeOnce : indexOnce;
   while (!signal?.aborted) {
     try {
       const before = Date.now();
-      await indexOnce();
+      await step();
       const spent = Date.now() - before;
       await Bun.sleep(Math.max(250, 1000 - spent));
     } catch (e) {

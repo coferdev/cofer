@@ -30,7 +30,8 @@ import { createPublicClient, http } from "viem";
 async function main() {
   const e = env();
   // every logged error, in every role, counts toward the errors-spike alert (Redis down: not counted)
-  countErrorsWith(() => void recordError().catch(() => {}));
+  // (not in observe-only: an independent operator has no Redis; docs/ops/run-your-own-indexer.md)
+  if (!e.INDEXER_OBSERVE_ONLY) countErrorsWith(() => void recordError().catch(() => {}));
   const role = e.ROLE;
   // first, in every role: refuse to run against the wrong chain (core/chainGuard.ts)
   await assertChain({
@@ -44,6 +45,12 @@ async function main() {
   // checked first, in every role: a card setting that must never run (e.g. the stub off testnet) stops start-up
   const cards = selectCardAdapter(e);
   await assertFactoryUsdg(publicClient(), factoryAddress(), e.USDG_ADDRESS);
+  if (e.INDEXER_OBSERVE_ONLY) {
+    // records chain events and nothing else: no bot, no queues, no Redis (docs/ops/run-your-own-indexer.md)
+    console.log("[indexer] observe-only: recording the chain events of every group account, nothing else");
+    void startIndexer();
+    return;
+  }
   const bot = createBot({ cardsOn: cards !== null });
   const run = (r: string) => role === "all" || role === r;
 
